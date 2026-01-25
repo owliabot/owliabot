@@ -6,7 +6,7 @@
 import { createLogger } from "../utils/logger.js";
 import type { Message } from "./session.js";
 import type { ToolDefinition, ToolCall } from "./tools/interface.js";
-import { callAnthropic } from "./providers/anthropic.js";
+import { providerRegistry } from "./providers/index.js";
 
 const log = createLogger("runner");
 
@@ -99,16 +99,13 @@ async function callProvider(
   messages: Message[],
   options?: CallOptions
 ): Promise<LLMResponse> {
-  switch (provider.id) {
-    case "anthropic":
-      return callAnthropic(
-        { apiKey: provider.apiKey, model: provider.model },
-        messages,
-        options
-      );
+  const callFn = providerRegistry.get(provider.id);
 
-    // TODO: Add OpenAI, OpenRouter
-    default:
-      throw new Error(`Unknown provider: ${provider.id}`);
+  if (!callFn) {
+    throw new Error(
+      `Unknown provider: ${provider.id}. Available: ${providerRegistry.list().join(", ")}`
+    );
   }
+
+  return callFn(provider, messages, options);
 }
