@@ -1,5 +1,5 @@
 /**
- * Claude provider using OAuth token
+ * Claude provider using OAuth token (Claude CLI or OwliaBot auth)
  * @see design.md DR-007
  */
 
@@ -10,12 +10,13 @@ import type { ToolCall } from "../tools/interface.js";
 import { HTTPError } from "../runner.js";
 import { providerRegistry } from "./registry.js";
 import { createAuthStore, type AuthStore, type AuthToken } from "../../auth/store.js";
-import { refreshToken } from "../../auth/oauth.js";
+import { loadClaudeCliToken } from "../../auth/claude-cli.js";
 import { join } from "node:path";
 
 const log = createLogger("claude-oauth");
 
-const CLAUDE_API_URL = "https://api.claude.ai/v1/messages";
+// Claude CLI token uses api.anthropic.com (same as regular API)
+const CLAUDE_API_URL = "https://api.anthropic.com/v1/messages";
 
 let authStore: AuthStore | null = null;
 
@@ -28,19 +29,23 @@ function getAuthStore(): AuthStore {
 }
 
 async function getValidToken(): Promise<AuthToken> {
+  // Priority 1: OwliaBot's own token
   const store = getAuthStore();
-  const token = await store.get();
+  let token = await store.get();
 
+  // Priority 2: Claude CLI token
   if (!token) {
-    throw new Error("Not authenticated. Run 'owliabot auth setup' first.");
+    token = loadClaudeCliToken();
+    if (!token) {
+      throw new Error(
+        "Not authenticated. Run 'claude auth' (Claude CLI) first."
+      );
+    }
+    log.debug("Using Claude CLI token");
   }
 
-  if (store.isExpired(token)) {
-    throw new Error("Token expired. Run 'owliabot auth setup' to re-authenticate.");
-  }
-
-  if (store.needsRefresh(token)) {
-    return await refreshToken(token, store);
+  if (Date.now() >= token.expiresAt) {
+    throw new Error("Token expired. Run 'claude auth' to re-authenticate.");
   }
 
   return token;
@@ -80,11 +85,13 @@ async function callClaudeOAuth(
     }));
   }
 
+  // Claude CLI token uses x-api-key header (same as regular Anthropic API)
   const response = await fetch(CLAUDE_API_URL, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      Authorization: `Bearer ${token.accessToken}`,
+      "x-api-key": token.accessToken,
+      "anthropic-version": "2023-06-01",
     },
     body: JSON.stringify(body),
   });

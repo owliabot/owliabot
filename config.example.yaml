@@ -13,8 +13,8 @@ providers:
     apiKey: ${OPENAI_API_KEY}
     priority: 2
 
-# Option 2: OAuth (uses Claude subscription, no API key needed)
-# Run 'owliabot auth setup' first, then use:
+# Option 2: Claude CLI token (uses Claude subscription, no API key needed)
+# Run 'claude auth' first (Claude CLI), then use:
 # providers:
 #   - id: claude-oauth
 #     model: claude-sonnet-4-5

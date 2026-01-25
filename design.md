@@ -752,6 +752,65 @@ function isRetryable(err: unknown): boolean {
 }
 ```
 
+#### Provider 注册制
+
+为了方便扩展新的 LLM provider，使用注册制而非硬编码 switch：
+
+```typescript
+// src/agent/providers/registry.ts
+
+type ProviderFn = (
+  config: { apiKey: string; model: string; baseUrl?: string },
+  messages: Message[],
+  options?: CallOptions
+) => Promise<LLMResponse>;
+
+class ProviderRegistry {
+  private providers = new Map<string, ProviderFn>();
+
+  register(id: string, fn: ProviderFn): void {
+    this.providers.set(id, fn);
+  }
+
+  get(id: string): ProviderFn | undefined {
+    return this.providers.get(id);
+  }
+
+  has(id: string): boolean {
+    return this.providers.has(id);
+  }
+}
+
+export const providerRegistry = new ProviderRegistry();
+
+// 初始化时注册
+import { callAnthropic } from "./anthropic.js";
+import { callOpenAI } from "./openai.js";
+import { callOpenRouter } from "./openrouter.js";
+
+providerRegistry.register("anthropic", callAnthropic);
+providerRegistry.register("openai", callOpenAI);
+providerRegistry.register("openrouter", callOpenRouter);
+```
+
+**使用方式：**
+
+```typescript
+// runner.ts
+async function callProvider(provider: LLMProvider, ...): Promise<LLMResponse> {
+  const fn = providerRegistry.get(provider.id);
+  if (!fn) {
+    throw new Error(`Unknown provider: ${provider.id}`);
+  }
+  return fn({ apiKey: provider.apiKey, model: provider.model }, messages, options);
+}
+```
+
+**新增 Provider 步骤：**
+1. 创建 `src/agent/providers/xxx.ts`
+2. 实现 `callXxx()` 函数
+3. 在 registry 中注册 `providerRegistry.register("xxx", callXxx)`
+
 ### 5.6 Session 接口
 
 #### Session 策略
@@ -902,6 +961,114 @@ async function notify(message: string, options?: NotifyOptions): Promise<void> {
   }
   
   await sendToChannel(channel, message);
+}
+```
+
+### 5.8 Auth 接口
+
+#### 认证方式
+
+OwliaBot 使用 Anthropic OAuth 流程获取 token，与 Claude CLI 相同机制。
+
+| 方式 | 说明 |
+|------|------|
+| **Setup Token** | 通过 OAuth 流程获取，保存到本地 |
+| Console API Key | 不支持（需要开发者账户） |
+
+**OAuth Token 特点：**
+- 格式：`sk-ant-oat01-...`
+- 使用 Claude Pro/Max 订阅额度
+- 有 refresh token，可自动续期
+- 同一账户可有多个 session，互不冲突
+
+#### CLI 命令
+
+```bash
+# 交互式设置（打开浏览器授权）
+owliabot auth setup
+
+# 查看当前认证状态
+owliabot auth status
+
+# 清除认证
+owliabot auth logout
+```
+
+#### 接口定义
+
+```typescript
+// src/auth/types.ts
+
+export interface AuthToken {
+  accessToken: string;
+  refreshToken: string;
+  expiresAt: number;  // Unix timestamp
+}
+
+export interface AuthManager {
+  // 启动 OAuth 流程
+  setup(): Promise<AuthToken>;
+  
+  // 获取当前 token（自动刷新如果过期）
+  getToken(): Promise<string | null>;
+  
+  // 刷新 token
+  refresh(): Promise<AuthToken>;
+  
+  // 检查是否已认证
+  isAuthenticated(): Promise<boolean>;
+  
+  // 清除认证
+  logout(): Promise<void>;
+}
+```
+
+#### 存储位置
+
+```
+~/.owliabot/
+├── auth.json           # OAuth token
+└── config.yaml         # 用户配置（不含敏感信息）
+```
+
+**auth.json 格式：**
+
+```json
+{
+  "anthropic": {
+    "accessToken": "sk-ant-oat01-...",
+    "refreshToken": "sk-ant-ort01-...",
+    "expiresAt": 1769346143770
+  }
+}
+```
+
+#### OAuth 流程
+
+```
+1. 用户运行 `owliabot auth setup`
+2. 打开浏览器 → Anthropic 登录页
+3. 用户授权
+4. 回调获取 code
+5. 用 code 换取 access_token + refresh_token
+6. 保存到 ~/.owliabot/auth.json
+```
+
+**自动刷新：**
+
+```typescript
+async function getToken(): Promise<string | null> {
+  const auth = await loadAuth();
+  if (!auth) return null;
+  
+  // 提前 5 分钟刷新
+  if (Date.now() > auth.expiresAt - 5 * 60 * 1000) {
+    const newAuth = await refresh(auth.refreshToken);
+    await saveAuth(newAuth);
+    return newAuth.accessToken;
+  }
+  
+  return auth.accessToken;
 }
 ```
 
@@ -1290,6 +1457,196 @@ notifications:
 - `chatType === "direct"` → 处理
 - `chatType === "group" | "channel"` → 忽略
 - 后续可配置 `allowGroups`、`groupTrigger`、`groupSession`
+
+---
+
+#### DR-007: 认证方式
+
+**日期:** 2026-01-26
+
+**问题:** 如何获取 Anthropic API 认证？
+
+**选项:**
+1. Console API Key - 用户从 console.anthropic.com 获取
+2. OAuth Setup Token - 通过 OAuth 流程，使用 Claude 订阅额度（需要申请 OAuth client_id）
+3. 复用 Clawdbot Auth - 读取 clawdbot 的 auth-profiles.json
+4. 复用 Claude CLI Token - 读取 Claude CLI 的 credentials
+
+**决策:** 选择 **4. 复用 Claude CLI Token**
+
+**理由:**
+- Claude CLI 有 Anthropic 官方的 OAuth client_id，不需要自己申请
+- 使用 Claude 订阅额度（Pro/Max），无需开发者账户
+- 用户只需运行 `claude auth` 一次（Claude CLI 命令）
+- Clawdbot 也是用这个方式
+
+**Claude CLI Token 位置:**
+
+```
+~/.claude/.credentials.json
+```
+
+**Token 格式:**
+
+```json
+{
+  "claudeAiOauth": {
+    "accessToken": "sk-ant-oat01-...",
+    "refreshToken": "sk-ant-ort01-...",
+    "expiresAt": 1769377803089,
+    "scopes": ["user:inference", "user:profile", ...],
+    "subscriptionType": "max",
+    "rateLimitTier": "default_claude_max_20x"
+  }
+}
+```
+
+**实现:**
+
+1. `src/auth/claude-cli.ts` - 读取 Claude CLI token：
+
+```typescript
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import type { AuthToken } from "./store.js";
+
+const CLAUDE_CLI_CREDENTIALS_PATH = join(
+  process.env.HOME ?? "",
+  ".claude",
+  ".credentials.json"
+);
+
+export function loadClaudeCliToken(): AuthToken | null {
+  try {
+    const content = readFileSync(CLAUDE_CLI_CREDENTIALS_PATH, "utf-8");
+    const data = JSON.parse(content);
+    const oauth = data.claudeAiOauth;
+    
+    if (!oauth?.accessToken) return null;
+    
+    return {
+      accessToken: oauth.accessToken,
+      refreshToken: oauth.refreshToken,
+      expiresAt: oauth.expiresAt,
+      tokenType: "Bearer",
+    };
+  } catch {
+    return null;
+  }
+}
+
+export function isClaudeCliAuthenticated(): boolean {
+  const token = loadClaudeCliToken();
+  return token !== null && Date.now() < token.expiresAt;
+}
+```
+
+2. 修改 `src/agent/providers/claude-oauth.ts` 的 `getValidToken()`：
+
+```typescript
+import { loadClaudeCliToken } from "../../auth/claude-cli.js";
+
+async function getValidToken(): Promise<AuthToken> {
+  // 优先用 OwliaBot 自己的 token
+  const store = getAuthStore();
+  let token = await store.get();
+  
+  // Fallback 到 Claude CLI token
+  if (!token) {
+    token = loadClaudeCliToken();
+    if (!token) {
+      throw new Error(
+        "Not authenticated. Run 'claude auth' (Claude CLI) first."
+      );
+    }
+  }
+  
+  if (Date.now() >= token.expiresAt) {
+    throw new Error(
+      "Token expired. Run 'claude auth' to re-authenticate."
+    );
+  }
+  
+  return token;
+}
+```
+
+3. 更新 `owliabot auth status` 命令，显示 Claude CLI token 状态：
+
+```typescript
+auth.command("status").action(async () => {
+  // 检查 OwliaBot 自己的 token
+  const ownToken = await store.get();
+  
+  // 检查 Claude CLI token
+  const cliToken = loadClaudeCliToken();
+  
+  if (ownToken) {
+    log.info("Using OwliaBot auth");
+    // ...
+  } else if (cliToken) {
+    log.info("Using Claude CLI auth");
+    log.info(`Expires at: ${new Date(cliToken.expiresAt).toISOString()}`);
+  } else {
+    log.info("Not authenticated. Run 'claude auth' first.");
+  }
+});
+```
+
+**API Endpoint:**
+
+Claude CLI token 使用 `api.anthropic.com`（不是 `api.claude.ai`）：
+
+```typescript
+const CLAUDE_API_URL = "https://api.anthropic.com/v1/messages";
+
+// Headers
+headers: {
+  "Content-Type": "application/json",
+  "x-api-key": token.accessToken,
+  "anthropic-version": "2023-06-01",
+}
+```
+
+**用户流程:**
+
+1. 安装 Claude CLI: `npm install -g @anthropic-ai/claude-cli`
+2. 登录: `claude auth`（打开浏览器授权）
+3. 启动 OwliaBot: `owliabot start`（自动读取 Claude CLI token）
+
+**可选：保留 `owliabot auth setup`**
+
+如果后续申请了 OAuth client_id，可以启用自己的 OAuth flow，优先级高于 Claude CLI token。
+
+---
+
+#### DR-008: Provider 注册制
+
+**日期:** 2026-01-26
+
+**问题:** 如何方便地扩展新的 LLM provider？
+
+**选项:**
+1. 硬编码 switch - 当前实现，每次加 provider 改 runner.ts
+2. 注册制 - Provider 自注册，runner 通过 registry 查找
+
+**决策:** 选择 **2. 注册制**
+
+**理由:**
+- 解耦 runner 和具体 provider 实现
+- 新增 provider 无需改 runner 代码
+- 方便后续支持 OpenAI、OpenRouter、本地模型等
+
+**实现:**
+```typescript
+// 注册
+providerRegistry.register("anthropic", callAnthropic);
+providerRegistry.register("openai", callOpenAI);
+
+// 使用
+const fn = providerRegistry.get(provider.id);
+return fn(config, messages, options);
+```
 
 ---
 

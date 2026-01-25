@@ -11,6 +11,7 @@ import { startGateway } from "./gateway/server.js";
 import { logger } from "./utils/logger.js";
 import { createAuthStore } from "./auth/store.js";
 import { startOAuthFlow } from "./auth/oauth.js";
+import { loadClaudeCliToken } from "./auth/claude-cli.js";
 
 const log = logger;
 
@@ -91,20 +92,28 @@ auth
     const authDir = join(homeDir, ".owliabot");
     const store = createAuthStore(authDir);
 
-    const token = await store.get();
-    if (!token) {
-      log.info("Not authenticated. Run 'owliabot auth setup' to authenticate.");
-      return;
-    }
+    // Check OwliaBot's own token
+    const ownToken = await store.get();
 
-    if (store.isExpired(token)) {
-      log.info("Token expired. Run 'owliabot auth setup' to re-authenticate.");
-    } else if (store.needsRefresh(token)) {
-      log.info("Token will expire soon, will be refreshed automatically.");
-      log.info(`Expires at: ${new Date(token.expiresAt).toISOString()}`);
+    // Check Claude CLI token
+    const cliToken = loadClaudeCliToken();
+
+    if (ownToken) {
+      log.info("Using OwliaBot auth");
+      if (store.isExpired(ownToken)) {
+        log.info("Token expired. Run 'owliabot auth setup' to re-authenticate.");
+      } else {
+        log.info(`Expires at: ${new Date(ownToken.expiresAt).toISOString()}`);
+      }
+    } else if (cliToken) {
+      log.info("Using Claude CLI auth");
+      if (Date.now() >= cliToken.expiresAt) {
+        log.info("Token expired. Run 'claude auth' to re-authenticate.");
+      } else {
+        log.info(`Expires at: ${new Date(cliToken.expiresAt).toISOString()}`);
+      }
     } else {
-      log.info("Authenticated");
-      log.info(`Token expires at: ${new Date(token.expiresAt).toISOString()}`);
+      log.info("Not authenticated. Run 'claude auth' (Claude CLI) first.");
     }
   });
 
