@@ -97,9 +97,19 @@ export function createDiscordPlugin(config: DiscordConfig): ChannelPlugin {
     },
 
     async send(target: string, message: OutboundMessage) {
-      const user = await client.users.fetch(target);
-      const dmChannel = await user.createDM();
-      await dmChannel.send(message.text);
+      try {
+        const user = await client.users.fetch(target);
+        const dmChannel = await user.createDM();
+        await dmChannel.send({
+          content: message.text,
+          reply: message.replyToId
+            ? { messageReference: message.replyToId }
+            : undefined,
+        });
+      } catch (err) {
+        log.error(`Failed to send message to ${target}`, err);
+        throw err;
+      }
     },
   };
 }

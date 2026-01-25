@@ -23,9 +23,9 @@ export interface ToolSecurity {
 export interface ToolContext {
   sessionKey: string;
   agentId: string;
-  signer: SignerInterface;
+  signer: SignerInterface | null;
   config: ToolConfig;
-  requestConfirmation: (req: ConfirmationRequest) => Promise<boolean>;
+  requestConfirmation?: (req: ConfirmationRequest) => Promise<boolean>;
 }
 
 export interface ToolConfig {

@@ -153,7 +153,7 @@ async function handleMessage(
       context: {
         sessionKey,
         agentId: "owliabot",
-        signer: null as any, // MVP: no signer
+        signer: null,
         config: {},
       },
     });
