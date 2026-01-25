@@ -1,0 +1,37 @@
+# OwliaBot Configuration Example
+# Copy to config.yaml and fill in your values
+
+# AI Providers (in priority order)
+providers:
+  - id: anthropic
+    model: claude-sonnet-4-5
+    apiKey: ${ANTHROPIC_API_KEY}
+    priority: 1
+  - id: openai
+    model: gpt-4o
+    apiKey: ${OPENAI_API_KEY}
+    priority: 2
+
+# Telegram (optional)
+telegram:
+  token: ${TELEGRAM_BOT_TOKEN}
+  # allowList:
+  #   - "883499266"
+
+# Discord (optional)
+discord:
+  token: ${DISCORD_BOT_TOKEN}
+  # allowList:
+  #   - "123456789012345678"
+
+# Notifications - where to send proactive messages
+notifications:
+  channel: telegram:883499266
+
+# Workspace path (default: ./workspace)
+workspace: ./workspace
+
+# Heartbeat (optional)
+heartbeat:
+  enabled: false
+  cron: "0 * * * *"  # hourly
