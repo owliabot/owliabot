@@ -30,3 +30,6 @@ logs/
 sessions/
 *.key
 *.pem
+
+# Config (contains secrets)
+config.yaml
