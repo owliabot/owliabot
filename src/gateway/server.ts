@@ -8,6 +8,7 @@ import type { Config } from "../config/schema.js";
 import type { WorkspaceFiles } from "../workspace/types.js";
 import { ChannelRegistry } from "../channels/registry.js";
 import { createTelegramPlugin } from "../channels/telegram/index.js";
+import { createDiscordPlugin } from "../channels/discord/index.js";
 import { createSessionManager, type Message, type SessionKey } from "../agent/session.js";
 import { callWithFailover, type LLMProvider } from "../agent/runner.js";
 import { buildSystemPrompt } from "../agent/system-prompt.js";
@@ -39,6 +40,20 @@ export async function startGateway(options: GatewayOptions): Promise<() => Promi
     });
 
     channels.register(telegram);
+  }
+
+  // Register Discord if configured
+  if (config.discord) {
+    const discord = createDiscordPlugin({
+      token: config.discord.token,
+      allowList: config.discord.allowList,
+    });
+
+    discord.onMessage(async (ctx) => {
+      await handleMessage(ctx, config, workspace, sessions, channels);
+    });
+
+    channels.register(discord);
   }
 
   // Start all channels
