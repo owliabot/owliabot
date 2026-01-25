@@ -110,3 +110,14 @@ interface AnthropicResponse {
   };
   stop_reason: string;
 }
+
+// Register provider
+import { providerRegistry } from "./registry.js";
+
+providerRegistry.register("anthropic", async (config, messages, options) => {
+  return callAnthropic(
+    { apiKey: config.apiKey, model: config.model },
+    messages,
+    options
+  );
+});
