@@ -8,6 +8,8 @@ import {
   loadSkillModule,
   loadSkills,
 } from "../loader.js";
+import { initializeSkills } from "../index.js";
+import { ToolRegistry } from "../../agent/tools/registry.js";
 
 const TEST_SKILLS_DIR = join(process.cwd(), "test-skills-tmp");
 
@@ -268,5 +270,53 @@ describe("loadSkills", () => {
     expect(result.failed).toHaveLength(1);
     expect(result.failed[0].name).toBe("invalid");
     expect(result.failed[0].error).toBeDefined();
+  });
+});
+
+describe("initializeSkills", () => {
+  beforeEach(async () => {
+    await mkdir(TEST_SKILLS_DIR, { recursive: true });
+  });
+
+  afterEach(async () => {
+    await rm(TEST_SKILLS_DIR, { recursive: true, force: true });
+  });
+
+  it("should register skill tools with the tool registry", async () => {
+    const skillDir = join(TEST_SKILLS_DIR, "my-skill");
+    await mkdir(skillDir);
+    await writeFile(
+      join(skillDir, "package.json"),
+      JSON.stringify({
+        name: "my-skill",
+        version: "0.1.0",
+        owliabot: {
+          tools: [
+            {
+              name: "greet",
+              description: "Greet someone",
+              parameters: {
+                type: "object",
+                properties: { name: { type: "string" } },
+                required: ["name"],
+              },
+              security: { level: "read" },
+            },
+          ],
+        },
+      })
+    );
+    await writeFile(
+      join(skillDir, "index.js"),
+      `export const tools = {
+        greet: async ({ name }) => ({ success: true, data: { message: "Hello " + name } })
+      };`
+    );
+
+    const registry = new ToolRegistry();
+    const result = await initializeSkills(TEST_SKILLS_DIR, registry);
+
+    expect(result.loaded).toHaveLength(1);
+    expect(registry.get("my-skill:greet")).toBeDefined();
   });
 });
