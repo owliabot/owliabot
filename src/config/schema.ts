@@ -27,6 +27,11 @@ export const notificationsSchema = z.object({
   channel: z.string(), // e.g., "telegram:883499266"
 });
 
+export const skillsConfigSchema = z.object({
+  enabled: z.boolean().default(true),
+  directory: z.string().optional(), // defaults to workspace/skills
+});
+
 export const configSchema = z.object({
   // AI providers
   providers: z.array(providerSchema).min(1),
@@ -48,6 +53,9 @@ export const configSchema = z.object({
       cron: z.string().default("0 * * * *"), // hourly
     })
     .optional(),
+
+  // Skills
+  skills: skillsConfigSchema.optional(),
 });
 
 export type Config = z.infer<typeof configSchema>;

@@ -26,11 +26,15 @@ import {
   createClearSessionTool,
   createMemorySearchTool,
   createMemoryGetTool,
+  createListFilesTool,
+  createEditFileTool,
 } from "../agent/tools/builtin/index.js";
-import type { ToolCall, ToolResult } from "../agent/tools/interface.js";
+import type { ToolResult } from "../agent/tools/interface.js";
 import { createCronService } from "../cron/service.js";
 import { executeHeartbeat } from "../cron/heartbeat.js";
 import { createNotificationService } from "../notifications/service.js";
+import { initializeSkills } from "../skills/index.js";
+import { join } from "node:path";
 
 const log = createLogger("gateway");
 
@@ -55,6 +59,15 @@ export async function startGateway(
   tools.register(createClearSessionTool(sessions));
   tools.register(createMemorySearchTool(config.workspace));
   tools.register(createMemoryGetTool(config.workspace));
+  tools.register(createListFilesTool(config.workspace));
+  tools.register(createEditFileTool(config.workspace));
+
+  // Load skills if enabled
+  const skillsEnabled = config.skills?.enabled ?? true;
+  if (skillsEnabled) {
+    const skillsDir = config.skills?.directory ?? join(config.workspace, "skills");
+    await initializeSkills(skillsDir, tools);
+  }
 
   // Register Telegram if configured
   if (config.telegram) {
@@ -195,12 +208,22 @@ async function handleMessage(
       toolCalls: response.toolCalls,
     });
 
-    // Add tool results as user message (Anthropic format)
-    const toolResultContent = formatToolResults(response.toolCalls, toolResults);
+    // Add tool results as user message with proper toolResults structure
+    // The runner will convert this to pi-ai's ToolResultMessage format
+    const toolResultsArray = response.toolCalls.map((call) => {
+      const result = toolResults.get(call.id);
+      return {
+        ...result,
+        toolCallId: call.id,
+        toolName: call.name,
+      } as ToolResult;
+    });
+
     conversationMessages.push({
       role: "user",
-      content: toolResultContent,
+      content: "", // Content is empty, tool results are in toolResults array
       timestamp: Date.now(),
+      toolResults: toolResultsArray,
     });
   }
 
@@ -229,20 +252,3 @@ async function handleMessage(
   }
 }
 
-function formatToolResults(
-  calls: ToolCall[],
-  results: Map<string, ToolResult>
-): string {
-  const formatted = calls.map((call) => {
-    const result = results.get(call.id);
-    if (!result) {
-      return `Tool ${call.name} (${call.id}): No result`;
-    }
-    if (result.success) {
-      return `Tool ${call.name} (${call.id}) succeeded:\n${JSON.stringify(result.data, null, 2)}`;
-    }
-    return `Tool ${call.name} (${call.id}) failed: ${result.error}`;
-  });
-
-  return `Tool results:\n${formatted.join("\n\n")}`;
-}
