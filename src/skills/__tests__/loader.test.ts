@@ -2,7 +2,7 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdir, writeFile, rm } from "node:fs/promises";
 import { join } from "node:path";
-import { scanSkillsDirectory } from "../loader.js";
+import { scanSkillsDirectory, parseSkillManifest } from "../loader.js";
 
 const TEST_SKILLS_DIR = join(process.cwd(), "test-skills-tmp");
 
@@ -48,5 +48,64 @@ describe("scanSkillsDirectory", () => {
     const skills = await scanSkillsDirectory("/nonexistent/path");
 
     expect(skills).toEqual([]);
+  });
+});
+
+describe("parseSkillManifest", () => {
+  beforeEach(async () => {
+    await mkdir(TEST_SKILLS_DIR, { recursive: true });
+  });
+
+  afterEach(async () => {
+    await rm(TEST_SKILLS_DIR, { recursive: true, force: true });
+  });
+
+  it("should parse valid package.json with owliabot field", async () => {
+    const skillDir = join(TEST_SKILLS_DIR, "valid-skill");
+    await mkdir(skillDir);
+    await writeFile(
+      join(skillDir, "package.json"),
+      JSON.stringify({
+        name: "valid-skill",
+        version: "1.0.0",
+        description: "A test skill",
+        main: "index.js",
+        owliabot: {
+          requires: { env: ["API_KEY"] },
+          tools: [
+            {
+              name: "test_tool",
+              description: "Test tool",
+              parameters: {
+                type: "object",
+                properties: { input: { type: "string" } },
+                required: ["input"],
+              },
+              security: { level: "read" },
+            },
+          ],
+        },
+      })
+    );
+
+    const manifest = await parseSkillManifest(skillDir);
+
+    expect(manifest.name).toBe("valid-skill");
+    expect(manifest.owliabot.tools).toHaveLength(1);
+    expect(manifest.owliabot.requires?.env).toEqual(["API_KEY"]);
+  });
+
+  it("should throw on invalid manifest", async () => {
+    const skillDir = join(TEST_SKILLS_DIR, "invalid-skill");
+    await mkdir(skillDir);
+    await writeFile(
+      join(skillDir, "package.json"),
+      JSON.stringify({
+        name: "invalid-skill",
+        // Missing owliabot field
+      })
+    );
+
+    await expect(parseSkillManifest(skillDir)).rejects.toThrow();
   });
 });

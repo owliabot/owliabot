@@ -3,9 +3,10 @@
  * @see docs/architecture/skills-system.md Section 4
  */
 
-import { readdir, access } from "node:fs/promises";
+import { readdir, access, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { createLogger } from "../utils/logger.js";
+import { skillManifestSchema, type SkillManifest } from "./types.js";
 
 const log = createLogger("skills");
 
@@ -39,4 +40,21 @@ export async function scanSkillsDirectory(skillsDir: string): Promise<string[]> 
   }
 
   return skillPaths;
+}
+
+/**
+ * Parse and validate a skill's package.json
+ */
+export async function parseSkillManifest(skillPath: string): Promise<SkillManifest> {
+  const packagePath = join(skillPath, "package.json");
+  const content = await readFile(packagePath, "utf-8");
+  const json = JSON.parse(content);
+
+  const result = skillManifestSchema.safeParse(json);
+  if (!result.success) {
+    const errors = result.error.format();
+    throw new Error(`Invalid skill manifest at ${packagePath}: ${JSON.stringify(errors)}`);
+  }
+
+  return result.data;
 }
