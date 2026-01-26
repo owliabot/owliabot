@@ -4,7 +4,7 @@
  */
 
 import { readdir, access, readFile } from "node:fs/promises";
-import { join } from "node:path";
+import { join, basename } from "node:path";
 import { pathToFileURL } from "node:url";
 import { createLogger } from "../utils/logger.js";
 import { skillManifestSchema, type SkillManifest, type SkillModule, type LoadedSkill } from "./types.js";
@@ -101,7 +101,7 @@ export async function loadSkills(skillsDir: string): Promise<LoadSkillsResult> {
   const skillPaths = await scanSkillsDirectory(skillsDir);
 
   for (const skillPath of skillPaths) {
-    const skillName = skillPath.split("/").pop() || "unknown";
+    const skillName = basename(skillPath);
 
     try {
       const manifest = await parseSkillManifest(skillPath);
