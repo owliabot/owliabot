@@ -1,8 +1,31 @@
 // src/skills/__tests__/context.test.ts
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { createSkillContext } from "../context.js";
 
 describe("createSkillContext", () => {
+  // Save original env vars to restore after tests
+  let originalAlchemyApiKey: string | undefined;
+  let originalSecretToken: string | undefined;
+
+  beforeEach(() => {
+    originalAlchemyApiKey = process.env.ALCHEMY_API_KEY;
+    originalSecretToken = process.env.SECRET_TOKEN;
+  });
+
+  afterEach(() => {
+    // Restore original values (or delete if they didn't exist)
+    if (originalAlchemyApiKey === undefined) {
+      delete process.env.ALCHEMY_API_KEY;
+    } else {
+      process.env.ALCHEMY_API_KEY = originalAlchemyApiKey;
+    }
+    if (originalSecretToken === undefined) {
+      delete process.env.SECRET_TOKEN;
+    } else {
+      process.env.SECRET_TOKEN = originalSecretToken;
+    }
+  });
+
   it("should create context with filtered env vars", () => {
     // Set test env vars
     process.env.ALCHEMY_API_KEY = "test-key";
