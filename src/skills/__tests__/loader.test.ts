@@ -2,7 +2,7 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdir, writeFile, rm } from "node:fs/promises";
 import { join } from "node:path";
-import { scanSkillsDirectory, parseSkillManifest } from "../loader.js";
+import { scanSkillsDirectory, parseSkillManifest, loadSkillModule } from "../loader.js";
 
 const TEST_SKILLS_DIR = join(process.cwd(), "test-skills-tmp");
 
@@ -107,5 +107,60 @@ describe("parseSkillManifest", () => {
     );
 
     await expect(parseSkillManifest(skillDir)).rejects.toThrow();
+  });
+});
+
+describe("loadSkillModule", () => {
+  beforeEach(async () => {
+    await mkdir(TEST_SKILLS_DIR, { recursive: true });
+  });
+
+  afterEach(async () => {
+    await rm(TEST_SKILLS_DIR, { recursive: true, force: true });
+  });
+
+  it("should load skill module with tools export", async () => {
+    const skillDir = join(TEST_SKILLS_DIR, "loadable-skill");
+    await mkdir(skillDir);
+    await writeFile(
+      join(skillDir, "package.json"),
+      JSON.stringify({
+        name: "loadable-skill",
+        version: "0.1.0",
+        main: "index.js",
+        owliabot: { tools: [] },
+      })
+    );
+    await writeFile(
+      join(skillDir, "index.js"),
+      `export const tools = {
+        test_tool: async (params, context) => {
+          return { success: true, data: { input: params.input } };
+        }
+      };`
+    );
+
+    const module = await loadSkillModule(skillDir, "index.js");
+
+    expect(module.tools).toBeDefined();
+    expect(typeof module.tools.test_tool).toBe("function");
+  });
+
+  it("should throw if module has no tools export", async () => {
+    const skillDir = join(TEST_SKILLS_DIR, "no-tools-skill");
+    await mkdir(skillDir);
+    await writeFile(
+      join(skillDir, "package.json"),
+      JSON.stringify({
+        name: "no-tools-skill",
+        version: "0.1.0",
+        owliabot: { tools: [] },
+      })
+    );
+    await writeFile(join(skillDir, "index.js"), `export const foo = "bar";`);
+
+    await expect(loadSkillModule(skillDir, "index.js")).rejects.toThrow(
+      "must export a 'tools' object"
+    );
   });
 });

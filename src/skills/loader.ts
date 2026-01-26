@@ -5,8 +5,9 @@
 
 import { readdir, access, readFile } from "node:fs/promises";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 import { createLogger } from "../utils/logger.js";
-import { skillManifestSchema, type SkillManifest } from "./types.js";
+import { skillManifestSchema, type SkillManifest, type SkillModule } from "./types.js";
 
 const log = createLogger("skills");
 
@@ -57,4 +58,28 @@ export async function parseSkillManifest(skillPath: string): Promise<SkillManife
   }
 
   return result.data;
+}
+
+/**
+ * Dynamically import a skill module
+ * Uses cache buster to support hot reload
+ */
+export async function loadSkillModule(
+  skillPath: string,
+  mainFile: string
+): Promise<SkillModule> {
+  const modulePath = join(skillPath, mainFile);
+  const moduleUrl = pathToFileURL(modulePath).href;
+
+  // Add cache buster for hot reload support
+  const cacheBuster = Date.now();
+  const urlWithBuster = `${moduleUrl}?v=${cacheBuster}`;
+
+  const module = await import(urlWithBuster);
+
+  if (!module.tools || typeof module.tools !== "object") {
+    throw new Error(`Skill module at ${modulePath} must export a 'tools' object`);
+  }
+
+  return { tools: module.tools };
 }
