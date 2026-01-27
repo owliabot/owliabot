@@ -1,13 +1,22 @@
 # OwliaBot（中文说明）
 
-面向 Crypto 原生的安全的 AI Agent。
+自托管、crypto-native、以安全为先的 AI Agent。
 
 [![English](https://img.shields.io/badge/English-lightgrey)](README.md)
 [![简体中文](https://img.shields.io/badge/%E7%AE%80%E4%BD%93%E4%B8%AD%E6%96%87-blue)](README.zh-CN.md)
 
-## OwliaBot 介绍
+## 为什么选择 OwliaBot？
 
-OwliaBot 是一个 **开源、社区友好** 的 Crypto AI Agent。
+- 安全优先：私钥永远不会进入机器人进程。
+- 自托管：完全运行在你自己的机器或服务器上。
+- 可扩展：通过 JavaScript Skills 扩展能力。
+- 熟悉的交互方式：通过 Telegram 或 Discord 对话。
+
+OwliaBot 使用三层安全模型：
+
+- 第 1 层：伴生 App（需要用户确认的交易）
+- 第 2 层：会话密钥（小额自动化操作）
+- 第 3 层：智能合约钱包（大额自动化操作，且可细粒度授权）
 
 ## 功能特性
 
@@ -22,12 +31,13 @@ OwliaBot 是一个 **开源、社区友好** 的 Crypto AI Agent。
 - 支持 Claude 订阅 OAuth 鉴权流程。
 - 支持工作区加载与基于 cron 的心跳任务。
 
-## 环境要求
-
-- Node.js >= 22.0.0
-- npm >= 10（建议）
-
 ## 快速开始
+
+### 环境要求
+
+- Node.js >= 22
+- Telegram Bot token（来自 @BotFather）或 Discord Bot token
+- 任意 AI 提供商的 API key（Anthropic、OpenAI 等）
 
 ### 1. 安装依赖
 
@@ -35,33 +45,84 @@ OwliaBot 是一个 **开源、社区友好** 的 Crypto AI Agent。
 npm install
 ```
 
-### 2. 配置机器人
-
-1. 复制示例配置：
+### 2. 复制配置模板
 
 ```bash
 cp config.example.yaml config.yaml
 ```
 
-2. 在 `config.yaml` 中填写 providers、渠道 token、notifications 等配置。
-3. 设置必要的环境变量（示例）：
+### 3. 最小可用配置
 
-```bash
-export ANTHROPIC_API_KEY="你的 ANTHROPIC Key"
-export OPENAI_API_KEY="你的 OPENAI Key"
-export TELEGRAM_BOT_TOKEN="你的 Telegram Bot Token"
-export DISCORD_BOT_TOKEN="你的 Discord Bot Token"
+编辑 `config.yaml`：
+
+```yaml
+providers:
+  - id: claude
+    model: claude-sonnet-4-5
+    apiKey: "your-anthropic-api-key"
+
+telegram:
+  token: "your-telegram-bot-token"
+  allowList:
+    - "your-telegram-user-id"
+
+workspace: ./workspace
 ```
 
-### 3.（可选）使用 Claude OAuth
+你也可以使用 Discord 配置替代 Telegram。
 
-如果你希望使用 Claude 订阅 OAuth（而不是 API Key）：
+### 4. 启动机器人
+
+```bash
+npm run dev -- start -c config.yaml
+```
+
+给机器人发一条消息，应该就能收到回复。
+
+## 内置 Skills
+
+OwliaBot 内置了一些技能帮助你快速上手：
+
+- `crypto-price`：从 CoinGecko 查询价格（无需 API key）
+- `crypto-balance`：跨链查询钱包余额（需要 `ALCHEMY_API_KEY`）
+
+示例提问：
+
+- “比特币现在价格是多少？”
+- “查询 0x... 在 ethereum 上的余额”
+
+启用 `crypto-balance` 需要设置：
+
+```bash
+export ALCHEMY_API_KEY="your-key-here"
+```
+
+## 配置说明（重点字段）
+
+`config.yaml` 关键部分：
+
+- `providers`：一个或多个 AI 提供商，可选 `priority`
+- `telegram` / `discord`：渠道 token 与可选 `allowList`
+- `workspace`：工作区路径（默认 `./workspace`）
+- `skills.enabled` 与 `skills.directory`：Skills 系统开关与路径
+- `notifications.channel`：主动消息发送位置（例如 `telegram:883499266`）
+- `heartbeat`：基于 cron 的定时任务
+
+常用环境变量：
+
+- `ANTHROPIC_API_KEY`
+- `OPENAI_API_KEY`
+- `ALCHEMY_API_KEY`
+
+### （可选）Claude OAuth
+
+如果你想使用 Claude 订阅 OAuth（而不是 API key）：
 
 ```bash
 npm run dev -- auth setup
 ```
 
-然后在 `config.yaml` 中将 Anthropic provider 配置为：
+然后在 `config.yaml` 中这样配置 Anthropic provider：
 
 ```yaml
 providers:
@@ -71,20 +132,26 @@ providers:
     priority: 1
 ```
 
-### 4. 启动机器人
+## 项目结构
 
-开发模式：
+- `src/entry.ts`：CLI 入口（`owliabot`）
+- `src/config/*`：配置 schema、类型与加载逻辑
+- `src/channels/*`：Telegram / Discord 渠道接入
+- `src/agent/*`：Agent 运行时、会话与工具体系
+- `src/workspace/*`：工作区加载与记忆搜索
+- `config.example.yaml`：配置模板
 
-```bash
-npm run dev -- start -c config.yaml
-```
+## 文档索引（源码路径）
 
-构建并运行（接近生产环境）：
+以下文档是仓库内的权威参考：
 
-```bash
-npm run build
-npm run start -- start -c config.yaml
-```
+- `docs/src/content/docs/zh/getting-started/introduction.md`
+- `docs/src/content/docs/zh/getting-started/quick-start.md`
+- `docs/src/content/docs/zh/reference/configuration.md`
+- `docs/src/content/docs/zh/architecture/overview.md`
+- `docs/src/content/docs/zh/architecture/security.md`
+- `docs/src/content/docs/zh/skills/builtin-skills.md`
+- `docs/src/content/docs/zh/skills/creating-skills.md`
 
 ## 常用命令
 
@@ -98,27 +165,8 @@ npm run test                          # 运行测试（单次）
 npm run test:watch                    # 运行测试（监听模式）
 ```
 
-## 配置说明
-
-`config.yaml` 重点字段：
-
-- `providers`：AI 提供商与优先级顺序。
-- `telegram` / `discord`：渠道 token 与可选 allowList。
-- `notifications.channel`：主动通知发送位置（如 `telegram:883499266`）。
-- `workspace`：工作区数据路径（默认 `./workspace`）。
-- `heartbeat`：基于 cron 的心跳配置。
-
-## 项目结构
-
-- `src/entry.ts`：CLI 入口（`owliabot`）。
-- `src/config/*`：配置 schema、类型与加载逻辑。
-- `src/channels/*`：Telegram / Discord 渠道接入。
-- `src/agent/*`：Agent 运行时、会话与工具体系。
-- `src/workspace/*`：工作区加载与记忆搜索。
-- `config.example.yaml`：配置模板。
-
 ## 常见问题排查
 
-- 启动失败时，优先检查 `config.yaml` 是否填写完整且格式正确。
+- 启动失败时，优先检查 `config.yaml` 是否正确且完整。
 - 确保环境变量在当前 shell 会话中可见。
 - Node.js 版本需 >= 22。
