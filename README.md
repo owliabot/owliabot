@@ -7,8 +7,7 @@ Crypto-native, security-focused AI agent.
 
 ## OwliaBot Introduction
 
-OwliaBot is an **open-source, community-friendly** AI agent for crypto-native risk monitoring.
-It turns noisy signals and on-chain data into actionable, plain-language guidance across chat channels.
+OwliaBot is an **open-source, community-friendly** AI agent for crypto-native.
 
 ## Features
 

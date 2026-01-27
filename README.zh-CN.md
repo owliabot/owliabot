@@ -7,8 +7,7 @@
 
 ## OwliaBot 介绍
 
-OwliaBot 是一个 **开源、社区友好** 的 Crypto 风险监控 AI Agent。
-它将嘈杂的信号与链上数据转化为可执行、易理解的结论，并在聊天渠道中交付。
+OwliaBot 是一个 **开源、社区友好** 的 Crypto AI Agent。
 
 ## 功能特性
 
