@@ -478,7 +478,7 @@ src/
   },
   "sessionKey": "telegram:883499266",
   "route": "agent.run|tool.exec|mcp.call|sys.capability",
-  "idempotencyKey": "optional-hash",
+  "idempotencyKey": "required-for-tool.exec/mcp.call",
   "payload": { "any": "data" },
   "security": {
     "level": "read|write|sign",
@@ -493,9 +493,9 @@ src/
 {
   "type": "res",
   "requestId": "uuid",
-  "ok": true,
+  "ok": false,
   "ts": 1710000001,
-  "data": { "any": "result" },
+  "data": null,
   "error": {
     "code": "ERR_PERMISSION_DENIED",
     "message": "..."

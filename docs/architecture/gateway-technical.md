@@ -50,7 +50,7 @@ GET /events/poll?since=<cursor>
 ```
 
 事件类型：
-`health | heartbeat | cron | agent | tool | mcp`
+`health | heartbeat | cron | agent.output | tool.progress | tool.result | mcp.event | system.alert | session.update`
 
 游标语义：
 - `cursor` 单调递增、短期有效（建议 TTL 24h）。
@@ -91,8 +91,18 @@ POST /command/<type>
 统一响应体（建议）：
 ```
 {
-  ok: true,
+  ok: false,
   data,
+  traceId,
+  error: { code, message }
+}
+```
+
+错误响应建议：
+```
+{
+  ok: false,
+  data: null,
   traceId,
   error: { code, message }
 }

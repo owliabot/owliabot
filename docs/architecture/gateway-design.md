@@ -83,7 +83,9 @@
 ## 6. 事件与运行态视图
 
 ### 6.1 事件类型（v1）
-- `health / presence / heartbeat / cron / agent / tool / mcp`
+- `health / heartbeat / cron`
+- `agent.output / tool.progress / tool.result`
+- `mcp.event / system.alert / session.update`
 
 ### 6.2 获取方式
 - `GET /status`：完整快照

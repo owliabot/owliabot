@@ -71,7 +71,9 @@
 - 最近心跳与 cron 触发
 
 ### 4.2 事件类型
-- `health / presence / heartbeat / cron / agent / tool / mcp`
+- `health / heartbeat / cron`
+- `agent.output / tool.progress / tool.result`
+- `mcp.event / system.alert / session.update`
 
 ### 4.3 事件游标
 - `cursor` 单调递增，过期需回退到 `GET /status`。
