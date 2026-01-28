@@ -46,7 +46,7 @@ POST /command/system
 }
 ```
 
-建议使用结构化参数（`command` + `params`）并在执行前逐项校验，避免字符串拼接带来的注入风险。
+必须使用结构化参数（`command` + `params`）并在执行前逐项校验，禁止字符串拼接执行，以降低注入风险。
 
 ```
 POST /command/system

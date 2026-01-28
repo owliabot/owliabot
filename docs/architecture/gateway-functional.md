@@ -1,6 +1,6 @@
 # OwliaBot Gateway 功能文档（v0.2）
 
-> 面向产品与运维视角的功能说明，基于 HTTP-only v1 控制平面设计。
+> 面向产品与运维视角的功能说明，基于 HTTP-only v1 Gateway 设计。
 
 ## 1. 功能概览
 
@@ -42,7 +42,7 @@
 
 ## 3. 关键功能清单
 
-### 3.1 控制平面 API（v1）
+### 3.1 Gateway API（v1）
 - `GET /health`
 - `GET /status`
 - `POST /command/agent`

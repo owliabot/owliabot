@@ -1,11 +1,11 @@
 # OwliaBot Gateway 设计文档（v0.2）
 
-> 说明：当前阶段采用 HTTP-only 控制平面（v1），WebSocket 作为 v2 预留扩展。
+> 说明：当前阶段采用 HTTP-only Gateway（v1），WebSocket 作为 v2 预留扩展。
 
 ## 1. 目标与边界
 
 ### 1.1 目标
-- 统一承载接入、鉴权、审计、幂等与能力路由，形成控制平面（Control Plane）。
+- 统一承载接入、鉴权、审计、幂等与能力路由，形成统一入口层。
 - 为 MCP/Playwright 与系统能力层提供一致的权限语义与审计路径。
 - 保持 OwliaBot 的“本地优先、轻依赖、可审计”原则。
 
@@ -17,7 +17,7 @@
 ## 2. 架构定位
 
 ### 2.1 分层角色
-- **Gateway（控制平面）**：连接准入、鉴权、审计、状态快照、能力路由。
+- **Gateway**：连接准入、鉴权、审计、状态快照、能力路由。
 - **Agent Runtime（执行平面）**：Prompt/LLM/Tools/Skills 运行逻辑。
 - **Tool Executor（安全平面）**：read/write/sign 权限判断与确认流。
 
@@ -26,7 +26,7 @@
 
 ## 3. 定位与入口策略
 
-### 3.1 控制平面定位
+### 3.1 Gateway 定位
 - Gateway 是统一控制与调度入口，不是“单体业务入口”。
 - 所有跨模块请求必须进入 Gateway 协议面，避免旁路。
 
@@ -34,7 +34,7 @@
 - **对外**：HTTP（健康检查、状态、命令、事件轮询）。
 - **对内**：内部总线/路由（消息分发与能力调用）。
 
-### 3.3 控制平面职责
+### 3.3 Gateway 职责
 1. **统一入口**：聚合来自 CLI / Channel / 定时任务 / 系统能力层的请求。
 2. **路由与治理**：基于策略转发到 Agent Runtime、Tool Executor、MCP、System Capability。
 3. **审计与追踪**：记录 requestId、sessionKey、actor、traceId。
@@ -115,7 +115,7 @@
 ## 8. MCP / 系统能力层
 
 ### 8.1 MCP 接入
-- MCP 服务作为“受控能力节点”注册到 Gateway。
+- MCP 服务作为“受控能力服务”注册到 Gateway。
 - 注册字段：`capabilityId / scope / level / rateLimit`。
 
 ### 8.2 Playwright MCP 约束（v1）
