@@ -403,8 +403,8 @@ src/
 
 #### 定位与统一入口策略
 
-- **默认策略**：Gateway 作为**控制平面**，对外保持**轻量 HTTP**（健康检查、状态、运行指标），对内通过**内部总线**治理调用与事件分发。  
-- **兼容策略**：若需要对接类似 Moltbot WS API 的统一入口，可启用 **WS/IPC** 作为**统一入口协议**，但仍复用同一套内部协议与治理规则。  
+- **默认策略（v1）**：Gateway 作为**控制平面**，对外保持**轻量 HTTP**（健康检查、状态、运行指标、命令调用），对内通过**内部总线**治理调用与事件分发。  
+- **兼容策略（v2 预留）**：若需要对接类似 Moltbot WS API 的统一入口，可启用 **WS/IPC** 作为**统一入口协议**，但仍复用同一套内部协议与治理规则。  
 - **结论**：Gateway 不是“单体业务入口”，而是**统一控制与调度入口**；所有跨模块请求都必须进入 Gateway 协议面，避免旁路。
 
 #### 控制平面职责
@@ -415,9 +415,9 @@ src/
 4. **幂等与重试**：在协议层处理幂等键与重试策略。
 5. **安全校验**：统一鉴权、签名验证、权限校验、速率限制。
 
-#### 统一协议（WS/IPC/Bus 共享）
+#### 统一协议（v2 预留：WS/IPC/Bus 共享）
 
-> 统一协议用于 WS / IPC / 内部总线三种通道的消息格式与语义，确保“入口一致、治理一致、路径一致”。
+> 统一协议用于 WS / IPC / 内部总线三种通道的消息格式与语义，确保“入口一致、治理一致、路径一致”。HTTP v1 仍是当前默认入口。
 
 **1) connect 握手**
 
@@ -1464,8 +1464,8 @@ export interface RuntimeEvent {
 
 | 暴露方式 | 说明 | 适用事件 |
 |----------|------|----------|
-| HTTP | `/health` / `/events` | `health` + 最近事件 |
-| WebSocket | `/ws/events` | `heartbeat/cron/agent/tool` 流式推送 |
+| HTTP | `/health` / `/events/poll` | `health` + 最近事件 |
+| WebSocket（v2 预留） | `/ws/events` | `heartbeat/cron/agent/tool` 流式推送 |
 | 日志 | JSON 日志（stdout/file） | 所有事件 |
 
 **HTTP 示例：**
@@ -1480,7 +1480,7 @@ export interface RuntimeEvent {
 ```
 
 ```json
-// GET /events?limit=50&type=tool
+// GET /events/poll?limit=50&type=tool
 {
   "items": [
     {
@@ -1498,8 +1498,8 @@ export interface RuntimeEvent {
 
 #### 5.9.4 客户端/监控系统的消费方式
 
-- **简单场景**：通过 `GET /health` 进行存活探测；使用 `GET /events` 拉取最近事件（轮询）。
-- **实时场景**：前端或运维面板通过 `WS /ws/events` 订阅事件流，实时显示状态。
+- **简单场景**：通过 `GET /health` 进行存活探测；使用 `GET /events/poll` 拉取最近事件（轮询）。
+- **实时场景（v2 预留）**：前端或运维面板通过 `WS /ws/events` 订阅事件流，实时显示状态。
 - **日志管道**：使用 JSON 日志输出到 stdout/file，由 Fluent Bit / Vector / Loki / ELK 采集。
 
 ---

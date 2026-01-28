@@ -76,6 +76,10 @@
 ### 5.4 全局令牌（可选）
 - 启用 `X-Gateway-Token` 时，所有请求必须同时满足 GatewayToken + DeviceToken。
 
+### 5.5 配对与撤销（管理入口）
+- 提供配对审批与撤销入口（如 `/pairing/pending`、`/pairing/approve`、`/pairing/revoke`）。
+- 撤销后相关 `X-Device-Token` 立即失效，并要求重新配对。
+
 ## 6. 事件与运行态视图
 
 ### 6.1 事件类型（v1）
@@ -91,6 +95,10 @@
 - 运行中任务（agent/tool/mcp）
 - 最近心跳与 cron 触发记录
 
+### 6.4 游标语义（v1）
+- `cursor` 单调递增、短期有效（建议 TTL 24h）。
+- 过期或缺失时客户端回退到 `GET /status`。
+
 ## 7. 工具执行链与安全边界
 
 ### 7.1 责任边界
@@ -100,6 +108,9 @@
 ### 7.2 审计链路
 - Gateway 记录 `deviceId / capabilityId / idempotencyKey / requestHash`
 - Tool Executor 记录执行结果、风险级别、确认状态
+
+### 7.3 错误码规范
+- 统一错误码枚举（如 `ERR_AUTH_REQUIRED`、`ERR_PERMISSION_DENIED`、`ERR_IDEMPOTENCY_CONFLICT`、`ERR_RATE_LIMITED`）。
 
 ## 8. MCP / 系统能力层
 

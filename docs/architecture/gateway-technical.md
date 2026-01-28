@@ -52,6 +52,18 @@ GET /events/poll?since=<cursor>
 事件类型：
 `health | heartbeat | cron | agent | tool | mcp`
 
+游标语义：
+- `cursor` 单调递增、短期有效（建议 TTL 24h）。
+- 过期或缺失时客户端回退到 `GET /status`。
+
+### 2.4 配对管理
+```
+GET /pairing/pending
+POST /pairing/approve
+POST /pairing/revoke
+```
+`/pairing/approve` 返回 `X-Device-Token`（或在响应体中返回）。
+
 ## 3. 命令接口（统一模型）
 
 所有命令使用统一模型：
@@ -86,6 +98,14 @@ POST /command/<type>
 }
 ```
 
+错误码（建议）：
+- `ERR_AUTH_REQUIRED`
+- `ERR_INVALID_TOKEN`
+- `ERR_PERMISSION_DENIED`
+- `ERR_IDEMPOTENCY_CONFLICT`
+- `ERR_RATE_LIMITED`
+- `ERR_INVALID_REQUEST`
+
 ### 3.1 Agent
 ```
 POST /command/agent
@@ -118,7 +138,11 @@ POST /capabilities/register
   capabilityId,
   scope,
   level,          // read | write | sign
-  rateLimit
+  rateLimit,
+  version,
+  owner,
+  expiresAt,
+  status          // healthy | degraded | offline
 }
 ```
 
@@ -133,10 +157,14 @@ POST /capabilities/register
 
 ### 5.1 幂等性
 - Gateway 对 `Idempotency-Key` 进行去重缓存（TTL 5~10 分钟）。
+- 若命中幂等缓存，返回原始响应；冲突则返回 `ERR_IDEMPOTENCY_CONFLICT`。
 
 ### 5.2 审计字段
 - Gateway 记录：`deviceId / capabilityId / idempotencyKey / requestHash`
 - Tool Executor 记录：`riskLevel / confirmation / result`
+
+### 5.3 速率限制
+- 通过 `X-RateLimit-Limit` / `X-RateLimit-Remaining` / `Retry-After` 返回限额信息。
 
 ## 6. v2 预留（WebSocket）
 

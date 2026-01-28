@@ -24,6 +24,11 @@
 3. 管理员批准后发放 `X-Device-Token`。
 4. 后续请求均携带 `X-Device-Token`。
 
+可选管理入口：
+- `GET /pairing/pending`：查看待配对设备
+- `POST /pairing/approve`：批准并签发设备令牌
+- `POST /pairing/revoke`：撤销设备与令牌
+
 ### 2.2 请求执行
 1. 客户端请求 `/command/*`。
 2. Gateway 校验身份与幂等键。
@@ -49,12 +54,13 @@
 ### 3.2 幂等性保证
 - 所有有副作用请求必须携带 `Idempotency-Key`。
 - Gateway 维护 5~10 分钟去重缓存。
+- 重复请求返回相同结果或 `ERR_IDEMPOTENCY_CONFLICT`。
 
 ### 3.3 安全模型
 - `X-Device-Id` + `X-Device-Token` 设备身份
 - 可选 `X-Gateway-Token`
 - Tool Executor 负责 read/write/sign 审核
- - Gateway 只做入口鉴权与审计标记
+- Gateway 只做入口鉴权与审计标记
 
 ## 4. 运行态视图
 
@@ -66,6 +72,9 @@
 
 ### 4.2 事件类型
 - `health / presence / heartbeat / cron / agent / tool / mcp`
+
+### 4.3 事件游标
+- `cursor` 单调递增，过期需回退到 `GET /status`。
 
 ## 5. 演进方向
 
