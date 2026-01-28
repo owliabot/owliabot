@@ -123,7 +123,7 @@
 - 调用路径：`Client → Gateway /command/mcp → Tool Executor → MCP Adapter → Playwright MCP`。
 - 动作级权限：read（`goto`/`wait_for`/`screenshot`/`get_content`/`query`），write（`click`/`type`/`select`/`download`/`upload`/`close`）。
 - 安全策略：不强制 sandbox；动作白名单；默认允许任意域名（后续可加 allow/deny）；下载/上传目录按 `sessionId` 受控。
-- 生产加固建议：启用沙箱/容器化运行，并使用域名 allowlist 作为默认策略。
+- 生产加固建议：启用沙箱/容器化运行，并通过配置将默认策略切换为域名 allowlist。
 
 ### 8.3 系统能力层
 - `exec / web fetch / web search` 统一为 SystemCapability。

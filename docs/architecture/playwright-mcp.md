@@ -67,13 +67,13 @@ POST /command/mcp
 
 ## 5. 域名与下载策略
 
-- 默认允许任意域名（后续可加 allowlist/denylist）。
+- v1 默认允许任意域名（后续可加 allowlist/denylist）。
 - 下载目录按 session 受控：`workspace/downloads/<sessionId>`。
 - 上传仅允许读取 `workspace/uploads/<sessionId>`（可选）。
 
 生产加固建议：
 - 启用沙箱/容器化运行。
-- 使用域名 allowlist 作为默认策略。
+- 通过配置将默认策略切换为域名 allowlist。
 
 ## 6. 审计字段（建议）
 
