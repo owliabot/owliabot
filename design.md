@@ -327,6 +327,12 @@ OwliaBot 借鉴 Clawdbot 的架构理念，但针对 Crypto 场景重新设计�
 - **动作级权限**：read（`goto`/`wait_for`/`screenshot`/`get_content`/`query`），write（`click`/`type`/`select`/`download`/`upload`/`close`）。  
 - **安全策略**：不强制 sandbox；启用动作白名单；默认允许任意域名（后续可加 allow/deny）；下载与上传允许但目录受控（按 `sessionId`）。  
 
+**系统能力层（exec/web fetch/search）**
+- **统一形态**：SystemCapability（与 MCP 能力一致，统一注册/调用/审计）。  
+- **调用路径**：`Client → Gateway /command/system → Tool Executor → SystemCapability`。  
+- **动作级权限**：`exec = write`，`web.fetch = read`，`web.search = read`。  
+- **安全策略**：exec 需命令白名单 + 工作目录限制 + 环境变量隔离；web fetch/search 需域名策略 + 超时 + 最大响应；允许 POST 但必须做敏感信息审查。  
+
 ---
 
 ## 4. 模块设计

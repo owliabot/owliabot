@@ -121,6 +121,40 @@ POST /command/tool
 POST /command/system
 ```
 
+System 请求示例（建议）：
+```
+{
+  requestId,
+  idempotencyKey,
+  payload: {
+    action: "exec",
+    args: { cmd: "ls -la" },
+    sessionId,
+    cwd,
+    env: { PATH: "..." }
+  },
+  security: { level: "write" }
+}
+```
+
+```
+{
+  requestId,
+  idempotencyKey,
+  payload: {
+    action: "web.fetch",
+    args: { url: "https://example.com", method: "GET" },
+    sessionId
+  },
+  security: { level: "read" }
+}
+```
+
+动作级权限：
+- `exec = write`
+- `web.fetch = read`
+- `web.search = read`
+
 ### 3.4 MCP
 ```
 POST /command/mcp

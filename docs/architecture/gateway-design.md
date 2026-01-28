@@ -127,6 +127,8 @@
 ### 8.3 系统能力层
 - `exec / web fetch / web search` 统一为 SystemCapability。
 - 统一链路：`Client → Gateway → Tool Executor → Capability`。
+- 动作级权限：`exec = write`，`web.fetch = read`，`web.search = read`。
+- 安全策略：命令白名单 + 工作目录限制 + 环境变量隔离；域名策略 + 超时 + 最大响应；允许 POST 但必须做敏感信息审查。
 
 ## 9. 兼容策略
 
