@@ -44,3 +44,19 @@ workspace: ./workspace
 heartbeat:
   enabled: false
   cron: "0 * * * *"  # hourly
+
+# Gateway HTTP (optional)
+# gateway:
+#   http:
+#     host: 127.0.0.1
+#     port: 8787
+#     token: ${GATEWAY_TOKEN}
+#     allowlist:
+#       - "127.0.0.1"
+#       - "10.0.0.0/8"
+#     sqlitePath: ./workspace/gateway.db
+#     idempotencyTtlMs: 600000
+#     eventTtlMs: 86400000
+#     rateLimit:
+#       windowMs: 60000
+#       max: 60

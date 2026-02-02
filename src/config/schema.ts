@@ -32,6 +32,22 @@ export const skillsConfigSchema = z.object({
   directory: z.string().optional(), // defaults to workspace/skills
 });
 
+const gatewayHttpSchema = z.object({
+  host: z.string().default("127.0.0.1"),
+  port: z.number().int().default(8787),
+  token: z.string().optional(),
+  allowlist: z.array(z.string()).default([]),
+  sqlitePath: z.string().default("./workspace/gateway.db"),
+  idempotencyTtlMs: z.number().int().default(10 * 60 * 1000),
+  eventTtlMs: z.number().int().default(24 * 60 * 60 * 1000),
+  rateLimit: z
+    .object({
+      windowMs: z.number().int().default(60_000),
+      max: z.number().int().default(60),
+    })
+    .default({ windowMs: 60_000, max: 60 }),
+});
+
 export const configSchema = z.object({
   // AI providers
   providers: z.array(providerSchema).min(1),
@@ -56,6 +72,13 @@ export const configSchema = z.object({
 
   // Skills
   skills: skillsConfigSchema.optional(),
+
+  // Gateway HTTP (optional)
+  gateway: z
+    .object({
+      http: gatewayHttpSchema.optional(),
+    })
+    .optional(),
 });
 
 export type Config = z.infer<typeof configSchema>;
