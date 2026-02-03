@@ -11,10 +11,16 @@ import { createLogger } from "../utils/logger.js";
 const log = createLogger("config");
 
 export async function loadConfig(path: string): Promise<Config> {
-  // Expand leading ~
-  const expandedPath = path.startsWith("~")
-    ? resolve(process.env.HOME ?? process.env.USERPROFILE ?? ".", path.slice(1))
-    : path;
+  // Expand leading ~ (HOME)
+  // - "~/x" => "$HOME/x"
+  // - "~"   => "$HOME"
+  const home = process.env.HOME ?? process.env.USERPROFILE ?? ".";
+  const expandedPath =
+    path === "~"
+      ? home
+      : path.startsWith("~/")
+        ? resolve(home, path.slice(2))
+        : path;
 
   log.info(`Loading config from ${expandedPath}`);
 
