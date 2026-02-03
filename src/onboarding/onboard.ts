@@ -85,13 +85,16 @@ export async function runOnboarding(options: OnboardOptions = {}): Promise<void>
         .filter(Boolean);
 
       config.discord = {
+        token: "${DISCORD_BOT_TOKEN}" as any,
         requireMentionInGuild,
         channelAllowList,
-      };
+      } as any;
     }
 
     if (channels.includes("telegram")) {
-      config.telegram = {};
+      config.telegram = {
+        token: "${TELEGRAM_BOT_TOKEN}" as any,
+      } as any;
     }
 
     await saveAppConfig(config, appConfigPath);

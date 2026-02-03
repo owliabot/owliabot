@@ -4,7 +4,9 @@ export interface AppConfig {
 
   // Channels
   discord?: {
-    /** Discord bot token is expected via env (DISCORD_BOT_TOKEN) and referenced in config.yaml */
+    /** Discord bot token is expected via env (DISCORD_BOT_TOKEN) */
+    token?: string;
+    /** Deprecated: use group.activation (kept for backward compatibility). */
     requireMentionInGuild?: boolean;
     channelAllowList?: string[];
     /** Optional allowlist for user ids (DMS / guild) */
@@ -13,7 +15,9 @@ export interface AppConfig {
 
   telegram?: {
     /** Telegram bot token is expected via env (TELEGRAM_BOT_TOKEN) */
+    token?: string;
     allowList?: string[];
+    groupAllowList?: string[];
   };
 
   // Providers
