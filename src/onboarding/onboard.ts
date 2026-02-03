@@ -39,19 +39,20 @@ export async function runOnboarding(options: OnboardOptions = {}): Promise<void>
       (await ask(rl, "Anthropic model [claude-sonnet-4-5]: ")) ||
       "claude-sonnet-4-5";
 
-    const useOauthAns =
-      (await ask(rl, "Use Anthropic OAuth? (y/n) [y]: ")) || "y";
-    const useOauth = useOauthAns.toLowerCase().startsWith("y");
-
-    if (!useOauth) {
-      log.warn(
-        "This onboarding MVP currently assumes OAuth; API key mode is still available by editing config.yaml."
-      );
-    }
+    const useOauthAns = await ask(
+      rl,
+      "Use Anthropic OAuth now? (y/n) [n=skip for now]: "
+    );
+    const useOauthNorm = useOauthAns.trim().toLowerCase();
+    const useOauth = useOauthNorm === "y" || useOauthNorm === "yes";
 
     if (useOauth) {
       log.info("Starting Anthropic OAuth flow...");
       await startOAuthFlow();
+    } else {
+      log.info(
+        "Skipping OAuth for now. You can run `owliabot auth setup` later to authenticate."
+      );
     }
 
     const config: AppConfig = {
@@ -130,7 +131,9 @@ export async function runOnboarding(options: OnboardOptions = {}): Promise<void>
     log.info("1) If you skipped tokens, set them now via:");
     log.info("   - owliabot token set discord   (reads DISCORD_BOT_TOKEN env)");
     log.info("   - owliabot token set telegram  (reads TELEGRAM_BOT_TOKEN env)");
-    log.info("2) Start the bot: owliabot start");
+    log.info("2) If you skipped OAuth, authenticate later via:");
+    log.info("   - owliabot auth setup");
+    log.info("3) Start the bot: owliabot start");
   } finally {
     rl.close();
   }
