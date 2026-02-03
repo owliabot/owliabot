@@ -168,12 +168,32 @@ export function createSessionStore(options: SessionStoreOptions): SessionStore {
     },
 
     async getOrCreate(sessionKey: SessionKey, meta?: Partial<SessionEntry>): Promise<SessionEntry> {
-      const existing = await this.get(sessionKey);
-      if (existing) {
-        // Touch updatedAt (best effort) but keep same sessionId.
-        return upsert(sessionKey, existing.sessionId, { ...existing, ...meta, updatedAt: Date.now() });
-      }
-      return upsert(sessionKey, randomUUID(), meta);
+      // Must be atomic: read + create/update under the same lock to avoid races.
+      return withLock(async () => {
+        const store = await readStore();
+        const existing = store[sessionKey];
+
+        if (existing) {
+          const next: SessionEntry = {
+            ...existing,
+            ...meta,
+            updatedAt: Date.now(),
+            sessionId: existing.sessionId, // never change on getOrCreate
+          };
+          store[sessionKey] = next;
+          await writeStoreAtomic(store);
+          return next;
+        }
+
+        const next: SessionEntry = {
+          sessionId: randomUUID(),
+          updatedAt: Date.now(),
+          ...meta,
+        };
+        store[sessionKey] = next;
+        await writeStoreAtomic(store);
+        return next;
+      });
     },
 
     async rotate(sessionKey: SessionKey, meta?: Partial<SessionEntry>): Promise<SessionEntry> {

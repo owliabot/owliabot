@@ -17,6 +17,7 @@ import { createSessionTranscriptStore } from "../agent/session-transcript.js";
 import { callWithFailover, type LLMProvider } from "../agent/runner.js";
 import { buildSystemPrompt } from "../agent/system-prompt.js";
 import type { MsgContext } from "../channels/interface.js";
+import { shouldHandleMessage } from "./activation.js";
 import { ToolRegistry } from "../agent/tools/registry.js";
 import { executeToolCalls } from "../agent/tools/executor.js";
 import {
@@ -146,18 +147,8 @@ async function handleMessage(
   channels: ChannelRegistry,
   tools: ToolRegistry
 ): Promise<void> {  
-  // Group activation gate (default: mention-only)
-  if (ctx.chatType !== "direct" && (config.group?.activation ?? "mention") === "mention") {
-    const allowlistedChannel =
-      !!ctx.groupId &&
-      ((ctx.channel === "discord" &&
-        !!config.discord?.channelAllowList?.includes(ctx.groupId)) ||
-        (ctx.channel === "telegram" &&
-          !!config.telegram?.groupAllowList?.includes(ctx.groupId)));
-
-    if (!ctx.mentioned && !allowlistedChannel) {
-      return;
-    }
+  if (!shouldHandleMessage(ctx, config)) {
+    return;
   }
 
   const agentId = resolveAgentId({ config });

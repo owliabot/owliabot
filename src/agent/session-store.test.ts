@@ -30,6 +30,18 @@ describe("SessionStore", () => {
     expect(a.sessionId).not.toBe(b.sessionId);
   });
 
+  it("getOrCreate is atomic under concurrency", async () => {
+    const dir = await makeTmpDir();
+    const store = createSessionStore({ sessionsDir: dir });
+
+    const results = await Promise.all(
+      Array.from({ length: 25 }, () => store.getOrCreate("k-race"))
+    );
+
+    const ids = new Set(results.map((r) => r.sessionId));
+    expect(ids.size).toBe(1);
+  });
+
   it("breaks stale lock", async () => {
     const dir = await makeTmpDir();
     const storePath = join(dir, "sessions.json");
