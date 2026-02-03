@@ -5,6 +5,8 @@ export interface PromptContext {
   channel: string;
   timezone: string;
   model: string;
+  /** direct|group|channel. If omitted, defaults to direct. */
+  chatType?: "direct" | "group" | "channel";
   isHeartbeat?: boolean;
 }
 
@@ -35,7 +37,11 @@ export function buildSystemPrompt(ctx: PromptContext): string {
   }
 
   // 6. MEMORY.md - Long-term memory
-  if (ctx.workspace.memory) {
+  // Security boundary: NEVER inject long-term memory into group contexts.
+  // (OpenClaw-style: MEMORY.md is private-only)
+  const chatType = ctx.chatType ?? "direct";
+  const isGroup = chatType !== "direct";
+  if (!isGroup && ctx.workspace.memory) {
     sections.push(`## Memory\n${ctx.workspace.memory}`);
   }
 
