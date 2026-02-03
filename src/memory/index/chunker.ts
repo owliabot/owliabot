@@ -37,13 +37,13 @@ export function chunkMarkdown(params: {
   let buf: string[] = [];
   let bufChars = 0;
 
-  const flush = (endLine: number) => {
+  const flush = (chunkStartLine: number, endLine: number) => {
     const text = buf.join("\n").trimEnd();
     if (!text.trim()) return;
     out.push({
       path: params.relPath,
-      startLine,
-      endLine,
+      startLine: Math.max(1, chunkStartLine),
+      endLine: Math.max(1, endLine),
       text,
     });
   };
@@ -58,15 +58,16 @@ export function chunkMarkdown(params: {
 
     if (shouldCut) {
       const endLine = i + 1;
-      flush(endLine);
+      const chunkStart = startLine;
+      flush(chunkStart, endLine);
 
       // overlap: keep last N chars from buffer
       if (overlapChars > 0) {
         const joined = buf.join("\n");
         const tail = joined.slice(Math.max(0, joined.length - overlapChars));
         buf = tail.split("\n");
-        // approximate new startLine
-        startLine = endLine - (buf.length - 1);
+        // approximate new startLine (clamped)
+        startLine = Math.max(1, endLine - (buf.length - 1));
         bufChars = buf.reduce((acc, l) => acc + l.length + 1, 0);
       } else {
         buf = [];
@@ -77,7 +78,7 @@ export function chunkMarkdown(params: {
   }
 
   if (buf.length > 0) {
-    flush(lines.length);
+    flush(startLine, lines.length);
   }
 
   return out;
