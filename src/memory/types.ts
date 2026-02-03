@@ -5,7 +5,7 @@ export interface MemorySearchConfig {
   provider: EmbeddingProviderId;
   model?: string;
   /** Optional fallback provider; "none" disables fallback */
-  fallback?: EmbeddingProviderId | "none";
+  fallback: EmbeddingProviderId | "none";
   store: {
     /** Path to sqlite store; supports {agentId} token. */
     path: string;

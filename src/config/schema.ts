@@ -84,7 +84,10 @@ const memorySearchSchema = z
     fallback: z.enum(["openai", "gemini", "local", "none"]).default("none"),
     store: z
       .object({
-        path: z.string().default("~/.owliabot/memory/{agentId}.sqlite"),
+        path: z
+          .string()
+          .min(1)
+          .default("~/.owliabot/memory/{agentId}.sqlite"),
       })
       .default({ path: "~/.owliabot/memory/{agentId}.sqlite" }),
     extraPaths: z.array(z.string()).default([]),
