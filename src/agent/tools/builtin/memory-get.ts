@@ -2,8 +2,8 @@
  * Memory get tool - retrieve specific lines from a file
  */
 
-import { readFile } from "node:fs/promises";
-import { join } from "node:path";
+import { lstat, readFile } from "node:fs/promises";
+import { join, relative, resolve } from "node:path";
 import type { ToolDefinition } from "../interface.js";
 
 export function createMemoryGetTool(workspacePath: string): ToolDefinition {
@@ -39,20 +39,50 @@ export function createMemoryGetTool(workspacePath: string): ToolDefinition {
         num_lines?: number;
       };
 
-      // Security: ensure path is within workspace
-      if (path.includes("..") || path.startsWith("/")) {
-        return {
-          success: false,
-          error: "Invalid path: must be relative to workspace",
-        };
+      const raw = path.trim();
+
+      // Security boundary (OpenClaw-style): only allow MEMORY.md + memory/**/*.md
+      // - must be relative
+      // - must be .md
+      // - must resolve inside workspace
+      // - must not be a symlink
+      const resolveAllowedPath = async (): Promise<{ absPath: string; relPath: string } | null> => {
+        if (!raw) return null;
+        if (raw.startsWith("/")) return null;
+        if (raw.includes("\0")) return null;
+        if (!raw.endsWith(".md")) return null;
+
+        const absWorkspace = resolve(workspacePath);
+        const absPath = resolve(workspacePath, raw);
+        const rel = relative(absWorkspace, absPath).replace(/\\/g, "/");
+
+        const inWorkspace = rel.length > 0 && !rel.startsWith("..");
+        if (!inWorkspace) return null;
+
+        const isAllowed = rel === "MEMORY.md" || rel.startsWith("memory/");
+        if (!isAllowed) return null;
+
+        try {
+          const stat = await lstat(absPath);
+          if (stat.isSymbolicLink() || !stat.isFile()) return null;
+        } catch {
+          // Allowed path but missing is handled later as ENOENT
+          return { absPath, relPath: rel };
+        }
+
+        return { absPath, relPath: rel };
+      };
+
+      const resolved = await resolveAllowedPath();
+      if (!resolved) {
+        return { success: false, error: "path required" };
       }
 
-      const fullPath = join(workspacePath, path);
       const startLine = (from_line ?? 1) - 1; // Convert to 0-indexed
       const lineCount = num_lines ?? 20;
 
       try {
-        const content = await readFile(fullPath, "utf-8");
+        const content = await readFile(resolved.absPath, "utf-8");
         const lines = content.split("\n");
         const endLine = Math.min(startLine + lineCount, lines.length);
         const selectedLines = lines.slice(startLine, endLine);
@@ -60,7 +90,7 @@ export function createMemoryGetTool(workspacePath: string): ToolDefinition {
         return {
           success: true,
           data: {
-            path,
+            path: resolved.relPath,
             from_line: startLine + 1,
             to_line: endLine,
             total_lines: lines.length,
@@ -68,10 +98,11 @@ export function createMemoryGetTool(workspacePath: string): ToolDefinition {
           },
         };
       } catch (err) {
-        if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+        const code = (err as NodeJS.ErrnoException).code;
+        if (code === "ENOENT") {
           return {
             success: false,
-            error: `File not found: ${path}`,
+            error: `File not found: ${resolved.relPath}`,
           };
         }
         throw err;
