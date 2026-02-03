@@ -14,12 +14,14 @@ export const providerSchema = z.object({
 });
 
 export const telegramConfigSchema = z.object({
-  token: z.string(),
+  // token can be set via onboarding + secrets.yaml (or env) later
+  token: z.string().optional(),
   allowList: z.array(z.string()).optional(),
 });
 
 export const discordConfigSchema = z.object({
-  token: z.string(),
+  // token can be set via onboarding + secrets.yaml (or env) later
+  token: z.string().optional(),
   /** Allow list of Discord user IDs (DMs or guild messages) */
   allowList: z.array(z.string()).optional(),
   /** Allow list of guild channel IDs where the bot will respond */

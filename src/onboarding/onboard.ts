@@ -3,6 +3,7 @@ import { createLogger } from "../utils/logger.js";
 import type { AppConfig } from "./types.js";
 import { saveAppConfig, DEV_APP_CONFIG_PATH } from "./storage.js";
 import { startOAuthFlow } from "../auth/oauth.js";
+import { saveSecrets, type SecretsConfig } from "./secrets.js";
 
 const log = createLogger("onboard");
 
@@ -65,6 +66,8 @@ export async function runOnboarding(options: OnboardOptions = {}): Promise<void>
       ],
     };
 
+    const secrets: SecretsConfig = {};
+
     if (channels.includes("discord")) {
       const requireMentionAns =
         (await ask(
@@ -84,6 +87,15 @@ export async function runOnboarding(options: OnboardOptions = {}): Promise<void>
         .map((s) => s.trim())
         .filter(Boolean);
 
+      const discordToken = await ask(
+        rl,
+        "Discord bot token (leave empty to set later via `owliabot token set discord`) [skip]: "
+      );
+      if (discordToken) {
+        secrets.discord = { token: discordToken };
+      }
+
+      // Write non-sensitive settings to app.yaml; token is stored in secrets.yaml
       config.discord = {
         requireMentionInGuild,
         channelAllowList,
@@ -91,15 +103,34 @@ export async function runOnboarding(options: OnboardOptions = {}): Promise<void>
     }
 
     if (channels.includes("telegram")) {
-      config.telegram = {};
+      const telegramToken = await ask(
+        rl,
+        "Telegram bot token (leave empty to set later via `owliabot token set telegram`) [skip]: "
+      );
+      if (telegramToken) {
+        secrets.telegram = { token: telegramToken };
+      }
+
+      // Only write telegram section if token exists; otherwise omit to keep config valid.
+      if (telegramToken) {
+        config.telegram = {};
+      }
     }
 
+    // Save app config (non-sensitive)
     await saveAppConfig(config, appConfigPath);
+
+    // Save secrets (sensitive)
+    if (secrets.discord?.token || secrets.telegram?.token) {
+      await saveSecrets(appConfigPath, secrets);
+    }
 
     log.info(`Saved app config to: ${appConfigPath}`);
     log.info("Next steps:");
-    log.info("1) Set DISCORD_BOT_TOKEN in your environment (do not put it in files)");
-    log.info(`2) Start the bot: owliabot start`);
+    log.info("1) If you skipped tokens, set them now via:");
+    log.info("   - owliabot token set discord   (reads DISCORD_BOT_TOKEN env)");
+    log.info("   - owliabot token set telegram  (reads TELEGRAM_BOT_TOKEN env)");
+    log.info("2) Start the bot: owliabot start");
   } finally {
     rl.close();
   }

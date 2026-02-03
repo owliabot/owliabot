@@ -69,7 +69,7 @@ export async function startGateway(
   }
 
   // Register Telegram if configured
-  if (config.telegram) {
+  if (config.telegram && config.telegram.token) {
     const telegram = createTelegramPlugin({
       token: config.telegram.token,
       allowList: config.telegram.allowList,
@@ -83,7 +83,7 @@ export async function startGateway(
   }
 
   // Register Discord if configured
-  if (config.discord) {
+  if (config.discord && config.discord.token) {
     const discord = createDiscordPlugin({
       token: config.discord.token,
       allowList: config.discord.allowList,
@@ -96,6 +96,13 @@ export async function startGateway(
     });
 
     channels.register(discord);
+  }
+
+  if (config.telegram && !config.telegram.token) {
+    log.warn("Telegram configured but token missing; skipping Telegram channel startup");
+  }
+  if (config.discord && !config.discord.token) {
+    log.warn("Discord configured but token missing; skipping Discord channel startup");
   }
 
   // Start all channels

@@ -83,6 +83,45 @@ program
     }
   });
 
+// Token command group (stores tokens to ~/.owlia_dev/secrets.yaml)
+const token = program.command("token").description("Manage channel tokens (stored on disk)");
+
+token
+  .command("set")
+  .description("Set a channel token from environment variables")
+  .argument("<channel>", "discord|telegram")
+  .action(async (channel: string) => {
+    try {
+      const { saveSecrets } = await import("./onboarding/secrets.js");
+      const appConfigPath = DEV_APP_CONFIG_PATH;
+
+      if (channel === "discord") {
+        const value = process.env.DISCORD_BOT_TOKEN;
+        if (!value) {
+          throw new Error("DISCORD_BOT_TOKEN env not set");
+        }
+        await saveSecrets(appConfigPath, { discord: { token: value } });
+        log.info("Discord token saved to ~/.owlia_dev/secrets.yaml");
+        return;
+      }
+
+      if (channel === "telegram") {
+        const value = process.env.TELEGRAM_BOT_TOKEN;
+        if (!value) {
+          throw new Error("TELEGRAM_BOT_TOKEN env not set");
+        }
+        await saveSecrets(appConfigPath, { telegram: { token: value } });
+        log.info("Telegram token saved to ~/.owlia_dev/secrets.yaml");
+        return;
+      }
+
+      throw new Error("Unknown channel. Use: discord|telegram");
+    } catch (err) {
+      log.error("Failed to set token", err);
+      process.exit(1);
+    }
+  });
+
 // Auth command group
 const auth = program.command("auth").description("Manage authentication");
 
