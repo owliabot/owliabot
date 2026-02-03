@@ -86,7 +86,7 @@ export async function startGateway(
   if (config.discord && config.discord.token) {
     const discord = createDiscordPlugin({
       token: config.discord.token,
-      allowList: config.discord.allowList,
+      memberAllowList: config.discord.memberAllowList,
       channelAllowList: config.discord.channelAllowList,
       requireMentionInGuild: config.discord.requireMentionInGuild,
     });

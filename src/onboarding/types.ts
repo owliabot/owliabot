@@ -4,11 +4,11 @@ export interface AppConfig {
 
   // Channels
   discord?: {
-    /** Discord bot token is expected via env (DISCORD_BOT_TOKEN) and referenced in config.yaml */
+    /** Discord bot token is expected via onboarding secrets.yaml or env */
     requireMentionInGuild?: boolean;
     channelAllowList?: string[];
-    /** Optional allowlist for user ids (DMS / guild) */
-    allowList?: string[];
+    /** Optional allowlist for user ids (DMs / guild) */
+    memberAllowList?: string[];
   };
 
   telegram?: {

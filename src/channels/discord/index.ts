@@ -13,7 +13,7 @@ const log = createLogger("discord");
 export interface DiscordConfig {
   token: string;
   /** Allow list of Discord user IDs */
-  allowList?: string[];
+  memberAllowList?: string[];
   /** Allow list of guild channel IDs where the bot will respond */
   channelAllowList?: string[];
   /** If true, only respond in guild when mentioned OR channel is allowlisted */
@@ -55,9 +55,9 @@ export function createDiscordPlugin(config: DiscordConfig): ChannelPlugin {
         const isDM = !message.guild;
 
         // Check user allowlist (applies to both DM + guild)
-        if (config.allowList && config.allowList.length > 0) {
-          if (!config.allowList.includes(message.author.id)) {
-            log.warn(`User ${message.author.id} not in allowlist`);
+        if (config.memberAllowList && config.memberAllowList.length > 0) {
+          if (!config.memberAllowList.includes(message.author.id)) {
+            log.warn(`User ${message.author.id} not in memberAllowList`);
             return;
           }
         }

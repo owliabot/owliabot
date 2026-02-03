@@ -23,7 +23,7 @@ export const discordConfigSchema = z.object({
   // token can be set via onboarding + secrets.yaml (or env) later
   token: z.string().optional(),
   /** Allow list of Discord user IDs (DMs or guild messages) */
-  allowList: z.array(z.string()).optional(),
+  memberAllowList: z.array(z.string()).optional(),
   /** Allow list of guild channel IDs where the bot will respond */
   channelAllowList: z.array(z.string()).optional(),
   /** If true (default), only respond in guild when mentioned OR channel is allowlisted */

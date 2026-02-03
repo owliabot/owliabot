@@ -30,7 +30,7 @@ telegram:
 # Discord (optional)
 discord:
   token: ${DISCORD_BOT_TOKEN}
-  # allowList: # Discord user IDs allowed to talk to the bot
+  # memberAllowList: # Discord user IDs allowed to talk to the bot
   #   - "123456789012345678"
 
   # channelAllowList: # Guild channel IDs where bot can respond without being mentioned
