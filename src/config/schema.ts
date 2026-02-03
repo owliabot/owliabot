@@ -76,6 +76,27 @@ const groupSchema = z
   })
   .default({ activation: "mention" });
 
+const memorySearchSchema = z
+  .object({
+    enabled: z.boolean().default(false),
+    provider: z.enum(["openai", "gemini", "local"]).default("openai"),
+    model: z.string().optional(),
+    fallback: z.enum(["openai", "gemini", "local", "none"]).default("none"),
+    store: z
+      .object({
+        path: z.string().default("~/.owliabot/memory/{agentId}.sqlite"),
+      })
+      .default({ path: "~/.owliabot/memory/{agentId}.sqlite" }),
+    extraPaths: z.array(z.string()).default([]),
+  })
+  .default({
+    enabled: false,
+    provider: "openai",
+    fallback: "none",
+    store: { path: "~/.owliabot/memory/{agentId}.sqlite" },
+    extraPaths: [],
+  });
+
 export const configSchema = z.object({
   // AI providers
   providers: z.array(providerSchema).min(1),
@@ -108,6 +129,9 @@ export const configSchema = z.object({
 
   // Skills
   skills: skillsConfigSchema.optional(),
+
+  // Memory search (OpenClaw-style; PR3-1 scaffold)
+  memorySearch: memorySearchSchema,
 
   // Gateway HTTP (optional)
   gateway: z
