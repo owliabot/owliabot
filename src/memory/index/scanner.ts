@@ -12,7 +12,12 @@ function toPosix(p: string): string {
 
 async function listMarkdownFilesRecursive(dirAbs: string, dirRel: string): Promise<ScanResult[]> {
   const out: ScanResult[] = [];
-  const entries = await readdir(dirAbs, { withFileTypes: true });
+  let entries;
+  try {
+    entries = await readdir(dirAbs, { withFileTypes: true });
+  } catch {
+    return out;
+  }
 
   for (const entry of entries) {
     const abs = path.join(dirAbs, entry.name);
@@ -20,8 +25,12 @@ async function listMarkdownFilesRecursive(dirAbs: string, dirRel: string): Promi
 
     if (entry.isDirectory()) {
       // ignore symlink directories
-      const st = await lstat(abs);
-      if (st.isSymbolicLink()) continue;
+      try {
+        const st = await lstat(abs);
+        if (st.isSymbolicLink()) continue;
+      } catch {
+        continue;
+      }
       out.push(...(await listMarkdownFilesRecursive(abs, rel)));
       continue;
     }
@@ -29,8 +38,12 @@ async function listMarkdownFilesRecursive(dirAbs: string, dirRel: string): Promi
     if (!entry.isFile()) continue;
     if (!entry.name.endsWith(".md")) continue;
 
-    const st = await lstat(abs);
-    if (st.isSymbolicLink()) continue;
+    try {
+      const st = await lstat(abs);
+      if (st.isSymbolicLink()) continue;
+    } catch {
+      continue;
+    }
 
     out.push({ absPath: abs, relPath: rel });
   }
@@ -88,7 +101,12 @@ export async function listMemoryFiles(params: {
     }
   }
 
-  // Stable ordering
-  out.sort((a, b) => a.relPath.localeCompare(b.relPath));
-  return out;
+  // Deduplicate by relPath and stable ordering
+  const byPath = new Map<string, ScanResult>();
+  for (const entry of out) {
+    byPath.set(entry.relPath, entry);
+  }
+  const deduped = Array.from(byPath.values());
+  deduped.sort((a, b) => a.relPath.localeCompare(b.relPath));
+  return deduped;
 }
