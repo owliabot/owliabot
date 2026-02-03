@@ -18,10 +18,11 @@ function expandTilde(p: string): string {
 function safeFileToken(input: string): string {
   const trimmed = (input ?? "").trim();
   if (!trimmed) return "default";
-  return trimmed
+  const sanitized = trimmed
     .replace(/[^a-zA-Z0-9._-]/g, "-")
     .replace(/-+/g, "-")
     .replace(/^[-.]+|[-.]+$/g, "");
+  return sanitized || "default";
 }
 
 export function resolveMemoryStorePath(params: {
