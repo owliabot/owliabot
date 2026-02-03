@@ -181,15 +181,16 @@ async function handleMessage(
     ...history,
   ];
 
-  while (iteration < MAX_ITERATIONS) {
-    iteration++;
-    log.debug(`Agentic loop iteration ${iteration}`);
+  try {
+    while (iteration < MAX_ITERATIONS) {
+      iteration++;
+      log.debug(`Agentic loop iteration ${iteration}`);
 
-    // Call LLM with tools
-    const providers: LLMProvider[] = config.providers;
-    const response = await callWithFailover(providers, conversationMessages, {
-      tools: tools.getAll(),
-    });
+      // Call LLM with tools
+      const providers: LLMProvider[] = config.providers;
+      const response = await callWithFailover(providers, conversationMessages, {
+        tools: tools.getAll(),
+      });
 
     // If no tool calls, we're done
     if (!response.toolCalls || response.toolCalls.length === 0) {
@@ -229,12 +230,23 @@ async function handleMessage(
       } as ToolResult;
     });
 
-    conversationMessages.push({
-      role: "user",
-      content: "", // Content is empty, tool results are in toolResults array
-      timestamp: Date.now(),
-      toolResults: toolResultsArray,
-    });
+      conversationMessages.push({
+        role: "user",
+        content: "", // Content is empty, tool results are in toolResults array
+        timestamp: Date.now(),
+        toolResults: toolResultsArray,
+      });
+    }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+
+    // Provide a user-visible hint for missing provider keys / auth.
+    if (message.includes("No API key found for anthropic")) {
+      finalContent =
+        "⚠️ Anthropic 未授权：请先运行 `owliabot auth setup`（或设置 `ANTHROPIC_API_KEY`），然后再试一次。";
+    } else {
+      finalContent = `⚠️ 处理失败：${message}`;
+    }
   }
 
   if (!finalContent && iteration >= MAX_ITERATIONS) {
