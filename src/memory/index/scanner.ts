@@ -101,11 +101,17 @@ export async function listMemoryFiles(params: {
     }
   }
 
-  // Deduplicate by relPath and stable ordering
+  // Deduplicate by relPath and stable ordering.
+  // Precedence rule: core memory sources (MEMORY.md + memory/) win over extraPaths.
   const byPath = new Map<string, ScanResult>();
+
+  // Core sources were pushed first into `out`. Only set if missing.
   for (const entry of out) {
-    byPath.set(entry.relPath, entry);
+    if (!byPath.has(entry.relPath)) {
+      byPath.set(entry.relPath, entry);
+    }
   }
+
   const deduped = Array.from(byPath.values());
   deduped.sort((a, b) => a.relPath.localeCompare(b.relPath));
   return deduped;

@@ -55,8 +55,9 @@ export function chunkMarkdown(params: {
 
     const isParagraphBreak = line.trim() === "";
     const shouldCut = bufChars >= targetChars && isParagraphBreak;
+    const hardCut = bufChars >= targetChars * 2;
 
-    if (shouldCut) {
+    if (shouldCut || hardCut) {
       const endLine = i + 1;
       const chunkStart = startLine;
       flush(chunkStart, endLine);
