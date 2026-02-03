@@ -14,6 +14,8 @@ import {
   getOAuthStatus,
   clearOAuthCredentials,
 } from "./auth/oauth.js";
+import { runOnboarding } from "./onboarding/onboard.js";
+import { DEV_APP_CONFIG_PATH } from "./onboarding/storage.js";
 
 const log = logger;
 
@@ -25,7 +27,11 @@ program
 program
   .command("start")
   .description("Start the bot")
-  .option("-c, --config <path>", "Config file path", "config.yaml")
+  .option(
+    "-c, --config <path>",
+    "Config file path (default: ~/.owlia_dev/app.yaml)",
+    "~/.owlia_dev/app.yaml"
+  )
   .action(async (options) => {
     try {
       log.info("Starting OwliaBot...");
@@ -60,6 +66,58 @@ program
       log.info("OwliaBot is running. Press Ctrl+C to stop.");
     } catch (err) {
       log.error("Failed to start", err);
+      process.exit(1);
+    }
+  });
+
+program
+  .command("onboard")
+  .description("Interactive onboarding (dev): writes ~/.owlia_dev/app.yaml and guides OAuth")
+  .option("--path <path>", "App config output path", DEV_APP_CONFIG_PATH)
+  .action(async (options) => {
+    try {
+      await runOnboarding({ appConfigPath: options.path });
+    } catch (err) {
+      log.error("Onboarding failed", err);
+      process.exit(1);
+    }
+  });
+
+// Token command group (stores tokens to ~/.owlia_dev/secrets.yaml)
+const token = program.command("token").description("Manage channel tokens (stored on disk)");
+
+token
+  .command("set")
+  .description("Set a channel token from environment variables")
+  .argument("<channel>", "discord|telegram")
+  .action(async (channel: string) => {
+    try {
+      const { saveSecrets } = await import("./onboarding/secrets.js");
+      const appConfigPath = DEV_APP_CONFIG_PATH;
+
+      if (channel === "discord") {
+        const value = process.env.DISCORD_BOT_TOKEN;
+        if (!value) {
+          throw new Error("DISCORD_BOT_TOKEN env not set");
+        }
+        await saveSecrets(appConfigPath, { discord: { token: value } });
+        log.info("Discord token saved to ~/.owlia_dev/secrets.yaml");
+        return;
+      }
+
+      if (channel === "telegram") {
+        const value = process.env.TELEGRAM_BOT_TOKEN;
+        if (!value) {
+          throw new Error("TELEGRAM_BOT_TOKEN env not set");
+        }
+        await saveSecrets(appConfigPath, { telegram: { token: value } });
+        log.info("Telegram token saved to ~/.owlia_dev/secrets.yaml");
+        return;
+      }
+
+      throw new Error("Unknown channel. Use: discord|telegram");
+    } catch (err) {
+      log.error("Failed to set token", err);
       process.exit(1);
     }
   });

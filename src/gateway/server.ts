@@ -27,7 +27,6 @@ import {
   createMemorySearchTool,
   createMemoryGetTool,
   createListFilesTool,
-  createEditFileTool,
 } from "../agent/tools/builtin/index.js";
 import type { ToolResult } from "../agent/tools/interface.js";
 import { createCronService } from "../cron/service.js";
@@ -60,7 +59,7 @@ export async function startGateway(
   tools.register(createMemorySearchTool(config.workspace));
   tools.register(createMemoryGetTool(config.workspace));
   tools.register(createListFilesTool(config.workspace));
-  tools.register(createEditFileTool(config.workspace));
+  // NOTE: write tools are disabled for now (Phase 1.5) until we add confirmation/permission gates.
 
   // Load skills if enabled
   const skillsEnabled = config.skills?.enabled ?? true;
@@ -70,7 +69,7 @@ export async function startGateway(
   }
 
   // Register Telegram if configured
-  if (config.telegram) {
+  if (config.telegram && config.telegram.token) {
     const telegram = createTelegramPlugin({
       token: config.telegram.token,
       allowList: config.telegram.allowList,
@@ -84,10 +83,12 @@ export async function startGateway(
   }
 
   // Register Discord if configured
-  if (config.discord) {
+  if (config.discord && config.discord.token) {
     const discord = createDiscordPlugin({
       token: config.discord.token,
-      allowList: config.discord.allowList,
+      memberAllowList: config.discord.memberAllowList,
+      channelAllowList: config.discord.channelAllowList,
+      requireMentionInGuild: config.discord.requireMentionInGuild,
     });
 
     discord.onMessage(async (ctx) => {
@@ -95,6 +96,13 @@ export async function startGateway(
     });
 
     channels.register(discord);
+  }
+
+  if (config.telegram && !config.telegram.token) {
+    log.warn("Telegram configured but token missing; skipping Telegram channel startup");
+  }
+  if (config.discord && !config.discord.token) {
+    log.warn("Discord configured but token missing; skipping Discord channel startup");
   }
 
   // Start all channels
@@ -138,7 +146,9 @@ async function handleMessage(
   channels: ChannelRegistry,
   tools: ToolRegistry
 ): Promise<void> {
-  const sessionKey: SessionKey = `${ctx.channel}:${ctx.from}`;
+  const conversationId =
+    ctx.chatType === "direct" ? ctx.from : ctx.groupId ?? ctx.from;
+  const sessionKey: SessionKey = `${ctx.channel}:${conversationId}`;
 
   log.info(`Message from ${sessionKey}: ${ctx.body.slice(0, 50)}...`);
 
@@ -171,15 +181,16 @@ async function handleMessage(
     ...history,
   ];
 
-  while (iteration < MAX_ITERATIONS) {
-    iteration++;
-    log.debug(`Agentic loop iteration ${iteration}`);
+  try {
+    while (iteration < MAX_ITERATIONS) {
+      iteration++;
+      log.debug(`Agentic loop iteration ${iteration}`);
 
-    // Call LLM with tools
-    const providers: LLMProvider[] = config.providers;
-    const response = await callWithFailover(providers, conversationMessages, {
-      tools: tools.getAll(),
-    });
+      // Call LLM with tools
+      const providers: LLMProvider[] = config.providers;
+      const response = await callWithFailover(providers, conversationMessages, {
+        tools: tools.getAll(),
+      });
 
     // If no tool calls, we're done
     if (!response.toolCalls || response.toolCalls.length === 0) {
@@ -219,12 +230,23 @@ async function handleMessage(
       } as ToolResult;
     });
 
-    conversationMessages.push({
-      role: "user",
-      content: "", // Content is empty, tool results are in toolResults array
-      timestamp: Date.now(),
-      toolResults: toolResultsArray,
-    });
+      conversationMessages.push({
+        role: "user",
+        content: "", // Content is empty, tool results are in toolResults array
+        timestamp: Date.now(),
+        toolResults: toolResultsArray,
+      });
+    }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+
+    // Provide a user-visible hint for missing provider keys / auth.
+    if (message.includes("No API key found for anthropic")) {
+      finalContent =
+        "⚠️ Anthropic 未授权：请先运行 `owliabot auth setup`（或设置 `ANTHROPIC_API_KEY`），然后再试一次。";
+    } else {
+      finalContent = `⚠️ 处理失败：${message}`;
+    }
   }
 
   if (!finalContent && iteration >= MAX_ITERATIONS) {
@@ -245,7 +267,8 @@ async function handleMessage(
   // Send response
   const channel = channels.get(ctx.channel);
   if (channel) {
-    await channel.send(ctx.from, {
+    const target = ctx.chatType === "direct" ? ctx.from : ctx.groupId ?? ctx.from;
+    await channel.send(target, {
       text: finalContent,
       replyToId: ctx.messageId,
     });

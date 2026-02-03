@@ -30,8 +30,13 @@ telegram:
 # Discord (optional)
 discord:
   token: ${DISCORD_BOT_TOKEN}
-  # allowList:
+  # memberAllowList: # Discord user IDs allowed to talk to the bot
   #   - "123456789012345678"
+
+  # channelAllowList: # Guild channel IDs where bot can respond without being mentioned
+  #   - "1467915124764573736"  # #🦉｜oliwabot-core
+
+  # requireMentionInGuild: true  # default true: in guild, respond only when mentioned OR channel is allowlisted
 
 # Notifications - where to send proactive messages
 notifications:
