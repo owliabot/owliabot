@@ -22,7 +22,14 @@ export async function loadConfig(path: string): Promise<Config> {
   const raw = parse(content);
 
   // Expand environment variables
-  const expanded = expandEnvVars(raw);
+  const expanded = expandEnvVars(raw) as any;
+
+  // Backward-compat: map deprecated discord.requireMentionInGuild -> group.activation
+  // If group.activation is explicitly set, it wins.
+  if (expanded?.group?.activation === undefined && expanded?.discord?.requireMentionInGuild !== undefined) {
+    expanded.group = expanded.group ?? {};
+    expanded.group.activation = expanded.discord.requireMentionInGuild ? "mention" : "always";
+  }
 
   // Validate with Zod
   const config = configSchema.parse(expanded);

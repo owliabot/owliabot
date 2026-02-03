@@ -235,6 +235,14 @@ async function handleMessage(
     // The runner will convert this to pi-ai's ToolResultMessage format
     const toolResultsArray = response.toolCalls.map((call) => {
       const result = toolResults.get(call.id);
+      if (!result) {
+        return {
+          success: false,
+          error: "Missing tool result",
+          toolCallId: call.id,
+          toolName: call.name,
+        } as ToolResult;
+      }
       return {
         ...result,
         toolCallId: call.id,
