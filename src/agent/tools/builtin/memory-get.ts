@@ -2,8 +2,9 @@
  * Memory get tool - retrieve specific lines from a file
  */
 
-import { lstat, readFile } from "node:fs/promises";
-import { join, relative, resolve } from "node:path";
+import { constants } from "node:fs";
+import { lstat, open, readFile, realpath } from "node:fs/promises";
+import { relative, resolve } from "node:path";
 import type { ToolDefinition } from "../interface.js";
 
 export function createMemoryGetTool(workspacePath: string): ToolDefinition {
@@ -52,25 +53,40 @@ export function createMemoryGetTool(workspacePath: string): ToolDefinition {
         if (raw.includes("\0")) return null;
         if (!raw.endsWith(".md")) return null;
 
+        // Basic lexical containment (fast check)
         const absWorkspace = resolve(workspacePath);
         const absPath = resolve(workspacePath, raw);
         const rel = relative(absWorkspace, absPath).replace(/\\/g, "/");
-
         const inWorkspace = rel.length > 0 && !rel.startsWith("..");
         if (!inWorkspace) return null;
 
+        // Allowed roots: MEMORY.md or memory/**
         const isAllowed = rel === "MEMORY.md" || rel.startsWith("memory/");
         if (!isAllowed) return null;
 
+        // If the file exists, enforce *realpath* containment to prevent symlink-dir escapes.
+        // (If it doesn't exist, we allow it to fall through to ENOENT in the read step.)
         try {
           const stat = await lstat(absPath);
           if (stat.isSymbolicLink() || !stat.isFile()) return null;
-        } catch {
-          // Allowed path but missing is handled later as ENOENT
-          return { absPath, relPath: rel };
-        }
 
-        return { absPath, relPath: rel };
+          const realWorkspace = await realpath(absWorkspace);
+          const realTarget = await realpath(absPath);
+          const realRel = relative(realWorkspace, realTarget).replace(/\\/g, "/");
+          const realInWorkspace = realRel.length > 0 && !realRel.startsWith("..");
+          if (!realInWorkspace) return null;
+          const realAllowed = realRel === "MEMORY.md" || realRel.startsWith("memory/");
+          if (!realAllowed) return null;
+
+          return { absPath: realTarget, relPath: realRel };
+        } catch (err) {
+          const code = (err as NodeJS.ErrnoException).code;
+          if (code === "ENOENT") {
+            return { absPath, relPath: rel };
+          }
+          // Fail closed for other errors (EACCES/EPERM/etc)
+          return null;
+        }
       };
 
       const resolved = await resolveAllowedPath();
@@ -82,7 +98,20 @@ export function createMemoryGetTool(workspacePath: string): ToolDefinition {
       const lineCount = num_lines ?? 20;
 
       try {
-        const content = await readFile(resolved.absPath, "utf-8");
+        // Mitigate TOCTOU: open with O_NOFOLLOW (best-effort; Linux supported).
+        // If the OS doesn't support O_NOFOLLOW or the target is swapped, this may still fail.
+        let content: string;
+        try {
+          const fh = await open(resolved.absPath, constants.O_RDONLY | constants.O_NOFOLLOW);
+          try {
+            content = await fh.readFile({ encoding: "utf-8" });
+          } finally {
+            await fh.close();
+          }
+        } catch (err) {
+          // Fallback (e.g., O_NOFOLLOW unsupported) to plain readFile.
+          content = await readFile(resolved.absPath, "utf-8");
+        }
         const lines = content.split("\n");
         const endLine = Math.min(startLine + lineCount, lines.length);
         const selectedLines = lines.slice(startLine, endLine);

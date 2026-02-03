@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { mkdtemp, mkdir, symlink, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createMemoryGetTool } from "./memory-get.js";
 
 describe("memory_get tool security boundary", () => {
-  it("allows reading MEMORY.md and memory/**/*.md, blocks everything else", async () => {
+  it("allows reading MEMORY.md and memory/**/*.md, blocks other workspace files", async () => {
     const dir = await mkdtemp(join(tmpdir(), "owliabot-memget-"));
 
     // Allowed files
@@ -13,10 +13,10 @@ describe("memory_get tool security boundary", () => {
     await mkdir(join(dir, "memory"), { recursive: true });
     await writeFile(join(dir, "memory", "a.md"), "a1\na2\na3", "utf-8");
 
-    // Disallowed: outside allowed roots
+    // Disallowed: outside allowed roots but still inside workspace
     await writeFile(join(dir, "NOTES.md"), "nope", "utf-8");
 
-    // Disallowed: symlink within allowed root
+    // Disallowed: symlink within allowed root (file)
     const target = join(dir, "MEMORY.md");
     const link = join(dir, "memory", "link.md");
     await symlink(target, link);
@@ -48,9 +48,27 @@ describe("memory_get tool security boundary", () => {
     expect(bad3.success).toBe(false);
     expect((bad3 as any).error).toBe("path required");
 
-    // Blocked: symlink
+    // Blocked: symlink file
     const bad4 = await tool.execute({ path: "memory/link.md" });
     expect(bad4.success).toBe(false);
     expect((bad4 as any).error).toBe("path required");
+  });
+
+  it("blocks symlinked memory/ directory that points outside the workspace", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "owliabot-memget-"));
+    const outside = await mkdtemp(join(tmpdir(), "owliabot-memget-outside-"));
+
+    await writeFile(join(outside, "secret.md"), "SECRET", "utf-8");
+
+    // Replace workspace memory/ dir with a symlink to outside
+    await mkdir(join(dir, "memory"), { recursive: true });
+    await rm(join(dir, "memory"), { recursive: true, force: true });
+    await symlink(outside, join(dir, "memory"));
+
+    const tool = createMemoryGetTool(dir);
+
+    const res = await tool.execute({ path: "memory/secret.md" });
+    expect(res.success).toBe(false);
+    expect((res as any).error).toBe("path required");
   });
 });
