@@ -112,8 +112,10 @@ Key sections in `config.yaml`:
   - `session.mainKey`: the DM bucket name (default `main`)
   - `session.scope`: `per-agent` (default) or `global`
 - `group.activation`: group chat activation mode
-  - `mention` (default): only respond when explicitly mentioned (`ctx.mentioned`) (Discord), or when the channel is allowlisted
-  - `always`: respond to all messages in group chats (consider `discord.channelAllowList` to avoid spam)
+  - `mention` (default): only respond when explicitly mentioned (`ctx.mentioned`) or when the channel/group is allowlisted
+    - Discord: `ctx.mentioned` is true when you mention the bot (@bot)
+    - Telegram groups: `ctx.mentioned` is true when you reply to the bot, @botusername, or use a /command (optionally /command@bot)
+  - `always`: respond to all messages in group chats (consider allowlists to avoid spam)
 
 Common environment variables:
 

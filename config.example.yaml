@@ -26,6 +26,8 @@ telegram:
   token: ${TELEGRAM_BOT_TOKEN}
   # allowList:
   #   - "883499266"
+  # groupAllowList: # Telegram group IDs where bot can respond without mention triggers
+  #   - "-1001234567890"
 
 # Discord (optional)
 discord:
@@ -44,6 +46,9 @@ notifications:
 
 # Workspace path (default: ./workspace)
 workspace: ./workspace
+
+# Timezone used in prompts (default: UTC)
+timezone: UTC
 
 # Heartbeat (optional)
 heartbeat:
