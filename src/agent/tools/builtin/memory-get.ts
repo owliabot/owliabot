@@ -53,7 +53,7 @@ export function createMemoryGetTool(workspacePath: string): ToolDefinition {
         if (raw.includes("\0")) return null;
         if (!raw.endsWith(".md")) return null;
 
-        // Basic lexical containment (fast check)
+        // Resolve and ensure the *lexical* path is within workspace.
         const absWorkspace = resolve(workspacePath);
         const absPath = resolve(workspacePath, raw);
         const rel = relative(absWorkspace, absPath).replace(/\\/g, "/");
@@ -64,8 +64,19 @@ export function createMemoryGetTool(workspacePath: string): ToolDefinition {
         const isAllowed = rel === "MEMORY.md" || rel.startsWith("memory/");
         if (!isAllowed) return null;
 
-        // If the file exists, enforce *realpath* containment to prevent symlink-dir escapes.
-        // (If it doesn't exist, we allow it to fall through to ENOENT in the read step.)
+        // Fail-closed on symlink directory escapes: validate realpath of workspace + parent directory
+        // (works even when the file itself doesn't exist yet).
+        try {
+          const realWorkspace = await realpath(absWorkspace);
+          const realParent = await realpath(resolve(absPath, ".."));
+          const parentRel = relative(realWorkspace, realParent).replace(/\\/g, "/");
+          const parentInWorkspace = parentRel.length >= 0 && !parentRel.startsWith("..");
+          if (!parentInWorkspace) return null;
+        } catch {
+          return null;
+        }
+
+        // If file exists, require it to be a non-symlink file and use its real path.
         try {
           const stat = await lstat(absPath);
           if (stat.isSymbolicLink() || !stat.isFile()) return null;
@@ -82,9 +93,9 @@ export function createMemoryGetTool(workspacePath: string): ToolDefinition {
         } catch (err) {
           const code = (err as NodeJS.ErrnoException).code;
           if (code === "ENOENT") {
+            // Allowed path but missing is handled later as ENOENT
             return { absPath, relPath: rel };
           }
-          // Fail closed for other errors (EACCES/EPERM/etc)
           return null;
         }
       };
@@ -109,7 +120,11 @@ export function createMemoryGetTool(workspacePath: string): ToolDefinition {
             await fh.close();
           }
         } catch (err) {
-          // Fallback (e.g., O_NOFOLLOW unsupported) to plain readFile.
+          const code = (err as NodeJS.ErrnoException).code;
+          // Only fallback on platforms/filesystems that don't support O_NOFOLLOW.
+          // Never fallback for symlink-related errors (e.g., ELOOP) or permission errors.
+          const okToFallback = code === "EINVAL" || code === "ENOSYS" || code === "EOPNOTSUPP";
+          if (!okToFallback) throw err;
           content = await readFile(resolved.absPath, "utf-8");
         }
         const lines = content.split("\n");
