@@ -39,8 +39,8 @@ export function buildSystemPrompt(ctx: PromptContext): string {
   // 6. MEMORY.md - Long-term memory
   // Security boundary: NEVER inject long-term memory into non-direct contexts.
   // (OpenClaw-style: MEMORY.md is private-only)
-  const isGroup = ctx.chatType !== "direct";
-  if (!isGroup && ctx.workspace.memory) {
+  const isNonDirect = ctx.chatType !== "direct";
+  if (!isNonDirect && ctx.workspace.memory) {
     sections.push(`## Memory\n${ctx.workspace.memory}`);
   }
 

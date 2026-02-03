@@ -22,7 +22,7 @@ export interface SessionEntry {
   updatedAt: number;
   // Optional metadata (v1 doesn't require)
   channel?: string;
-  chatType?: string;
+  chatType?: "direct" | "group" | "channel";
   groupId?: string;
   displayName?: string;
 }
