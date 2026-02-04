@@ -27,7 +27,13 @@ import {
   createMemorySearchTool,
   createMemoryGetTool,
   createListFilesTool,
+  createEditFileTool,
 } from "../agent/tools/builtin/index.js";
+import {
+  WriteGateReplyRouter,
+  createWriteGateChannelAdapter,
+} from "../security/write-gate-adapter.js";
+import type { WriteGateChannel } from "../security/write-gate.js";
 import type { ToolResult } from "../agent/tools/interface.js";
 import { createCronService } from "../cron/service.js";
 import { executeHeartbeat } from "../cron/heartbeat.js";
@@ -59,7 +65,7 @@ export async function startGateway(
   tools.register(createMemorySearchTool(config.workspace));
   tools.register(createMemoryGetTool(config.workspace));
   tools.register(createListFilesTool(config.workspace));
-  // NOTE: write tools are disabled for now (Phase 1.5) until we add confirmation/permission gates.
+  tools.register(createEditFileTool(config.workspace));
 
   // Load skills if enabled
   const skillsEnabled = config.skills?.enabled ?? true;
@@ -68,6 +74,12 @@ export async function startGateway(
     await initializeSkills(skillsDir, tools);
   }
 
+  // WriteGate reply router (shared across all channels)
+  const replyRouter = new WriteGateReplyRouter();
+
+  // Map channel id → WriteGateChannel adapter
+  const writeGateChannels = new Map<string, WriteGateChannel>();
+
   // Register Telegram if configured
   if (config.telegram && config.telegram.token) {
     const telegram = createTelegramPlugin({
@@ -75,8 +87,11 @@ export async function startGateway(
       allowList: config.telegram.allowList,
     });
 
+    writeGateChannels.set("telegram", createWriteGateChannelAdapter(telegram, replyRouter));
+
     telegram.onMessage(async (ctx) => {
-      await handleMessage(ctx, config, workspace, sessions, channels, tools);
+      if (replyRouter.tryRoute(ctx)) return; // confirmation reply consumed
+      await handleMessage(ctx, config, workspace, sessions, channels, tools, writeGateChannels);
     });
 
     channels.register(telegram);
@@ -91,8 +106,11 @@ export async function startGateway(
       requireMentionInGuild: config.discord.requireMentionInGuild,
     });
 
+    writeGateChannels.set("discord", createWriteGateChannelAdapter(discord, replyRouter));
+
     discord.onMessage(async (ctx) => {
-      await handleMessage(ctx, config, workspace, sessions, channels, tools);
+      if (replyRouter.tryRoute(ctx)) return; // confirmation reply consumed
+      await handleMessage(ctx, config, workspace, sessions, channels, tools, writeGateChannels);
     });
 
     channels.register(discord);
@@ -144,7 +162,8 @@ async function handleMessage(
   workspace: WorkspaceFiles,
   sessions: ReturnType<typeof createSessionManager>,
   channels: ChannelRegistry,
-  tools: ToolRegistry
+  tools: ToolRegistry,
+  writeGateChannels: Map<string, WriteGateChannel>,
 ): Promise<void> {
   const conversationId =
     ctx.chatType === "direct" ? ctx.from : ctx.groupId ?? ctx.from;
@@ -209,6 +228,10 @@ async function handleMessage(
         signer: null,
         config: {},
       },
+      writeGateChannel: writeGateChannels.get(ctx.channel),
+      securityConfig: config.security,
+      workspacePath: config.workspace,
+      userId: ctx.from,
     });
 
     // Add assistant message with tool calls to conversation

@@ -30,6 +30,12 @@ export const discordConfigSchema = z.object({
   requireMentionInGuild: z.boolean().default(true),
 });
 
+export const securitySchema = z.object({
+  writeToolAllowList: z.array(z.string()).default([]),
+  writeToolConfirmation: z.boolean().default(true),
+  writeToolConfirmationTimeoutMs: z.number().int().default(60_000),
+});
+
 export const notificationsSchema = z.object({
   channel: z.string(), // e.g., "telegram:883499266"
 });
@@ -76,6 +82,9 @@ export const configSchema = z.object({
       cron: z.string().default("0 * * * *"), // hourly
     })
     .optional(),
+
+  // Security
+  security: securitySchema.optional(),
 
   // Skills
   skills: skillsConfigSchema.optional(),
