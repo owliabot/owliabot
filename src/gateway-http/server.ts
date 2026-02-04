@@ -4,6 +4,8 @@ import { executeToolCalls } from "../agent/tools/executor.js";
 import type { ToolCall, ToolResult } from "../agent/tools/interface.js";
 import { createGatewayToolRegistry } from "./tooling.js";
 import { hashRequest, hashToken, isIpAllowed } from "./utils.js";
+import { executeSystemRequest } from "../system/executor.js";
+import type { SystemCapabilityConfig } from "../system/interface.js";
 
 export interface GatewayHttpConfig {
   host: string;
@@ -19,6 +21,7 @@ export interface GatewayHttpConfig {
 export async function startGatewayHttp(opts: {
   config: GatewayHttpConfig;
   workspacePath?: string;
+  system?: SystemCapabilityConfig;
 }) {
   const store = createStore(opts.config.sqlitePath);
   const tools = await createGatewayToolRegistry(
@@ -260,6 +263,117 @@ export async function startGatewayHttp(opts: {
       });
 
       const responsePayload = { ok: true, data: { results } };
+      sendJson(res, 200, responsePayload);
+      if (idempotencyKey) {
+        store.saveIdempotency(
+          idempotencyKey,
+          requestHash,
+          responsePayload,
+          now + opts.config.idempotencyTtlMs
+        );
+      }
+      return;
+    }
+
+    if (url.pathname === "/command/system" && req.method === "POST") {
+      const deviceId = getHeader(req, "x-device-id");
+      const deviceToken = getHeader(req, "x-device-token");
+      if (!deviceId || !deviceToken) {
+        sendJson(res, 401, {
+          ok: false,
+          error: { code: "ERR_UNAUTHORIZED", message: "Missing device auth" },
+        });
+        return;
+      }
+      const device = store.getDevice(deviceId);
+      if (!device || device.revokedAt || !device.tokenHash) {
+        sendJson(res, 401, {
+          ok: false,
+          error: { code: "ERR_UNAUTHORIZED", message: "Device not paired" },
+        });
+        return;
+      }
+      if (hashToken(deviceToken) !== device.tokenHash) {
+        sendJson(res, 401, {
+          ok: false,
+          error: { code: "ERR_UNAUTHORIZED", message: "Invalid device token" },
+        });
+        return;
+      }
+
+      let rawBody = "";
+      let body: any;
+      try {
+        rawBody = await readBodyString(req);
+        body = rawBody ? JSON.parse(rawBody) : null;
+      } catch {
+        sendJson(res, 400, {
+          ok: false,
+          error: { code: "ERR_INVALID_REQUEST", message: "Invalid JSON" },
+        });
+        return;
+      }
+
+      const now = Date.now();
+      const idempotencyKey = getHeader(req, "idempotency-key");
+      const requestHash = hashRequest(
+        req.method ?? "POST",
+        url.pathname,
+        rawBody,
+        deviceId
+      );
+      if (idempotencyKey) {
+        const cached = store.getIdempotency(idempotencyKey);
+        if (
+          cached &&
+          cached.requestHash === requestHash &&
+          cached.expiresAt > now
+        ) {
+          res.writeHead(200, { "content-type": "application/json" });
+          res.end(cached.responseJson);
+          return;
+        }
+      }
+
+      const { allowed, resetAt } = store.checkRateLimit(
+        `device:${deviceId}`,
+        opts.config.rateLimit.windowMs,
+        opts.config.rateLimit.max,
+        now
+      );
+      if (!allowed) {
+        sendJson(res, 429, {
+          ok: false,
+          error: {
+            code: "ERR_RATE_LIMIT",
+            message: "Too many requests",
+          },
+          resetAt,
+        });
+        return;
+      }
+
+      const result = await executeSystemRequest(
+        body,
+        {
+          workspacePath: opts.workspacePath ?? process.cwd(),
+          fetchImpl: fetch,
+        },
+        opts.system
+      );
+
+      const eventTime = Date.now();
+      store.insertEvent({
+        type: "command.system",
+        time: eventTime,
+        status: result.success ? "success" : "error",
+        source: deviceId,
+        message: "system action executed",
+        metadataJson: JSON.stringify({ result }),
+        expiresAt: eventTime + opts.config.eventTtlMs,
+      });
+
+      const responsePayload = { ok: true, data: { result } };
       sendJson(res, 200, responsePayload);
       if (idempotencyKey) {
         store.saveIdempotency(

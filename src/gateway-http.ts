@@ -9,4 +9,5 @@ if (!config.gateway?.http) {
 await startGatewayHttp({
   config: config.gateway.http,
   workspacePath: config.workspace,
+  system: config.system,
 });

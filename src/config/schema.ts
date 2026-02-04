@@ -39,6 +39,85 @@ export const securitySchema = z.object({
   writeToolConfirmationTimeoutMs: z.number().int().default(60_000),
 });
 
+// System Capability (exec / web.fetch / web.search)
+export const systemCapabilitySchema = z
+  .object({
+    exec: z
+      .object({
+        commandAllowList: z.array(z.string()).default([]),
+        envAllowList: z.array(z.string()).default(["PATH", "LANG"]),
+        timeoutMs: z.number().int().default(60_000),
+        maxOutputBytes: z.number().int().default(256 * 1024),
+      })
+      .default({
+        commandAllowList: [],
+        envAllowList: ["PATH", "LANG"],
+        timeoutMs: 60_000,
+        maxOutputBytes: 256 * 1024,
+      }),
+    web: z
+      .object({
+        domainAllowList: z.array(z.string()).default([]),
+        domainDenyList: z.array(z.string()).default([]),
+        allowPrivateNetworks: z.boolean().default(false),
+        timeoutMs: z.number().int().default(15_000),
+        maxResponseBytes: z.number().int().default(512 * 1024),
+        userAgent: z.string().optional(),
+        blockOnSecret: z.boolean().default(true),
+      })
+      .default({
+        domainAllowList: [],
+        domainDenyList: [],
+        allowPrivateNetworks: false,
+        timeoutMs: 15_000,
+        maxResponseBytes: 512 * 1024,
+        blockOnSecret: true,
+      }),
+    webSearch: z
+      .object({
+        defaultProvider: z.enum(["brave", "duckduckgo"]).default("duckduckgo"),
+        brave: z
+          .object({
+            apiKey: z.string(),
+            endpoint: z.string().url().optional(),
+          })
+          .optional(),
+        duckduckgo: z
+          .object({
+            endpoint: z.string().url().optional(),
+          })
+          .optional(),
+        timeoutMs: z.number().int().default(15_000),
+        maxResults: z.number().int().default(10),
+      })
+      .default({
+        defaultProvider: "duckduckgo",
+        timeoutMs: 15_000,
+        maxResults: 10,
+      }),
+  })
+  .default({
+    exec: {
+      commandAllowList: [],
+      envAllowList: ["PATH", "LANG"],
+      timeoutMs: 60_000,
+      maxOutputBytes: 256 * 1024,
+    },
+    web: {
+      domainAllowList: [],
+      domainDenyList: [],
+      allowPrivateNetworks: false,
+      timeoutMs: 15_000,
+      maxResponseBytes: 512 * 1024,
+      blockOnSecret: true,
+    },
+    webSearch: {
+      defaultProvider: "duckduckgo",
+      timeoutMs: 15_000,
+      maxResults: 10,
+    },
+  });
+
 export const notificationsSchema = z.object({
   channel: z.string(), // e.g., "telegram:883499266"
 });
@@ -180,6 +259,9 @@ export const configSchema = z.object({
 
   // Security
   security: securitySchema.optional(),
+
+  // System capabilities (exec/web.fetch/web.search)
+  system: systemCapabilitySchema.optional(),
 
   // Skills
   skills: skillsConfigSchema.optional(),

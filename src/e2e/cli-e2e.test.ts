@@ -3,6 +3,7 @@ import { execFile, spawn } from "node:child_process";
 import { promisify } from "node:util";
 import { mkdir, readFile, rm, stat } from "node:fs/promises";
 import { dirname, join } from "node:path";
+import http from "node:http";
 import { parse } from "yaml";
 
 import { loadConfig } from "../config/loader.js";
@@ -165,6 +166,28 @@ describe.sequential("E2E: CLI onboard -> config/secrets -> gateway-http", () => 
           rateLimit: { windowMs: 60_000, max: 60 },
         },
         workspacePath: loaded.workspace,
+        system: {
+          web: {
+            domainAllowList: ["127.0.0.1"],
+            domainDenyList: [],
+            allowPrivateNetworks: true,
+            timeoutMs: 5_000,
+            maxResponseBytes: 128 * 1024,
+            userAgent: "owliabot-e2e",
+            blockOnSecret: true,
+          },
+          exec: {
+            commandAllowList: [],
+            envAllowList: ["PATH", "LANG"],
+            timeoutMs: 30_000,
+            maxOutputBytes: 64 * 1024,
+          },
+          webSearch: {
+            defaultProvider: "duckduckgo",
+            timeoutMs: 10_000,
+            maxResults: 5,
+          },
+        },
       });
 
       // Health
@@ -244,6 +267,48 @@ describe.sequential("E2E: CLI onboard -> config/secrets -> gateway-http", () => 
         expect(json.data.results[0].data.echoed).toBe("hello");
       }
 
+      // System call: web.fetch
+      {
+        const sysSrv = http.createServer((_, res) => {
+          res.writeHead(200, { "content-type": "text/plain" });
+          res.end("system-ok");
+        });
+
+        const port = await new Promise<number>((resolve) => {
+          sysSrv.listen(0, "127.0.0.1", () => {
+            const addr = sysSrv.address();
+            resolve(typeof addr === "object" && addr ? addr.port : 0);
+          });
+        });
+
+        try {
+          const targetUrl = `http://127.0.0.1:${port}/`;
+          const res = await fetch(gateway.baseUrl + "/command/system", {
+            method: "POST",
+            headers: {
+              "content-type": "application/json",
+              "X-Device-Id": deviceId,
+              "X-Device-Token": deviceToken,
+            },
+            body: JSON.stringify({
+              payload: {
+                action: "web.fetch",
+                args: { url: targetUrl },
+                sessionId: "e2e",
+              },
+              security: { level: "read" },
+            }),
+          });
+          expect(res.status).toBe(200);
+          const json: any = await res.json();
+          expect(json.ok).toBe(true);
+          expect(json.data.result.success).toBe(true);
+          expect(json.data.result.data.bodyText).toBe("system-ok");
+        } finally {
+          await new Promise<void>((resolve) => sysSrv.close(() => resolve()));
+        }
+      }
+
       // Events poll
       {
         const res = await fetch(gateway.baseUrl + "/events/poll?since=0");
@@ -252,6 +317,7 @@ describe.sequential("E2E: CLI onboard -> config/secrets -> gateway-http", () => 
         expect(json.ok).toBe(true);
         expect(Array.isArray(json.events)).toBe(true);
         expect(json.events.some((e: any) => e.type === "command.tool")).toBe(true);
+        expect(json.events.some((e: any) => e.type === "command.system")).toBe(true);
       }
 
       // Revoke device -> tool call should be 401
