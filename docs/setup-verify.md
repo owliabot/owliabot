@@ -78,8 +78,8 @@ providers:
 discord:
   token: ${DISCORD_BOT_TOKEN}
   requireMentionInGuild: true          # 默认 true：需要 @提及 才回复
-  channelAllowList:                    # 白名单频道：无需 @提及 也会回复
-    - "1467915124764573736"
+  channelAllowList:                    # 白名单频道（仅 requireMentionInGuild: false 时生效）
+    - "1467915124764573736"            # 设为 false 后，仅允许白名单频道中的消息
   memberAllowList:                     # 允许与 bot 对话的用户 ID
     - "123456789012345678"
 ```
