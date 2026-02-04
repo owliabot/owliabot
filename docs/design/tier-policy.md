@@ -692,7 +692,7 @@ export function resolveEffectiveTier(
     : "none"; // tier none 不需要签名，跳过 signer
   
   return {
-    action: tier === 1 || (policy.requireConfirmation && tier !== "none") ? "confirm" : "allow",
+    action: (tier === 1 || (policy.requireConfirmation && tier !== "none")) ? "confirm" : "allow",
     tier: policy.tier,
     effectiveTier: tier,
     signerTier,
