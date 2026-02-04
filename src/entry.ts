@@ -13,6 +13,8 @@ import {
   startOAuthFlow,
   getOAuthStatus,
   clearOAuthCredentials,
+  getAllOAuthStatus,
+  type SupportedOAuthProvider,
 } from "./auth/oauth.js";
 import { runOnboarding } from "./onboarding/onboard.js";
 import { DEV_APP_CONFIG_PATH } from "./onboarding/storage.js";
@@ -134,12 +136,22 @@ token
 const auth = program.command("auth").description("Manage authentication");
 
 auth
-  .command("setup")
-  .description("Setup OAuth authentication with Claude (Anthropic)")
-  .action(async () => {
+  .command("setup [provider]")
+  .description("Setup OAuth authentication (anthropic or openai-codex)")
+  .action(async (provider?: string) => {
     try {
-      log.info("Starting OAuth setup...");
-      const credentials = await startOAuthFlow();
+      const validProviders: SupportedOAuthProvider[] = ["anthropic", "openai-codex"];
+      const selectedProvider: SupportedOAuthProvider =
+        provider && validProviders.includes(provider as SupportedOAuthProvider)
+          ? (provider as SupportedOAuthProvider)
+          : "anthropic";
+
+      if (provider && !validProviders.includes(provider as SupportedOAuthProvider)) {
+        log.warn(`Unknown provider: ${provider}, defaulting to anthropic`);
+      }
+
+      log.info(`Starting ${selectedProvider} OAuth setup...`);
+      const credentials = await startOAuthFlow(selectedProvider);
       log.info("Authentication successful!");
       log.info(`Token expires at: ${new Date(credentials.expires).toISOString()}`);
       if (credentials.email) {
@@ -152,32 +164,68 @@ auth
   });
 
 auth
-  .command("status")
-  .description("Check authentication status")
-  .action(async () => {
-    const status = await getOAuthStatus();
-
-    if (status.authenticated) {
-      log.info("Authenticated with Anthropic OAuth");
-      // Token is valid (auto-refresh already happened in getOAuthStatus if needed)
-      if (status.expiresAt) {
-        log.info(`Token expires at: ${new Date(status.expiresAt).toISOString()}`);
-      }
-      if (status.email) {
-        log.info(`Account: ${status.email}`);
+  .command("status [provider]")
+  .description("Check authentication status (anthropic, openai-codex, or all)")
+  .action(async (provider?: string) => {
+    if (!provider || provider === "all") {
+      // Show status for all providers
+      const statuses = await getAllOAuthStatus();
+      for (const [prov, status] of Object.entries(statuses)) {
+        if (status.authenticated) {
+          log.info(`${prov}: Authenticated`);
+          if (status.expiresAt) {
+            log.info(`  Expires: ${new Date(status.expiresAt).toISOString()}`);
+          }
+          if (status.email) {
+            log.info(`  Account: ${status.email}`);
+          }
+        } else {
+          log.info(`${prov}: Not authenticated`);
+        }
       }
     } else {
-      log.info("Not authenticated.");
-      log.info("Run 'owliabot auth setup' to authenticate, or set ANTHROPIC_API_KEY.");
+      const validProviders: SupportedOAuthProvider[] = ["anthropic", "openai-codex"];
+      const selectedProvider: SupportedOAuthProvider =
+        validProviders.includes(provider as SupportedOAuthProvider)
+          ? (provider as SupportedOAuthProvider)
+          : "anthropic";
+
+      const status = await getOAuthStatus(selectedProvider);
+
+      if (status.authenticated) {
+        log.info(`Authenticated with ${selectedProvider} OAuth`);
+        if (status.expiresAt) {
+          log.info(`Token expires at: ${new Date(status.expiresAt).toISOString()}`);
+        }
+        if (status.email) {
+          log.info(`Account: ${status.email}`);
+        }
+      } else {
+        log.info(`Not authenticated with ${selectedProvider}.`);
+        log.info(`Run 'owliabot auth setup ${selectedProvider}' to authenticate.`);
+      }
     }
   });
 
 auth
-  .command("logout")
-  .description("Clear stored authentication")
-  .action(async () => {
-    await clearOAuthCredentials();
-    log.info("Logged out successfully");
+  .command("logout [provider]")
+  .description("Clear stored authentication (anthropic, openai-codex, or all)")
+  .action(async (provider?: string) => {
+    const validProviders: SupportedOAuthProvider[] = ["anthropic", "openai-codex"];
+
+    if (!provider || provider === "all") {
+      for (const prov of validProviders) {
+        await clearOAuthCredentials(prov);
+      }
+      log.info("Logged out from all providers");
+    } else {
+      const selectedProvider: SupportedOAuthProvider =
+        validProviders.includes(provider as SupportedOAuthProvider)
+          ? (provider as SupportedOAuthProvider)
+          : "anthropic";
+      await clearOAuthCredentials(selectedProvider);
+      log.info(`Logged out from ${selectedProvider}`);
+    }
   });
 
 await program.parseAsync();

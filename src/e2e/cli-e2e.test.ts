@@ -23,8 +23,10 @@ async function runOnboardCli(opts: { cwd: string; appYamlPath: string; answers: 
   const prompts = [
     "Enable channels (discord/telegram) [discord]: ",
     "Workspace path [./workspace]: ",
-    "Anthropic model [claude-sonnet-4-5]: ",
-    "Use Anthropic OAuth now? (y/n) [n=skip for now]: ",
+    "Select provider (1-3 or name) [anthropic]: ",
+    "Model [claude-sonnet-4-5]: ",
+    "Auth method: (1) OAuth (Claude Pro/Max subscription), (2) API Key [1]: ",
+    "Start Anthropic OAuth now? (y/n) [n=skip for now]: ",
     "In guild, require @mention unless channel allowlisted? (y/n) [y]: ",
     "Discord guild channelAllowList (comma-separated channel IDs) [1467915124764573736]: ",
     "Discord bot token (leave empty to set later via `owliabot token set discord`) [skip]: ",
@@ -109,8 +111,10 @@ describe.sequential("E2E: CLI onboard -> config/secrets -> gateway-http", () => 
         answers: [
           "discord,telegram", // Enable channels
           workspacePath, // Workspace path
-          "", // Anthropic model (default)
-          "n", // Skip OAuth
+          "anthropic", // Provider selection
+          "", // Model (default claude-sonnet-4-5)
+          "1", // Auth method: OAuth
+          "n", // Skip OAuth for now
           "", // requireMentionInGuild (default y)
           "", // channelAllowList (default)
           "test-discord-token-e2e", // Discord token

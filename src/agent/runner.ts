@@ -22,7 +22,11 @@ import { createLogger } from "../utils/logger.js";
 import type { Message } from "./session.js";
 import type { ToolDefinition, ToolCall, ToolResult } from "./tools/interface.js";
 import { resolveModel, type ModelConfig } from "./models.js";
-import { loadOAuthCredentials, saveOAuthCredentials } from "../auth/oauth.js";
+import {
+  loadOAuthCredentials,
+  saveOAuthCredentials,
+  type SupportedOAuthProvider,
+} from "../auth/oauth.js";
 import type { TSchema } from "@sinclair/typebox";
 
 const log = createLogger("runner");
@@ -75,34 +79,44 @@ export class TimeoutError extends Error {
 /**
  * Resolve API key for a provider
  * Critical fix #3: Save refreshed OAuth credentials
+ * @param provider - Provider ID (anthropic, openai, openai-codex)
+ * @param configApiKey - Optional API key from config (loaded from secrets.yaml)
  */
-async function resolveApiKey(provider: string): Promise<string> {
-  // Try environment variable first
+async function resolveApiKey(provider: string, configApiKey?: string): Promise<string> {
+  // Use config API key if provided and valid
+  if (configApiKey && configApiKey !== "oauth" && configApiKey !== "env" && configApiKey !== "secrets") {
+    log.debug(`Using config API key for ${provider}`);
+    return configApiKey;
+  }
+
+  // Try environment variable
   const envKey = getEnvApiKey(provider);
   if (envKey) {
     log.debug(`Using env API key for ${provider}`);
     return envKey;
   }
 
-  // Try OAuth for Anthropic
-  if (provider === "anthropic") {
-    const credentials = await loadOAuthCredentials();
+  // Try OAuth for supported providers
+  const oauthProviders: SupportedOAuthProvider[] = ["anthropic", "openai-codex"];
+  if (oauthProviders.includes(provider as SupportedOAuthProvider)) {
+    const oauthProvider = provider as SupportedOAuthProvider;
+    const credentials = await loadOAuthCredentials(oauthProvider);
     if (credentials) {
-      const result = await getOAuthApiKey("anthropic", { anthropic: credentials });
+      const result = await getOAuthApiKey(oauthProvider, { [oauthProvider]: credentials });
       if (result) {
         // Save refreshed credentials if they changed
         if (result.newCredentials !== credentials) {
-          log.debug("Saving refreshed OAuth credentials");
-          await saveOAuthCredentials(result.newCredentials);
+          log.debug(`Saving refreshed OAuth credentials for ${oauthProvider}`);
+          await saveOAuthCredentials(result.newCredentials, oauthProvider);
         }
-        log.debug("Using OAuth API key for anthropic");
+        log.debug(`Using OAuth API key for ${oauthProvider}`);
         return result.apiKey;
       }
     }
   }
 
   throw new Error(
-    `No API key found for ${provider}. Set ${provider.toUpperCase()}_API_KEY env var or run 'owliabot auth setup'.`
+    `No API key found for ${provider}. Set ${provider.toUpperCase().replace("-", "_")}_API_KEY env var or run 'owliabot auth setup ${provider}'.`
   );
 }
 
@@ -250,7 +264,7 @@ export async function runLLM(
   options?: RunnerOptions
 ): Promise<LLMResponse> {
   const model = resolveModel(modelConfig);
-  const apiKey = await resolveApiKey(model.provider);
+  const apiKey = await resolveApiKey(model.provider, modelConfig.apiKey);
   const context = toContext(messages, options?.tools, model);
 
   log.info(`Calling ${model.provider}/${model.id}`);
@@ -298,7 +312,7 @@ export async function callWithFailover(
     try {
       log.info(`Trying provider: ${provider.id}`);
       return await runLLM(
-        { provider: provider.id, model: provider.model },
+        { provider: provider.id, model: provider.model, apiKey: provider.apiKey },
         messages,
         options
       );

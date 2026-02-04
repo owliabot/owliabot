@@ -11,6 +11,8 @@ const log = createLogger("models");
 export interface ModelConfig {
   provider?: string;
   model: string;
+  /** API key from config (loaded from secrets.yaml or env) */
+  apiKey?: string;
 }
 
 // Model aliases for convenience

@@ -62,6 +62,30 @@ export async function loadConfig(path: string): Promise<Config> {
       secrets?.telegram?.token ?? process.env.TELEGRAM_BOT_TOKEN ?? undefined;
   }
 
+  // Merge provider API keys from secrets/env
+  // Respect user's explicit choice: "secrets" = use secrets.yaml, "env" = use env vars only
+  if (Array.isArray(raw?.providers)) {
+    for (const provider of raw.providers) {
+      if (provider.apiKey === "secrets") {
+        // Prefer secrets, fallback to env
+        if (provider.id === "openai") {
+          provider.apiKey =
+            secrets?.openai?.apiKey ?? process.env.OPENAI_API_KEY ?? undefined;
+        } else if (provider.id === "anthropic") {
+          provider.apiKey =
+            secrets?.anthropic?.apiKey ?? process.env.ANTHROPIC_API_KEY ?? undefined;
+        }
+      } else if (provider.apiKey === "env") {
+        // Only use env vars (user explicitly chose env-based auth)
+        if (provider.id === "openai") {
+          provider.apiKey = process.env.OPENAI_API_KEY ?? undefined;
+        } else if (provider.id === "anthropic") {
+          provider.apiKey = process.env.ANTHROPIC_API_KEY ?? undefined;
+        }
+      }
+    }
+  }
+
   // Expand environment variables
   const expanded = expandEnvVars(raw) as any;
 
