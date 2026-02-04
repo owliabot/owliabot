@@ -43,7 +43,7 @@ export function createSessionTranscriptStore(
       await mkdir(dirname(path), { recursive: true });
       const line = JSON.stringify(message) + "\n";
       await writeFile(path, line, { flag: "a" });
-      log.debug(`Appended transcript message to ${sessionId}`);
+      log.debug(`Appended ${message.role} message to ${sessionId} (path: ${path})`);
     },
 
     async readAll(sessionId: SessionId): Promise<Message[]> {
@@ -51,7 +51,9 @@ export function createSessionTranscriptStore(
     },
 
     async getHistory(sessionId: SessionId, maxTurns = 20): Promise<Message[]> {
-      const messages = await readJsonl(getPath(sessionId));
+      const path = getPath(sessionId);
+      log.debug(`Reading history for session ${sessionId} from ${path}`);
+      const messages = await readJsonl(path);
 
       // Group into turns (user + assistant = 1 turn)
       const turns: Message[][] = [];
@@ -89,12 +91,29 @@ function safeFile(input: string): string {
 async function readJsonl(path: string): Promise<Message[]> {
   try {
     const content = await readFile(path, "utf-8");
-    return content
-      .split("\n")
-      .filter((line) => line.trim())
-      .map((line) => JSON.parse(line) as Message);
+    const lines = content.split("\n").filter((line) => line.trim());
+    
+    if (lines.length === 0) {
+      log.debug(`Transcript file ${path} exists but is empty`);
+      return [];
+    }
+    
+    const messages: Message[] = [];
+    for (let i = 0; i < lines.length; i++) {
+      try {
+        messages.push(JSON.parse(lines[i]) as Message);
+      } catch (parseErr) {
+        log.warn(`Failed to parse line ${i + 1} in ${path}: ${(parseErr as Error).message}`);
+      }
+    }
+    
+    log.debug(`Read ${messages.length} messages from ${path}`);
+    return messages;
   } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === "ENOENT") return [];
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+      log.debug(`Transcript file ${path} does not exist`);
+      return [];
+    }
     throw err;
   }
 }

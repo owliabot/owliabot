@@ -88,10 +88,31 @@ export async function summarizeAndSave(
     // 1. Read transcript
     const messages = await transcripts.getHistory(sessionId, 50);
 
-    const userMessages = messages.filter((m) => m.role === "user");
+    // Debug: log what we actually read
+    if (messages.length === 0) {
+      log.warn(
+        `Transcript for ${sessionId} is empty — no messages found. ` +
+        `This may indicate the session store and transcript store are out of sync.`
+      );
+    } else {
+      const roleCounts = messages.reduce((acc, m) => {
+        acc[m.role] = (acc[m.role] || 0) + 1;
+        return acc;
+      }, {} as Record<string, number>);
+      log.debug(
+        `Transcript for ${sessionId}: ${messages.length} messages (${JSON.stringify(roleCounts)})`
+      );
+    }
+
+    // Filter for actual user messages with content (exclude tool result placeholders)
+    const userMessages = messages.filter(
+      (m) => m.role === "user" && m.content && m.content.trim().length > 0
+    );
+    
     if (userMessages.length < MIN_USER_MESSAGES) {
       log.info(
-        `Skipping summary for ${sessionId}: only ${userMessages.length} user message(s)`
+        `Skipping summary for ${sessionId}: only ${userMessages.length} user message(s) with content ` +
+        `(total messages: ${messages.length})`
       );
       return { summarized: false };
     }
