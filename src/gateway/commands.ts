@@ -24,6 +24,27 @@ const log = createLogger("commands");
 /** Default triggers that reset the session. */
 const DEFAULT_RESET_TRIGGERS = ["/new", "/reset"];
 
+/** Help command triggers */
+const HELP_TRIGGERS = ["/help", "help"];
+
+/** Help message text */
+const HELP_TEXT = `🦉 **OwliaBot 帮助**
+
+**命令**
+• \`/new\` — 开始新会话
+• \`/new <model>\` — 切换模型并开始新会话 (sonnet, opus, haiku, gpt-4o)
+• \`/reset\` — 重置当前会话
+• \`/help\` — 显示此帮助信息
+
+**使用**
+直接 @我 发送消息即可开始对话。
+
+**模型别名**
+• sonnet → claude-sonnet-4-5
+• opus → claude-opus-4-5
+• haiku → claude-haiku-4-5
+• gpt-4o → OpenAI GPT-4o`;
+
 /**
  * Known model aliases for /new model switching.
  * Maps alias → { provider, model } for quick resolution.
@@ -118,6 +139,22 @@ export async function tryHandleCommand(
 
   const body = ctx.body.trim();
   const bodyLower = body.toLowerCase();
+
+  // Check for help command first (no auth required)
+  const isHelp = HELP_TRIGGERS.some((t) => bodyLower === t.toLowerCase());
+  if (isHelp) {
+    log.info(`Help command from ${ctx.from}`);
+    const channel = channels.get(ctx.channel);
+    if (channel) {
+      const target = ctx.chatType === "direct" ? ctx.from : ctx.groupId ?? ctx.from;
+      await channel.send(target, {
+        text: HELP_TEXT,
+        replyToId: ctx.messageId,
+      });
+    }
+    return { handled: true };
+  }
+
   const triggers = resetTriggers ?? DEFAULT_RESET_TRIGGERS;
 
   // Case-insensitive trigger matching (aligned with OpenClaw)
