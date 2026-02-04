@@ -1,0 +1,177 @@
+# OwliaBot Tool Security Policy
+# @see docs/design/tier-policy.md
+
+version: "1"
+
+# Global defaults
+defaults:
+  tier: none
+  requireConfirmation: false
+  confirmationChannel: inline
+  allowedUsers: assignee-only
+  timeout: 120 # seconds
+
+# Tier thresholds (for sign-level tools)
+thresholds:
+  tier2MaxUsd: 50 # Session Key single transaction max USD
+  tier2DailyUsd: 200 # Session Key daily cumulative max USD
+  tier3MaxUsd: 5 # Tier 3 auto-execute max USD
+  sessionKeyTtlHours: 24
+  sessionKeyMaxBalance: "0.05" # ETH
+
+# Emergency stop
+emergencyStop:
+  enabled: true
+  commands:
+    - "/stop"
+    - "/emergency"
+    - "/halt"
+  channels:
+    - companion-app
+    - telegram
+    - discord
+  action: revoke-all-session-keys
+
+# Tool-specific policies
+tools:
+  # ── No confirmation required ──
+  "echo":
+    tier: none
+
+  "help":
+    tier: none
+
+  "list-files":
+    tier: none
+
+  "memory-get":
+    tier: none
+
+  "memory-search":
+    tier: none
+
+  "crypto-price__get_price":
+    tier: none
+
+  "crypto-balance__get_balance":
+    tier: none
+
+  # ── Tier 3: Auto-execute, log only ──
+  "edit-file":
+    tier: 3
+    requireConfirmation: false
+
+  "clear-session":
+    tier: 3
+    requireConfirmation: false
+
+  "gas__refuel":
+    tier: 3
+    requireConfirmation: false
+    maxAmount:
+      usd: 5
+    cooldown:
+      maxPerHour: 10
+      maxPerDay: 50
+
+  # ── Tier 2: Session Key, with inline confirmation ──
+  "dex-swap__swap":
+    tier: 2
+    requireConfirmation: true
+    confirmationChannel: inline
+    maxAmount:
+      usd: 50
+    cooldown:
+      maxPerHour: 5
+      maxPerDay: 20
+    escalateAbove:
+      usd: 50
+
+  "transfer__send_token":
+    tier: 2
+    requireConfirmation: true
+    confirmationChannel: inline
+    maxAmount:
+      usd: 20
+    cooldown:
+      maxPerHour: 3
+      maxPerDay: 10
+    escalateAbove:
+      usd: 20
+
+  "transfer__send_native":
+    tier: 2
+    requireConfirmation: true
+    confirmationChannel: inline
+    maxAmount:
+      usd: 20
+    escalateAbove:
+      usd: 20
+
+  "defi__claim_rewards":
+    tier: 2
+    requireConfirmation: false
+    cooldown:
+      maxPerHour: 2
+
+  # ── Tier 1: Companion App confirmation required ──
+  "approve__set_allowance":
+    tier: 1
+    requireConfirmation: true
+    confirmationChannel: companion-app
+    cooldown:
+      maxPerHour: 2
+      maxPerDay: 5
+
+  "contract__deploy":
+    tier: 1
+    requireConfirmation: true
+    confirmationChannel: companion-app
+
+  "wallet__add_session_key":
+    tier: 1
+    requireConfirmation: true
+    confirmationChannel: companion-app
+
+  "wallet__revoke_session_key":
+    tier: 1
+    requireConfirmation: true
+    confirmationChannel: companion-app
+
+  "exec":
+    tier: 2
+    requireConfirmation: true
+    confirmationChannel: inline
+    cooldown:
+      maxPerHour: 20
+
+# Wildcard patterns (first match wins)
+wildcards:
+  - pattern: "*__get_*"
+    tier: none
+  - pattern: "*__list_*"
+    tier: none
+  - pattern: "*__check_*"
+    tier: none
+  - pattern: "*__approve_*"
+    tier: 1
+    requireConfirmation: true
+    confirmationChannel: companion-app
+  - pattern: "*__revoke_*"
+    tier: 1
+    requireConfirmation: true
+    confirmationChannel: companion-app
+  - pattern: "*__swap_*"
+    tier: 2
+    requireConfirmation: true
+    confirmationChannel: inline
+  - pattern: "*__send_*"
+    tier: 2
+    requireConfirmation: true
+    confirmationChannel: inline
+
+# Fallback for unknown tools (conservative)
+fallback:
+  tier: 1
+  requireConfirmation: true
+  confirmationChannel: companion-app
