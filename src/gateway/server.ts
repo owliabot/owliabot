@@ -206,6 +206,7 @@ async function handleMessage(
   const systemPrompt = buildSystemPrompt({
     workspace,
     channel: ctx.channel,
+    chatType: ctx.chatType,
     timezone: config.timezone,
     model: config.providers[0].model,
   });
@@ -246,7 +247,9 @@ async function handleMessage(
           sessionKey,
           agentId,
           signer: null,
-          config: {},
+          config: {
+            memorySearch: config.memorySearch,
+          },
         },
         writeGateChannel: writeGateChannels.get(ctx.channel),
         securityConfig: config.security,

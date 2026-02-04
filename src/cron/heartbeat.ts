@@ -28,6 +28,7 @@ export async function executeHeartbeat(options: HeartbeatOptions): Promise<void>
   const systemPrompt = buildSystemPrompt({
     workspace,
     channel: "heartbeat",
+    chatType: "direct",
     timezone: "UTC+8",
     model: config.providers[0].model,
     isHeartbeat: true,

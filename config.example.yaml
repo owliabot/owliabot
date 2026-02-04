@@ -55,6 +55,21 @@ heartbeat:
   enabled: false
   cron: "0 * * * *"  # hourly
 
+# Memory Search (optional)
+# memorySearch:
+#   enabled: false
+#   provider: sqlite          # sqlite | naive
+#   fallback: none            # sqlite | naive | none
+#   store:
+#     path: ~/.owliabot/memory/{agentId}.sqlite
+#   extraPaths: []            # Additional dirs/files to include
+#   sources:                  # What to search
+#     - files                 # workspace memory files
+#     # - transcripts         # session transcript history
+#   indexing:
+#     autoIndex: false        # Auto-build index on search
+#     minIntervalMs: 300000   # Throttle between index attempts (5 min)
+
 # Gateway HTTP (optional)
 # gateway:
 #   http:

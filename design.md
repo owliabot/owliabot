@@ -372,12 +372,30 @@ src/
 │   └── tools/
 │       ├── interface.ts    # Tool 接口定义 ★核心
 │       ├── registry.ts     # Tool 注册表
-│       └── executor.ts     # Tool 执行器
+│       ├── executor.ts     # Tool 执行器
+│       └── builtin/
+│           ├── memory-get.ts  # 读取记忆文件 (沙盒保护)
+│           ├── memory-search.ts # 搜索记忆 (配置驱动)
+│           └── ...
 │
 ├── workspace/
 │   ├── loader.ts           # 加载 SOUL/IDENTITY/USER/MEMORY
-│   ├── memory-search.ts    # 语义搜索
-│   └── memory-index.ts     # 向量索引
+│   ├── memory-search.ts    # Provider 链 + 自动索引
+│   └── types.ts            # WorkspaceFiles 类型
+│
+├── memory/
+│   ├── config.ts           # memorySearch 配置解析
+│   ├── types.ts            # MemorySearchConfig, provider 类型
+│   ├── providers/
+│   │   └── interface.ts    # MemorySearchProvider 接口
+│   └── index/
+│       ├── schema.ts       # Schema 版本常量
+│       ├── scanner.ts      # 文件扫描器 (符号链接保护)
+│       ├── chunker.ts      # Markdown 感知分块器
+│       ├── db.ts           # SQLite DB 打开/初始化/只读
+│       ├── indexer.ts      # 文件 + 会话记录索引器
+│       ├── transcripts-scanner.ts  # 会话记录扫描器
+│       └── index.ts        # 重新导出
 │
 ├── cron/
 │   ├── service.ts          # Cron 服务
@@ -881,82 +899,175 @@ export interface TransactionRequest {
 
 ### 5.4 Memory 接口
 
-#### 实现策略
+#### 架构概述
 
-| 阶段 | 方案 | 说明 |
-|------|------|------|
-| **MVP** | 关键词匹配 | glob 遍历 + includes 匹配，无外部依赖 |
-| **后续** | 语义搜索 | Embedding API + SQLite/sqlite-vec |
+Memory 子系统提供配置驱动的记忆搜索能力，支持两种 Provider：
 
-**MVP 实现（关键词匹配）：**
+| Provider | 说明 | 适用场景 |
+|----------|------|----------|
+| **sqlite** | 基于 SQLite 索引的 LIKE 关键词搜索 | 主要方案，快速、支持自动索引 |
+| **naive** | 直接扫描文件的关键词匹配 | 后备方案，无需索引但速度较慢 |
 
-```typescript
-// src/workspace/memory-search.ts
+**Provider 链与降级：**
+- 配置 `provider` 指定主 Provider，`fallback` 指定备用 Provider
+- 默认链：`sqlite` → `naive` → `[]` (fail-closed)
+- 若主 Provider 不可用或出错，自动降级至 fallback
+- 若所有 Provider 均失败，返回空结果（fail-closed）
 
-import { glob } from "node:fs/promises";
-import { readFile } from "node:fs/promises";
+#### 核心组件
 
-export async function search(query: string, options?: SearchOptions): Promise<MemorySearchResult[]> {
-  const files = await glob("memory/**/*.md", { cwd: workspaceDir });
-  const results: MemorySearchResult[] = [];
-  const queryLower = query.toLowerCase();
-  
-  for (const file of files) {
-    const content = await readFile(file, "utf-8");
-    const lines = content.split("\n");
-    
-    for (let i = 0; i < lines.length; i++) {
-      if (lines[i].toLowerCase().includes(queryLower)) {
-        results.push({
-          path: file,
-          startLine: Math.max(0, i - 2),
-          endLine: Math.min(lines.length - 1, i + 2),
-          score: 1.0,  // 简单匹配，score 固定为 1
-          snippet: lines.slice(Math.max(0, i - 2), i + 3).join("\n"),
-        });
-      }
-    }
-  }
-  
-  return results.slice(0, options?.maxResults ?? 10);
-}
-```
+**1. Scanner (文件扫描器)**
+- 路径：`src/memory/index/scanner.ts`
+- 功能：扫描 `MEMORY.md` + `memory/**/*.md` + 可配置的 `extraPaths`
+- 安全：逐段验证符号链接和真实路径，拒绝逃逸沙盒的路径
 
-**后续升级路径（语义搜索）：**
+**2. Chunker (分块器)**
+- 路径：`src/memory/index/chunker.ts`
+- 功能：Markdown 感知分块，按标题边界切分
+- 配置：可设置目标块大小和重叠区域
 
-```typescript
-// 升级时只需替换 search 实现，接口不变
-// Embedding: OpenAI text-embedding-3-small 或 Gemini embedding-001
-// 存储: SQLite + sqlite-vec 扩展
-// 索引: 启动时全量 + 文件 watch 增量
-```
+**3. Indexer (索引器)**
+- 路径：`src/memory/index/indexer.ts`
+- 功能：将文件和会话记录索引至 SQLite
+- 特性：
+  - 基于内容哈希的去重
+  - 自动移除过期条目
+  - 支持增量更新
+
+**4. DB (数据库)**
+- 路径：`src/memory/index/db.ts`
+- 功能：SQLite 数据库打开、初始化、只读模式支持
+- 特性：
+  - WAL 模式
+  - 外键约束
+  - Schema 版本管理
+
+**5. Provider Chain (src/workspace/memory-search.ts)**
+- 协调主 Provider 和 fallback Provider
+- 自动索引：按需在搜索前构建/刷新索引
+- 特性：
+  - 基于文件的锁机制
+  - 过期检测
+  - 最小间隔节流（防止频繁重建）
+
+#### 安全机制
+
+**路径沙盒：**
+- 词法分析：禁止 `..`、绝对路径、特殊字符
+- 真实路径验证：`realpath` + 符号链接逐段验证
+- 系统调用：使用 `O_NOFOLLOW` + `fstat` 防止 TOCTOU
+- 白名单执行：仅允许扫描器返回的路径
+
+**上下文隔离：**
+- `MEMORY.md` 仅在主会话（与本人 1:1 对话）中注入
+- 群组上下文中不暴露 `MEMORY.md`，防止隐私泄露
+
+#### 自动索引
+
+**触发时机：**
+- 当 `indexing.autoIndex` 为 `true` 时，在 sqlite 搜索前自动触发
+
+**节流机制：**
+- 基于文件的锁（防止并发索引）
+- 过期检测：检查索引 DB 的 mtime
+- 最小间隔：`indexing.minIntervalMs`（默认 5 分钟）
+
+**索引来源：**
+- `files`: workspace 记忆文件（MEMORY.md + memory/**/*.md + extraPaths）
+- `transcripts`: 会话记录历史
 
 #### 接口定义
 
+**MemorySearchProvider 接口：**
+
 ```typescript
+// src/memory/providers/interface.ts
+export interface MemorySearchProvider<SearchResult> {
+  id: MemorySearchProviderId;
+
+  /**
+   * 执行搜索
+   * 
+   * 返回 null 表示 Provider 不可用（例如 sqlite DB 缺失）
+   * 或出现应触发 fallback 的错误
+   */
+  trySearch(params: {
+    workspaceDir: string;
+    query: string;
+    maxResults: number;
+    extraPaths: string[];
+    dbPath?: string;
+  }): Promise<SearchResult[] | null>;
+}
+```
+
+**MemorySearchResult 结构：**
+
+```typescript
+// src/workspace/memory-search.ts
 export interface MemorySearchResult {
   path: string;
+  /** 0-indexed inclusive (工具渲染时转为 1-indexed) */
   startLine: number;
+  /** 0-indexed inclusive (工具渲染时转为 1-indexed) */
   endLine: number;
-  score: number;       // MVP 固定 1.0，语义搜索时为相似度
+  score: number;       // 匹配分数（naive: 固定 1.0，sqlite: 匹配词数）
   snippet: string;
 }
+```
 
-export interface MemoryManager {
-  // 搜索记忆
-  search(query: string, options?: SearchOptions): Promise<MemorySearchResult[]>;
-  
-  // 获取指定行
-  get(path: string, from?: number, lines?: number): Promise<string>;
-  
-  // 索引更新 (MVP 为空操作，后续实现时触发重建索引)
-  reindex(): Promise<void>;
-}
+**SearchOptions 配置：**
 
+```typescript
 export interface SearchOptions {
   maxResults?: number;
-  minScore?: number;   // MVP 忽略此参数
-  paths?: string[];    // 限定搜索路径
+  extraPaths?: string[];
+  dbPath?: string;
+
+  /** 主 Provider (默认: sqlite) */
+  provider?: MemorySearchProviderId;
+  /** 可选的后备 Provider；仅在主 Provider 不可用/出错时使用 */
+  fallback?: MemorySearchProviderId | "none";
+
+  /** 搜索来源 (默认: ["files"]) */
+  sources?: Array<"files" | "transcripts">;
+
+  /**
+   * Sqlite provider 索引行为
+   * 当 autoIndex 为 true 时，可能在搜索前按需构建/刷新 sqlite DB
+   */
+  indexing?: {
+    autoIndex?: boolean;
+    minIntervalMs?: number;
+    /** 可选的索引来源覆盖（默认为 `sources`） */
+    sources?: Array<"files" | "transcripts">;
+  };
+
+  /** 仅限可信覆盖；除非匹配此主机/用户的默认 sessionsDir，否则会被拒绝 */
+  sessionsDir?: string;
+}
+```
+
+**配置类型 (src/memory/types.ts)：**
+
+```typescript
+export type MemorySearchProviderId = "sqlite" | "naive";
+export type MemorySearchSourceId = "files" | "transcripts";
+
+export interface MemorySearchConfig {
+  enabled: boolean;
+  provider: MemorySearchProviderId;
+  fallback: MemorySearchProviderId | "none";
+  store: {
+    path: string;  // 支持 {agentId} 占位符
+  };
+  extraPaths: string[];
+  sources: MemorySearchSourceId[];
+  indexing?: {
+    autoIndex: boolean;
+    minIntervalMs: number;
+    sources?: MemorySearchSourceId[];
+  };
 }
 ```
 

@@ -5,6 +5,8 @@ export interface PromptContext {
   channel: string;
   timezone: string;
   model: string;
+  /** Security boundary relies on this being provided by the caller. */
+  chatType: "direct" | "group" | "channel";
   isHeartbeat?: boolean;
 }
 
@@ -35,7 +37,10 @@ export function buildSystemPrompt(ctx: PromptContext): string {
   }
 
   // 6. MEMORY.md - Long-term memory
-  if (ctx.workspace.memory) {
+  // Security boundary: NEVER inject long-term memory into non-direct contexts.
+  // (OpenClaw-style: MEMORY.md is private-only)
+  const isNonDirect = ctx.chatType !== "direct";
+  if (!isNonDirect && ctx.workspace.memory) {
     sections.push(`## Memory\n${ctx.workspace.memory}`);
   }
 

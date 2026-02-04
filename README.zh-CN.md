@@ -148,6 +148,7 @@ providers:
 - `src/channels/*`：Telegram / Discord 渠道接入
 - `src/agent/*`：Agent 运行时、会话与工具体系
 - `src/workspace/*`：工作区加载与记忆搜索
+- `src/memory/*`：记忆搜索 Provider、索引与配置
 - `config.example.yaml`：配置模板
 
 ## 文档索引（源码路径）

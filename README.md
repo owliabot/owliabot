@@ -148,6 +148,7 @@ providers:
 - `src/channels/*`: Telegram / Discord integrations
 - `src/agent/*`: agent runtime, sessions, and tools
 - `src/workspace/*`: workspace loading and memory search
+- `src/memory/*`: memory search providers, indexing, and configuration
 - `config.example.yaml`: configuration template
 
 ## Documentation Map (Source)

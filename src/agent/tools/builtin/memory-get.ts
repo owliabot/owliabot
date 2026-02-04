@@ -2,8 +2,9 @@
  * Memory get tool - retrieve specific lines from a file
  */
 
-import { readFile } from "node:fs/promises";
-import { join } from "node:path";
+import { constants } from "node:fs";
+import { lstat, open, readFile, realpath } from "node:fs/promises";
+import { relative, resolve } from "node:path";
 import type { ToolDefinition } from "../interface.js";
 
 export function createMemoryGetTool(workspacePath: string): ToolDefinition {
@@ -32,27 +33,131 @@ export function createMemoryGetTool(workspacePath: string): ToolDefinition {
     security: {
       level: "read",
     },
-    async execute(params) {
+    async execute(params, ctx) {
       const { path, from_line, num_lines } = params as {
         path: string;
         from_line?: number;
         num_lines?: number;
       };
 
-      // Security: ensure path is within workspace
-      if (path.includes("..") || path.startsWith("/")) {
-        return {
-          success: false,
-          error: "Invalid path: must be relative to workspace",
-        };
+      const raw = path.trim();
+
+      // Build dynamic allowlist from config extraPaths (same source as memory_search).
+      const rawCfg = ((ctx?.config as any)?.memorySearch ?? {}) as any;
+      const extraPaths: string[] = Array.isArray(rawCfg.extraPaths)
+        ? rawCfg.extraPaths
+            .filter((p: unknown) => typeof p === "string")
+            .map((p: string) => p.trim())
+            .filter(Boolean)
+        : [];
+
+      // Security boundary (OpenClaw-style): only allow MEMORY.md + memory/**/*.md
+      // + configured extraPaths (resolved inside workspace).
+      // - must be relative
+      // - must be .md
+      // - must resolve inside workspace
+      // - must not be a symlink
+      const resolveAllowedPath = async (): Promise<{ absPath: string; relPath: string } | null> => {
+        if (!raw) return null;
+        if (raw.startsWith("/")) return null;
+        if (raw.includes("\0")) return null;
+        if (!raw.endsWith(".md")) return null;
+
+        // Resolve and ensure the *lexical* path is within workspace.
+        const absWorkspace = resolve(workspacePath);
+        const absPath = resolve(workspacePath, raw);
+        const rel = relative(absWorkspace, absPath).replace(/\\/g, "/");
+        const inWorkspace = rel.length > 0 && !rel.startsWith("..");
+        if (!inWorkspace) return null;
+
+        // Allowed roots: MEMORY.md, memory/**, or under a configured extraPath.
+        const isCoreAllowed = rel === "MEMORY.md" || rel.startsWith("memory/");
+        const isExtraAllowed = extraPaths.some((ep) => {
+          const normalized = ep.replace(/\\/g, "/").replace(/\/+$/, "");
+          // extraPath can be a file or directory prefix
+          return rel === normalized || rel.startsWith(normalized + "/");
+        });
+        if (!isCoreAllowed && !isExtraAllowed) return null;
+
+        // Fail-closed on symlink directory escapes: validate realpath of workspace + parent directory
+        // (works even when the file itself doesn't exist yet).
+        try {
+          const realWorkspace = await realpath(absWorkspace);
+          const realParent = await realpath(resolve(absPath, ".."));
+          const parentRel = relative(realWorkspace, realParent).replace(/\\/g, "/");
+          const parentInWorkspace = parentRel.length >= 0 && !parentRel.startsWith("..");
+          if (!parentInWorkspace) return null;
+        } catch {
+          return null;
+        }
+
+        // If file exists, require it to be a non-symlink file and use its real path.
+        try {
+          const stat = await lstat(absPath);
+          if (stat.isSymbolicLink() || !stat.isFile()) return null;
+
+          const realWorkspace = await realpath(absWorkspace);
+          const realTarget = await realpath(absPath);
+          const realRel = relative(realWorkspace, realTarget).replace(/\\/g, "/");
+          const realInWorkspace = realRel.length > 0 && !realRel.startsWith("..");
+          if (!realInWorkspace) return null;
+          const realCoreAllowed = realRel === "MEMORY.md" || realRel.startsWith("memory/");
+          const realExtraAllowed = extraPaths.some((ep) => {
+            const normalized = ep.replace(/\\/g, "/").replace(/\/+$/, "");
+            return realRel === normalized || realRel.startsWith(normalized + "/");
+          });
+          if (!realCoreAllowed && !realExtraAllowed) return null;
+
+          return { absPath: realTarget, relPath: realRel };
+        } catch (err) {
+          const code = (err as NodeJS.ErrnoException).code;
+          if (code === "ENOENT") {
+            // Allowed path but missing is handled later as ENOENT
+            return { absPath, relPath: rel };
+          }
+          return null;
+        }
+      };
+
+      const resolved = await resolveAllowedPath();
+      if (!resolved) {
+        return { success: false, error: "path required" };
       }
 
-      const fullPath = join(workspacePath, path);
       const startLine = (from_line ?? 1) - 1; // Convert to 0-indexed
       const lineCount = num_lines ?? 20;
 
       try {
-        const content = await readFile(fullPath, "utf-8");
+        // Mitigate TOCTOU: open with O_NOFOLLOW (best-effort; Linux supported).
+        // If the OS doesn't support O_NOFOLLOW or the target is swapped, this may still fail.
+        let content: string;
+        try {
+          const fh = await open(resolved.absPath, constants.O_RDONLY | constants.O_NOFOLLOW);
+          try {
+            // Defense-in-depth: fstat the fd to verify it's a regular file.
+            // This closes the TOCTOU gap between resolveAllowedPath() and open().
+            const fdStat = await fh.stat();
+            if (!fdStat.isFile()) {
+              throw Object.assign(new Error("Not a regular file"), { code: "ELOOP" });
+            }
+            content = await fh.readFile({ encoding: "utf-8" });
+          } finally {
+            await fh.close();
+          }
+        } catch (err) {
+          const code = (err as NodeJS.ErrnoException).code;
+          // Only fallback on platforms/filesystems that don't support O_NOFOLLOW.
+          // Never fallback for symlink-related errors (e.g., ELOOP) or permission errors.
+          const okToFallback = code === "EINVAL" || code === "ENOSYS" || code === "EOPNOTSUPP";
+          if (!okToFallback) throw err;
+          // Fallback: re-verify with lstat before reading (best-effort TOCTOU mitigation
+          // on platforms without O_NOFOLLOW).
+          const fallbackStat = await lstat(resolved.absPath);
+          if (fallbackStat.isSymbolicLink() || !fallbackStat.isFile()) {
+            throw Object.assign(new Error("Not a regular file"), { code: "ELOOP" });
+          }
+          content = await readFile(resolved.absPath, "utf-8");
+        }
         const lines = content.split("\n");
         const endLine = Math.min(startLine + lineCount, lines.length);
         const selectedLines = lines.slice(startLine, endLine);
@@ -60,7 +165,7 @@ export function createMemoryGetTool(workspacePath: string): ToolDefinition {
         return {
           success: true,
           data: {
-            path,
+            path: resolved.relPath,
             from_line: startLine + 1,
             to_line: endLine,
             total_lines: lines.length,
@@ -68,10 +173,11 @@ export function createMemoryGetTool(workspacePath: string): ToolDefinition {
           },
         };
       } catch (err) {
-        if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+        const code = (err as NodeJS.ErrnoException).code;
+        if (code === "ENOENT") {
           return {
             success: false,
-            error: `File not found: ${path}`,
+            error: `File not found: ${resolved.relPath}`,
           };
         }
         throw err;
