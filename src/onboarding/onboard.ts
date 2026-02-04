@@ -49,12 +49,26 @@ export async function runOnboarding(options: OnboardOptions = {}): Promise<void>
 
     const providerAns = await ask(
       rl,
-      "\nSelect provider (anthropic/openai/openai-codex) [anthropic]: "
+      "\nSelect provider (1-3 or name) [anthropic]: "
     );
-    let providerId = (providerAns || "anthropic") as LLMProviderId;
 
-    if (!["anthropic", "openai", "openai-codex"].includes(providerId)) {
-      log.warn(`Unknown provider: ${providerId}, defaulting to anthropic`);
+    // Map numeric input to provider ID
+    const providerMap: Record<string, LLMProviderId> = {
+      "1": "anthropic",
+      "2": "openai",
+      "3": "openai-codex",
+      "anthropic": "anthropic",
+      "openai": "openai",
+      "openai-codex": "openai-codex",
+    };
+
+    let providerId: LLMProviderId =
+      providerMap[providerAns] ?? providerMap[providerAns.toLowerCase()] ?? "anthropic";
+
+    if (!providerAns) {
+      providerId = "anthropic";
+    } else if (!providerMap[providerAns] && !providerMap[providerAns.toLowerCase()]) {
+      log.warn(`Unknown provider: ${providerAns}, defaulting to anthropic`);
       providerId = "anthropic";
     }
 

@@ -23,7 +23,7 @@ async function runOnboardCli(opts: { cwd: string; appYamlPath: string; answers: 
   const prompts = [
     "Enable channels (discord/telegram) [discord]: ",
     "Workspace path [./workspace]: ",
-    "Select provider (anthropic/openai/openai-codex) [anthropic]: ",
+    "Select provider (1-3 or name) [anthropic]: ",
     "Model [claude-sonnet-4-5]: ",
     "Auth method: (1) OAuth (Claude Pro/Max subscription), (2) API Key [1]: ",
     "Start Anthropic OAuth now? (y/n) [n=skip for now]: ",
