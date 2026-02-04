@@ -16,7 +16,10 @@ export const providerSchema = z.object({
 export const telegramConfigSchema = z.object({
   // token can be set via onboarding + secrets.yaml (or env) later
   token: z.string().optional(),
+  /** Allow list of Telegram user IDs */
   allowList: z.array(z.string()).optional(),
+  /** Allow list of Telegram group IDs where the bot will respond even in mention-only mode */
+  groupAllowList: z.array(z.string()).optional(),
 });
 
 export const discordConfigSchema = z.object({
@@ -61,6 +64,26 @@ const gatewayHttpSchema = z.object({
     .default({ windowMs: 60_000, max: 60 }),
 });
 
+const sessionSchema = z
+  .object({
+    scope: z.enum(["global", "per-agent"]).default("per-agent"),
+    mainKey: z.string().default("main"),
+    storePath: z.string().optional(),
+  })
+  .default({ scope: "per-agent", mainKey: "main" });
+
+const agentsSchema = z
+  .object({
+    defaultId: z.string().default("main"),
+  })
+  .default({ defaultId: "main" });
+
+const groupSchema = z
+  .object({
+    activation: z.enum(["mention", "always"]).default("mention"),
+  })
+  .default({ activation: "mention" });
+
 export const configSchema = z.object({
   // AI providers
   providers: z.array(providerSchema).min(1),
@@ -69,11 +92,19 @@ export const configSchema = z.object({
   telegram: telegramConfigSchema.optional(),
   discord: discordConfigSchema.optional(),
 
+  // Session
+  session: sessionSchema,
+  agents: agentsSchema,
+  group: groupSchema,
+
   // Notifications
   notifications: notificationsSchema.optional(),
 
   // Workspace path
   workspace: z.string().default("./workspace"),
+
+  // Timezone (used in prompts)
+  timezone: z.string().default("UTC"),
 
   // Cron
   heartbeat: z

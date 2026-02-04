@@ -1188,95 +1188,98 @@ src/agent/
 
 ### 5.6 Session 接口
 
-#### Session 策略
+#### Session 策略（v1）
 
-| 维度 | MVP 方案 | 说明 |
-|------|----------|------|
-| **粒度** | Per channel-user | TG 和 Discord 分开，同平台连续 |
-| **窗口** | 滑动窗口 | 保留最近 20 轮对话 |
-| **持久化** | JSONL 文件 | `~/.owliabot/sessions/{key}.jsonl` |
-| **压缩** | 不做 | 后续可加 `/compact` 命令 |
+v1 将「稳定的会话 Key」与「可轮转的会话 ID」拆分：
 
-**Session Key 格式：**
+- **SessionKey（稳定）**：用于定位“这一桶对话”应当归属到哪一个会话
+- **SessionId（可轮转）**：用于真实存储 transcript；执行 `clear_session` 时会生成新的 SessionId
+
+| 维度 | v1 方案 | 说明 |
+|------|--------|------|
+| **粒度** | Per agent + per channel + per conversation bucket | 群聊按 `groupId` 隔离；DM 按 `session.mainKey`（可配置） |
+| **窗口** | 滑动窗口 | 保留最近 20 轮对话（turn = user+assistant） |
+| **持久化（索引）** | JSON 文件 | `sessions.json`：`sessionKey -> { sessionId, updatedAt, meta... }` |
+| **持久化（对话）** | JSONL 文件 | `transcripts/<sessionId>.jsonl`：每行一条消息 |
+| **清空** | rotate + truncate | `clear_session` 会 rotate 到新的 `sessionId`，并清空旧/新 transcript |
+
+#### SessionKey 格式
+
+由 `resolveSessionKey()` 生成：
 
 ```
-sessionKey = "${channel}:${peerId}"
+// per-agent (default)
+agent:<agentId>:<channel>:conv:<conversationId>
 
-示例:
-- telegram:883499266
-- discord:123456789012345678
+Examples:
+- agent:main:discord:conv:main:main          // DM (per-agent)
+- agent:main:discord:conv:c123               // Discord guild channel
+- agent:main:telegram:conv:g555              // Telegram group
 ```
 
-#### 接口定义
+其中 conversationId 规则：
 
-```typescript
-// src/agent/session.ts
+- **DM**：由 `config.session.mainKey` 决定（以及 `scope` 影响 DM bucket）
+- **Group/Channel**：使用 `ctx.groupId`（Discord 为 channelId，Telegram 为 groupId）
 
-export interface SessionManager {
-  // 获取或创建 session
-  get(key: SessionKey): Promise<Session>;
-  
-  // 追加消息
-  append(key: SessionKey, message: Message): Promise<void>;
-  
-  // 获取历史（用于构建 prompt）
-  getHistory(key: SessionKey, maxTurns?: number): Promise<Message[]>;
-  
-  // 清空 session
-  clear(key: SessionKey): Promise<void>;
-  
-  // 列出所有 sessions
-  list(): Promise<SessionKey[]>;
+#### 索引：SessionStore
+
+```ts
+// src/agent/session-store.ts
+
+export interface SessionStore {
+  getOrCreate(sessionKey: string, meta?: Partial<SessionEntry>): Promise<SessionEntry>;
+  rotate(sessionKey: string, meta?: Partial<SessionEntry>): Promise<SessionEntry>;
+  get(sessionKey: string): Promise<SessionEntry | null>;
+  listKeys(): Promise<string[]>;
 }
 
-export type SessionKey = `${ChannelId}:${string}`;
+// <sessionsDir>/sessions.json
+// {
+//   "agent:main:discord:conv:main:main": {
+//     "sessionId": "<uuid>",
+//     "updatedAt": 1706000000,
+//     "channel": "discord",
+//     "chatType": "direct",
+//     "groupId": null,
+//     "displayName": "Alice"
+//   }
+// }
+```
 
-export interface Session {
-  key: SessionKey;
-  createdAt: number;
-  lastActiveAt: number;
-  messageCount: number;
+#### Transcript：SessionTranscriptStore
+
+```ts
+// src/agent/session-transcript.ts
+
+export interface SessionTranscriptStore {
+  append(sessionId: string, message: Message): Promise<void>;
+  readAll(sessionId: string): Promise<Message[]>;
+  getHistory(sessionId: string, maxTurns?: number): Promise<Message[]>;
+  clear(sessionId: string): Promise<void>;
 }
 
-export interface Message {
-  role: "user" | "assistant" | "system";
-  content: string;
-  timestamp: number;
-  toolCalls?: ToolCall[];
-  toolResults?: ToolResult[];
-}
-
-// 持久化格式 (JSONL)
-// 每行一条消息，便于追加写入
-// ~/.owliabot/sessions/telegram:883499266.jsonl
+// <sessionsDir>/transcripts/<sessionId>.jsonl
 // {"role":"user","content":"hello","timestamp":1706000000}
 // {"role":"assistant","content":"hi","timestamp":1706000001}
 ```
 
-#### 窗口管理
+窗口管理仍在 transcript 层完成（按 turns 截断）：
 
-```typescript
-// 获取历史时自动截断
-async function getHistory(key: SessionKey, maxTurns = 20): Promise<Message[]> {
-  const allMessages = await readSessionFile(key);
-  
-  // 保留最近 maxTurns 轮对话 (user + assistant = 1 轮)
-  const turns: Message[][] = [];
-  let currentTurn: Message[] = [];
-  
-  for (const msg of allMessages) {
-    currentTurn.push(msg);
-    if (msg.role === "assistant") {
-      turns.push(currentTurn);
-      currentTurn = [];
-    }
-  }
-  
-  // 取最后 N 轮
-  const recentTurns = turns.slice(-maxTurns);
-  return recentTurns.flat();
+```ts
+async function getHistory(sessionId: string, maxTurns = 20): Promise<Message[]> {
+  // 读取 transcript JSONL
+  // 按 (user+assistant) 聚合 turns
+  // 返回最近 maxTurns 个 turns
 }
 ```
+
+#### clear_session 语义
+
+- `SessionStore.rotate(sessionKey)` -> 生成新的 `sessionId`
+- `SessionTranscriptStore.clear(oldSessionId)` -> 清空旧 transcript（防止继续增长/隐私残留）
+- `SessionTranscriptStore.clear(newSessionId)` -> 确保新会话从空白开始
+
 
 ### 5.7 Notifications 接口
 

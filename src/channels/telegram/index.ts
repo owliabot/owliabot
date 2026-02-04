@@ -64,9 +64,18 @@ export interface TelegramConfig {
   allowList?: string[];
 }
 
+function normalizeBotUsername(username?: string | null): string | null {
+  const u = (username ?? "").trim();
+  return u ? u.replace(/^@/, "").toLowerCase() : null;
+}
+
 export function createTelegramPlugin(config: TelegramConfig): ChannelPlugin {
   const bot = new Bot(config.token);
   let messageHandler: MessageHandler | null = null;
+
+  // Filled on start()
+  let botUsername: string | null = null;
+  let botUserId: number | null = null;
 
   const capabilities: ChannelCapabilities = {
     reactions: true,
@@ -83,18 +92,22 @@ export function createTelegramPlugin(config: TelegramConfig): ChannelPlugin {
     async start() {
       log.info("Starting Telegram bot...");
 
+      // Cache bot identity for mention / reply detection
+      try {
+        const me = await bot.api.getMe();
+        botUsername = normalizeBotUsername(me.username);
+        botUserId = me.id;
+        log.info(`Telegram bot identity: @${botUsername ?? "(no-username)"} (${botUserId})`);
+      } catch (err) {
+        log.warn("Failed to fetch Telegram bot identity (getMe)", err);
+      }
+
       bot.on("message:text", async (ctx) => {
         if (!messageHandler) return;
 
         const chatType = ctx.chat.type === "private" ? "direct" : "group";
 
-        // MVP: only handle direct messages
-        if (chatType !== "direct") {
-          log.debug(`Ignoring ${chatType} message`);
-          return;
-        }
-
-        // Check allowlist
+        // Check allowlist (applies to both DM + group)
         if (config.allowList && config.allowList.length > 0) {
           const userId = ctx.from?.id.toString();
           if (!userId || !config.allowList.includes(userId)) {
@@ -103,17 +116,63 @@ export function createTelegramPlugin(config: TelegramConfig): ChannelPlugin {
           }
         }
 
-        // At this point, chatType is "direct" (we returned early for group)
+        const rawText = ctx.message.text;
+
+        // Mention signal for gateway gating
+        let mentioned = chatType === "direct";
+
+        if (!mentioned && chatType === "group") {
+          // A) reply-to-bot counts as mention
+          const repliedFrom = ctx.message.reply_to_message?.from;
+          if (repliedFrom?.is_bot) {
+            if (botUserId && repliedFrom.id === botUserId) mentioned = true;
+            const repliedUsername = normalizeBotUsername(repliedFrom.username);
+            if (botUsername && repliedUsername === botUsername) mentioned = true;
+          }
+
+          // B) @botusername in text counts as mention
+          if (!mentioned && botUsername) {
+            const atRe = new RegExp(`(^|\\s)@${botUsername}(\\s|$)`, "i");
+            if (atRe.test(rawText)) mentioned = true;
+          }
+
+          // C) /command@botusername counts as mention
+          if (!mentioned) {
+            const m = rawText.match(/^\/(\w+)(?:@([A-Za-z0-9_]+))?\b/);
+            if (m) {
+              const addr = normalizeBotUsername(m[2] ?? null);
+              if (!addr) {
+                // /command with no explicit @target: treat as mention
+                mentioned = true;
+              } else if (botUsername && addr === botUsername) {
+                mentioned = true;
+              }
+            }
+          }
+        }
+
+        // Strip bot addressing prefix for cleaner prompts (best effort)
+        let body = rawText;
+        if (chatType === "group" && botUsername) {
+          // Remove leading @bot
+          body = body.replace(new RegExp(`^@${botUsername}\\s*`, "i"), "");
+          // Remove leading /cmd@bot
+          body = body.replace(new RegExp(`^\/(\\w+)@${botUsername}\\s*`, "i"), "/$1 ");
+        }
+        body = body.trim();
+
         const msgCtx: MsgContext = {
           from: ctx.from?.id.toString() ?? "",
           senderName: ctx.from?.first_name ?? "Unknown",
           senderUsername: ctx.from?.username,
-          body: ctx.message.text,
+          mentioned,
+          body: body.length > 0 ? body : rawText,
           messageId: ctx.message.message_id.toString(),
           replyToId: ctx.message.reply_to_message?.message_id.toString(),
           channel: "telegram",
           chatType,
-          groupId: undefined, // MVP: only direct messages, no group support
+          groupId: chatType === "group" ? ctx.chat.id.toString() : undefined,
+          groupName: chatType === "group" ? ("title" in ctx.chat ? (ctx.chat as any).title : undefined) : undefined,
           timestamp: ctx.message.date * 1000,
         };
 

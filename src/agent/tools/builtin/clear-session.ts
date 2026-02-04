@@ -1,10 +1,12 @@
 // src/agent/tools/builtin/clear-session.ts
 import type { ToolDefinition } from "../interface.js";
-import type { SessionManager, SessionKey } from "../../session.js";
+import type { SessionStore } from "../../session-store.js";
+import type { SessionTranscriptStore } from "../../session-transcript.js";
 
-export function createClearSessionTool(
-  sessions: SessionManager
-): ToolDefinition {
+export function createClearSessionTool(options: {
+  sessionStore: SessionStore;
+  transcripts: SessionTranscriptStore;
+}): ToolDefinition {
   return {
     name: "clear_session",
     description:
@@ -17,10 +19,21 @@ export function createClearSessionTool(
       level: "read", // Read because it only affects current session
     },
     async execute(_params, ctx) {
-      await sessions.clear(ctx.sessionKey as SessionKey);
+      const { sessionStore, transcripts } = options;
+
+      const existing = await sessionStore.get(ctx.sessionKey);
+      const rotated = await sessionStore.rotate(ctx.sessionKey);
+
+      // Clear transcripts for both the old + the new sessionId.
+      // (New will usually be empty, but we ensure it.)
+      if (existing?.sessionId) {
+        await transcripts.clear(existing.sessionId);
+      }
+      await transcripts.clear(rotated.sessionId);
+
       return {
         success: true,
-        data: { message: "Session cleared" },
+        data: { message: "Session cleared", sessionId: rotated.sessionId },
       };
     },
   };

@@ -14,6 +14,7 @@ export interface AppConfig {
   telegram?: {
     /** Telegram bot token is expected via env (TELEGRAM_BOT_TOKEN) */
     allowList?: string[];
+    groupAllowList?: string[];
   };
 
   // Providers

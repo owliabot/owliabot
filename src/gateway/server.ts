@@ -10,14 +10,14 @@ import type { WorkspaceFiles } from "../workspace/types.js";
 import { ChannelRegistry } from "../channels/registry.js";
 import { createTelegramPlugin } from "../channels/telegram/index.js";
 import { createDiscordPlugin } from "../channels/discord/index.js";
-import {
-  createSessionManager,
-  type Message,
-  type SessionKey,
-} from "../agent/session.js";
+import type { Message } from "../agent/session.js";
+import { resolveAgentId, resolveSessionKey } from "../agent/session-key.js";
+import { createSessionStore, type SessionKey } from "../agent/session-store.js";
+import { createSessionTranscriptStore } from "../agent/session-transcript.js";
 import { callWithFailover, type LLMProvider } from "../agent/runner.js";
 import { buildSystemPrompt } from "../agent/system-prompt.js";
 import type { MsgContext } from "../channels/interface.js";
+import { shouldHandleMessage } from "./activation.js";
 import { ToolRegistry } from "../agent/tools/registry.js";
 import { executeToolCalls } from "../agent/tools/executor.js";
 import {
@@ -27,7 +27,6 @@ import {
   createMemorySearchTool,
   createMemoryGetTool,
   createListFilesTool,
-  createEditFileTool,
 } from "../agent/tools/builtin/index.js";
 import {
   WriteGateReplyRouter,
@@ -55,17 +54,25 @@ export async function startGateway(
   const { config, workspace, sessionsDir } = options;
 
   const channels = new ChannelRegistry();
-  const sessions = createSessionManager(sessionsDir);
+
+  const sessionStore = createSessionStore({
+    sessionsDir,
+    storePath: config.session?.storePath,
+  });
+
+  const transcripts = createSessionTranscriptStore({
+    sessionsDir,
+  });
 
   // Create tool registry and register builtin tools
   const tools = new ToolRegistry();
   tools.register(echoTool);
   tools.register(createHelpTool(tools));
-  tools.register(createClearSessionTool(sessions));
+  tools.register(createClearSessionTool({ sessionStore, transcripts }));
   tools.register(createMemorySearchTool(config.workspace));
   tools.register(createMemoryGetTool(config.workspace));
   tools.register(createListFilesTool(config.workspace));
-  tools.register(createEditFileTool(config.workspace));
+  // NOTE: write tools are disabled for now (Phase 1.5) until we add confirmation/permission gates.
 
   // Load skills if enabled
   const skillsEnabled = config.skills?.enabled ?? true;
@@ -91,7 +98,7 @@ export async function startGateway(
 
     telegram.onMessage(async (ctx) => {
       if (replyRouter.tryRoute(ctx)) return; // confirmation reply consumed
-      await handleMessage(ctx, config, workspace, sessions, channels, tools, writeGateChannels);
+      await handleMessage(ctx, config, workspace, sessionStore, transcripts, channels, tools, writeGateChannels);
     });
 
     channels.register(telegram);
@@ -112,7 +119,7 @@ export async function startGateway(
 
     discord.onMessage(async (ctx) => {
       if (replyRouter.tryRoute(ctx)) return; // confirmation reply consumed
-      await handleMessage(ctx, config, workspace, sessions, channels, tools, writeGateChannels);
+      await handleMessage(ctx, config, workspace, sessionStore, transcripts, channels, tools, writeGateChannels);
     });
 
     channels.register(discord);
@@ -162,33 +169,44 @@ async function handleMessage(
   ctx: MsgContext,
   config: Config,
   workspace: WorkspaceFiles,
-  sessions: ReturnType<typeof createSessionManager>,
+  sessionStore: ReturnType<typeof createSessionStore>,
+  transcripts: ReturnType<typeof createSessionTranscriptStore>,
   channels: ChannelRegistry,
   tools: ToolRegistry,
   writeGateChannels: Map<string, WriteGateChannel>,
-): Promise<void> {
-  const conversationId =
-    ctx.chatType === "direct" ? ctx.from : ctx.groupId ?? ctx.from;
-  const sessionKey: SessionKey = `${ctx.channel}:${conversationId}`;
+): Promise<void> {  
+  if (!shouldHandleMessage(ctx, config)) {
+    return;
+  }
+
+  const agentId = resolveAgentId({ config });
+  const sessionKey = resolveSessionKey({ ctx, config });
 
   log.info(`Message from ${sessionKey}: ${ctx.body.slice(0, 50)}...`);
 
-  // Append user message to session
+  const entry = await sessionStore.getOrCreate(sessionKey, {
+    channel: ctx.channel,
+    chatType: ctx.chatType,
+    groupId: ctx.groupId,
+    displayName: ctx.senderName,
+  });
+
+  // Append user message to transcript
   const userMessage: Message = {
     role: "user",
     content: ctx.body,
     timestamp: ctx.timestamp,
   };
-  await sessions.append(sessionKey, userMessage);
+  await transcripts.append(entry.sessionId, userMessage);
 
   // Get conversation history
-  const history = await sessions.getHistory(sessionKey);
+  const history = await transcripts.getHistory(entry.sessionId);
 
   // Build system prompt
   const systemPrompt = buildSystemPrompt({
     workspace,
     channel: ctx.channel,
-    timezone: "UTC+8", // TODO: from config
+    timezone: config.timezone,
     model: config.providers[0].model,
   });
 
@@ -213,54 +231,66 @@ async function handleMessage(
         tools: tools.getAll(),
       });
 
-    // If no tool calls, we're done
-    if (!response.toolCalls || response.toolCalls.length === 0) {
-      finalContent = response.content;
-      break;
-    }
+      // If no tool calls, we're done
+      if (!response.toolCalls || response.toolCalls.length === 0) {
+        finalContent = response.content;
+        break;
+      }
 
-    log.info(`LLM requested ${response.toolCalls.length} tool calls`);
+      log.info(`LLM requested ${response.toolCalls.length} tool calls`);
 
-    // Execute tool calls
-    const toolResults = await executeToolCalls(response.toolCalls, {
-      registry: tools,
-      context: {
-        sessionKey,
-        agentId: "owliabot",
-        signer: null,
-        config: {},
-      },
-      writeGateChannel: writeGateChannels.get(ctx.channel),
-      securityConfig: config.security,
-      workspacePath: config.workspace,
-      userId: ctx.from,
-    });
+      // Execute tool calls
+      const toolResults = await executeToolCalls(response.toolCalls, {
+        registry: tools,
+        context: {
+          sessionKey,
+          agentId,
+          signer: null,
+          config: {},
+        },
+        writeGateChannel: writeGateChannels.get(ctx.channel),
+        securityConfig: config.security,
+        workspacePath: config.workspace,
+        userId: ctx.from,
+      });
 
-    // Add assistant message with tool calls to conversation
-    conversationMessages.push({
-      role: "assistant",
-      content: response.content || "",
-      timestamp: Date.now(),
-      toolCalls: response.toolCalls,
-    });
+      // Add assistant message with tool calls to conversation
+      const assistantToolCallMessage: Message = {
+        role: "assistant",
+        content: response.content || "",
+        timestamp: Date.now(),
+        toolCalls: response.toolCalls,
+      };
+      conversationMessages.push(assistantToolCallMessage);
+      await transcripts.append(entry.sessionId, assistantToolCallMessage);
 
-    // Add tool results as user message with proper toolResults structure
-    // The runner will convert this to pi-ai's ToolResultMessage format
-    const toolResultsArray = response.toolCalls.map((call) => {
-      const result = toolResults.get(call.id);
-      return {
-        ...result,
-        toolCallId: call.id,
-        toolName: call.name,
-      } as ToolResult;
-    });
+      // Add tool results as user message with proper toolResults structure
+      // The runner will convert this to pi-ai's ToolResultMessage format
+      const toolResultsArray = response.toolCalls.map((call) => {
+        const result = toolResults.get(call.id);
+        if (!result) {
+          return {
+            success: false,
+            error: "Missing tool result",
+            toolCallId: call.id,
+            toolName: call.name,
+          } as ToolResult;
+        }
+        return {
+          ...result,
+          toolCallId: call.id,
+          toolName: call.name,
+        } as ToolResult;
+      });
 
-      conversationMessages.push({
+      const toolResultMessage: Message = {
         role: "user",
         content: "", // Content is empty, tool results are in toolResults array
         timestamp: Date.now(),
         toolResults: toolResultsArray,
-      });
+      };
+      conversationMessages.push(toolResultMessage);
+      await transcripts.append(entry.sessionId, toolResultMessage);
     }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -287,7 +317,7 @@ async function handleMessage(
     content: finalContent,
     timestamp: Date.now(),
   };
-  await sessions.append(sessionKey, assistantMessage);
+  await transcripts.append(entry.sessionId, assistantMessage);
 
   // Send response
   const channel = channels.get(ctx.channel);
@@ -299,4 +329,3 @@ async function handleMessage(
     });
   }
 }
-

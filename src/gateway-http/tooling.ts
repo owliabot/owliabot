@@ -8,38 +8,66 @@ import {
   createListFilesTool,
   createEditFileTool,
 } from "../agent/tools/builtin/index.js";
-import type { SessionManager } from "../agent/session.js";
+import type { SessionStore } from "../agent/session-store.js";
+import type { SessionTranscriptStore } from "../agent/session-transcript.js";
+import { randomUUID } from "node:crypto";
 import { initializeSkills } from "../skills/index.js";
 import { join } from "node:path";
 
-function createNoopSessions(): SessionManager {
+function createNoopSessionStore(): SessionStore {
+  const entries = new Map<string, { sessionId: string; updatedAt: number }>();
+
   return {
-    async get() {
-      return {
-        key: "gateway:noop" as any,
-        createdAt: Date.now(),
-        lastActiveAt: Date.now(),
-        messageCount: 0,
-      };
+    async get(sessionKey) {
+      return entries.get(sessionKey) ?? null;
     },
+
+    async getOrCreate(sessionKey) {
+      const existing = entries.get(sessionKey);
+      if (existing) {
+        const next = { ...existing, updatedAt: Date.now() };
+        entries.set(sessionKey, next);
+        return next as any;
+      }
+      const next = { sessionId: randomUUID(), updatedAt: Date.now() };
+      entries.set(sessionKey, next);
+      return next as any;
+    },
+
+    async rotate(sessionKey) {
+      const next = { sessionId: randomUUID(), updatedAt: Date.now() };
+      entries.set(sessionKey, next);
+      return next as any;
+    },
+
+    async listKeys() {
+      return [...entries.keys()];
+    },
+  };
+}
+
+function createNoopTranscriptStore(): SessionTranscriptStore {
+  return {
     async append() {},
+    async readAll() {
+      return [];
+    },
     async getHistory() {
       return [];
     },
     async clear() {},
-    async list() {
-      return [];
-    },
   };
 }
 
 export async function createGatewayToolRegistry(workspacePath: string) {
   const tools = new ToolRegistry();
-  const sessions = createNoopSessions();
+
+  const sessionStore = createNoopSessionStore();
+  const transcripts = createNoopTranscriptStore();
 
   tools.register(echoTool);
   tools.register(createHelpTool(tools));
-  tools.register(createClearSessionTool(sessions));
+  tools.register(createClearSessionTool({ sessionStore, transcripts }));
   tools.register(createMemorySearchTool(workspacePath));
   tools.register(createMemoryGetTool(workspacePath));
   tools.register(createListFilesTool(workspacePath));

@@ -107,6 +107,15 @@ export ALCHEMY_API_KEY="your-key-here"
 - `skills.enabled` 与 `skills.directory`：Skills 系统开关与路径
 - `notifications.channel`：主动消息发送位置（例如 `telegram:883499266`）
 - `heartbeat`：基于 cron 的定时任务
+- `session`：私聊（DM）会话范围
+  - **说明：** DM 会被视为同一个“主会话桶”（不是按发送者区分）。这是为单人 allowlist 的部署形态设计的。
+  - `session.mainKey`：DM 主会话桶名称（默认 `main`）
+  - `session.scope`：`per-agent`（默认）或 `global`
+- `group.activation`：群聊激活模式
+  - `mention`（默认）：仅在 `ctx.mentioned=true`（明确触发）或在 allowlist 群/频道内时响应
+    - Discord：@机器人时会设置 `ctx.mentioned=true`
+    - Telegram 群：满足以下任一会设置 `ctx.mentioned=true`：回复机器人消息 / 文本里 @botusername / 使用 /command（可选 /command@bot）
+  - `always`：在群聊中响应所有消息（建议配合 allowlist 防止刷屏）
 
 常用环境变量：
 

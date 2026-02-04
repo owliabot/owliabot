@@ -30,6 +30,12 @@ export interface MsgContext {
   senderName: string;
   senderUsername?: string;
 
+  /**
+   * Whether the bot was explicitly mentioned / invoked in this message.
+   * Used for mention-only activation in group chats.
+   */
+  mentioned?: boolean;
+
   // Message
   body: string;
   messageId: string;
