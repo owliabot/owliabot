@@ -5,6 +5,10 @@ import { parse, stringify } from "yaml";
 export interface SecretsConfig {
   discord?: { token?: string };
   telegram?: { token?: string };
+  /** OpenAI API key (for openai provider, not OAuth) */
+  openai?: { apiKey?: string };
+  /** Anthropic API key (alternative to OAuth) */
+  anthropic?: { apiKey?: string };
 }
 
 export function getSecretsPath(appConfigPath: string): string {

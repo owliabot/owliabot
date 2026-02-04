@@ -1,3 +1,39 @@
+/** Supported LLM provider identifiers */
+export type LLMProviderId = "anthropic" | "openai" | "openai-codex";
+
+/** Provider configuration with OAuth or API key auth */
+export type ProviderConfig =
+  | {
+      id: "anthropic";
+      model: string;
+      apiKey: "oauth"; // Anthropic OAuth (Claude Pro/Max subscription)
+      priority: number;
+    }
+  | {
+      id: "openai-codex";
+      model: string;
+      apiKey: "oauth"; // OpenAI Codex OAuth (ChatGPT Plus/Pro subscription)
+      priority: number;
+    }
+  | {
+      id: "openai";
+      model: string;
+      apiKey: string; // OpenAI API key (from secrets or env)
+      priority: number;
+    }
+  | {
+      id: "anthropic";
+      model: string;
+      apiKey: string; // Anthropic API key (from secrets or env)
+      priority: number;
+    }
+  | {
+      id: string;
+      model: string;
+      apiKey: string;
+      priority: number;
+    };
+
 export interface AppConfig {
   // Workspace path (can be relative to the config file location)
   workspace: string;
@@ -18,20 +54,7 @@ export interface AppConfig {
   };
 
   // Providers
-  providers: Array<
-    | {
-        id: "anthropic";
-        model: string;
-        apiKey: "oauth"; // onboarding supports oauth placeholder
-        priority: number;
-      }
-    | {
-        id: string;
-        model: string;
-        apiKey: string;
-        priority: number;
-      }
-  >;
+  providers: ProviderConfig[];
 
   notifications?: {
     channel: string;
