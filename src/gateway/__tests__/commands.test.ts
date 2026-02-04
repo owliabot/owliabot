@@ -3,6 +3,14 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 import { tryHandleCommand, type CommandContext } from "../commands.js";
 import type { MsgContext } from "../../channels/interface.js";
 import type { SessionStore, SessionEntry } from "../../agent/session-store.js";
+
+// Mock the session-summarizer module
+vi.mock("../session-summarizer.js", () => ({
+  summarizeAndSave: vi.fn().mockResolvedValue({ summarized: false }),
+}));
+
+import { summarizeAndSave } from "../session-summarizer.js";
+const mockSummarize = summarizeAndSave as ReturnType<typeof vi.fn>;
 import type { SessionTranscriptStore } from "../../agent/session-transcript.js";
 import type { ChannelRegistry } from "../../channels/registry.js";
 
@@ -216,5 +224,58 @@ describe("tryHandleCommand", () => {
 
     expect(result.handled).toBe(true);
     expect(channels.sent[0].text).toContain("新会话已开启");
+  });
+
+  // --- Memory summarization integration tests ---
+
+  it("should call summarizeAndSave when workspacePath is provided", async () => {
+    await sessionStore.getOrCreate("discord:user123");
+    mockSummarize.mockResolvedValue({ summarized: true, summary: "- test summary" });
+
+    const ctx = createMockCtx({ body: "/new" });
+    await tryHandleCommand(
+      makeContext(ctx, { workspacePath: "/tmp/workspace" })
+    );
+
+    expect(mockSummarize).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionId: "old-session-id",
+        workspacePath: "/tmp/workspace",
+      })
+    );
+  });
+
+  it("should NOT call summarizeAndSave when workspacePath is missing", async () => {
+    await sessionStore.getOrCreate("discord:user123");
+    mockSummarize.mockClear();
+
+    const ctx = createMockCtx({ body: "/new" });
+    await tryHandleCommand(makeContext(ctx));
+
+    expect(mockSummarize).not.toHaveBeenCalled();
+  });
+
+  it("should include memory saved note in greeting when summary was produced", async () => {
+    await sessionStore.getOrCreate("discord:user123");
+    mockSummarize.mockResolvedValue({ summarized: true, summary: "- items" });
+
+    const ctx = createMockCtx({ body: "/new" });
+    await tryHandleCommand(
+      makeContext(ctx, { workspacePath: "/tmp/workspace" })
+    );
+
+    expect(channels.sent[0].text).toContain("📝 对话摘要已保存到记忆文件");
+  });
+
+  it("should NOT include memory note when summary was skipped", async () => {
+    await sessionStore.getOrCreate("discord:user123");
+    mockSummarize.mockResolvedValue({ summarized: false });
+
+    const ctx = createMockCtx({ body: "/new" });
+    await tryHandleCommand(
+      makeContext(ctx, { workspacePath: "/tmp/workspace" })
+    );
+
+    expect(channels.sent[0].text).not.toContain("📝");
   });
 });

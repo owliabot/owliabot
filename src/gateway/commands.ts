@@ -11,6 +11,8 @@ import type { MsgContext } from "../channels/interface.js";
 import type { SessionStore } from "../agent/session-store.js";
 import type { SessionTranscriptStore } from "../agent/session-transcript.js";
 import type { ChannelRegistry } from "../channels/registry.js";
+import { summarizeAndSave, type SummarizeResult } from "./session-summarizer.js";
+import type { ModelConfig } from "../agent/models.js";
 
 const log = createLogger("commands");
 
@@ -24,6 +26,12 @@ export interface CommandContext {
   transcripts: SessionTranscriptStore;
   channels: ChannelRegistry;
   resetTriggers?: string[];
+  /** Workspace root path — needed for writing memory summaries. */
+  workspacePath?: string;
+  /** Override the model used for summarization. */
+  summaryModel?: ModelConfig;
+  /** Timezone for date formatting in memory files. */
+  timezone?: string;
 }
 
 export interface CommandResult {
@@ -41,7 +49,10 @@ export interface CommandResult {
 export async function tryHandleCommand(
   options: CommandContext
 ): Promise<CommandResult> {
-  const { ctx, sessionKey, sessionStore, transcripts, channels, resetTriggers } = options;
+  const {
+    ctx, sessionKey, sessionStore, transcripts, channels,
+    resetTriggers, workspacePath, summaryModel, timezone,
+  } = options;
 
   const body = ctx.body.trim();
   const triggers = resetTriggers ?? DEFAULT_RESET_TRIGGERS;
@@ -62,6 +73,19 @@ export async function tryHandleCommand(
 
   // Rotate session (creates a new sessionId for this sessionKey)
   const oldEntry = await sessionStore.get(sessionKey);
+
+  // Summarize transcript → memory before clearing (non-blocking on failure)
+  let summaryResult: SummarizeResult = { summarized: false };
+  if (oldEntry?.sessionId && workspacePath) {
+    summaryResult = await summarizeAndSave({
+      sessionId: oldEntry.sessionId,
+      transcripts,
+      workspacePath,
+      summaryModel,
+      timezone,
+    });
+  }
+
   const newEntry = await sessionStore.rotate(sessionKey, {
     channel: ctx.channel,
     chatType: ctx.chatType,
@@ -69,7 +93,7 @@ export async function tryHandleCommand(
     displayName: ctx.senderName,
   });
 
-  // Clear old transcript
+  // Clear old transcript (after summary is saved)
   if (oldEntry?.sessionId) {
     await transcripts.clear(oldEntry.sessionId);
   }
@@ -82,9 +106,13 @@ export async function tryHandleCommand(
     const target =
       ctx.chatType === "direct" ? ctx.from : ctx.groupId ?? ctx.from;
 
+    const memorySuffix = summaryResult.summarized
+      ? "\n📝 对话摘要已保存到记忆文件。"
+      : "";
+
     const greeting = remainder
-      ? `🆕 会话已重置。继续处理：${remainder}`
-      : "🆕 新会话已开启，之前的对话记录已清除。有什么可以帮你的？";
+      ? `🆕 会话已重置。${memorySuffix ? memorySuffix + "\n" : ""}继续处理：${remainder}`
+      : `🆕 新会话已开启，之前的对话记录已清除。${memorySuffix}有什么可以帮你的？`;
 
     await channel.send(target, {
       text: greeting,
