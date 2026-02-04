@@ -297,6 +297,14 @@ export async function indexMemory(params: {
       // NOTE: `sessionsDir` is validated inside listTranscriptFiles().
       await indexSessionTranscripts({ db, sessionsDir: params.sessionsDir });
     }
+
+    // Always update the last_indexed_at timestamp so the DB mtime advances even
+    // when no content changed. This prevents perpetual staleness when file mtimes
+    // are newer but content hashes are identical (e.g. `touch`, editor save w/o diff).
+    const setMeta = db.prepare(
+      "INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value"
+    );
+    setMeta.run("last_indexed_at", String(Date.now()));
   } finally {
     db.close();
   }

@@ -33,7 +33,7 @@ export function createMemoryGetTool(workspacePath: string): ToolDefinition {
     security: {
       level: "read",
     },
-    async execute(params) {
+    async execute(params, ctx) {
       const { path, from_line, num_lines } = params as {
         path: string;
         from_line?: number;
@@ -42,7 +42,17 @@ export function createMemoryGetTool(workspacePath: string): ToolDefinition {
 
       const raw = path.trim();
 
+      // Build dynamic allowlist from config extraPaths (same source as memory_search).
+      const rawCfg = ((ctx?.config as any)?.memorySearch ?? {}) as any;
+      const extraPaths: string[] = Array.isArray(rawCfg.extraPaths)
+        ? rawCfg.extraPaths
+            .filter((p: unknown) => typeof p === "string")
+            .map((p: string) => p.trim())
+            .filter(Boolean)
+        : [];
+
       // Security boundary (OpenClaw-style): only allow MEMORY.md + memory/**/*.md
+      // + configured extraPaths (resolved inside workspace).
       // - must be relative
       // - must be .md
       // - must resolve inside workspace
@@ -60,9 +70,14 @@ export function createMemoryGetTool(workspacePath: string): ToolDefinition {
         const inWorkspace = rel.length > 0 && !rel.startsWith("..");
         if (!inWorkspace) return null;
 
-        // Allowed roots: MEMORY.md or memory/**
-        const isAllowed = rel === "MEMORY.md" || rel.startsWith("memory/");
-        if (!isAllowed) return null;
+        // Allowed roots: MEMORY.md, memory/**, or under a configured extraPath.
+        const isCoreAllowed = rel === "MEMORY.md" || rel.startsWith("memory/");
+        const isExtraAllowed = extraPaths.some((ep) => {
+          const normalized = ep.replace(/\\/g, "/").replace(/\/+$/, "");
+          // extraPath can be a file or directory prefix
+          return rel === normalized || rel.startsWith(normalized + "/");
+        });
+        if (!isCoreAllowed && !isExtraAllowed) return null;
 
         // Fail-closed on symlink directory escapes: validate realpath of workspace + parent directory
         // (works even when the file itself doesn't exist yet).
@@ -86,8 +101,12 @@ export function createMemoryGetTool(workspacePath: string): ToolDefinition {
           const realRel = relative(realWorkspace, realTarget).replace(/\\/g, "/");
           const realInWorkspace = realRel.length > 0 && !realRel.startsWith("..");
           if (!realInWorkspace) return null;
-          const realAllowed = realRel === "MEMORY.md" || realRel.startsWith("memory/");
-          if (!realAllowed) return null;
+          const realCoreAllowed = realRel === "MEMORY.md" || realRel.startsWith("memory/");
+          const realExtraAllowed = extraPaths.some((ep) => {
+            const normalized = ep.replace(/\\/g, "/").replace(/\/+$/, "");
+            return realRel === normalized || realRel.startsWith(normalized + "/");
+          });
+          if (!realCoreAllowed && !realExtraAllowed) return null;
 
           return { absPath: realTarget, relPath: realRel };
         } catch (err) {
