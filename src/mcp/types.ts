@@ -13,13 +13,18 @@ export interface JSONRPCRequest {
   jsonrpc: "2.0";
   id: string | number;
   method: string;
-  params?: Record<string, unknown>;
+  /**
+   * MCP/JSON-RPC params are typically an object, but different MCP servers may
+   * send/expect other JSON values. Keep this permissive and validate at the
+   * method boundary.
+   */
+  params?: unknown;
 }
 
 export interface JSONRPCResponse {
   jsonrpc: "2.0";
   id: string | number;
-  result?: Record<string, unknown>;
+  result?: unknown;
   error?: JSONRPCError;
 }
 
@@ -32,7 +37,7 @@ export interface JSONRPCError {
 export interface JSONRPCNotification {
   jsonrpc: "2.0";
   method: string;
-  params?: Record<string, unknown>;
+  params?: unknown;
 }
 
 export type JSONRPCMessage = JSONRPCRequest | JSONRPCResponse | JSONRPCNotification;
