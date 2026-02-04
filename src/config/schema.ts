@@ -69,6 +69,9 @@ const sessionSchema = z
     scope: z.enum(["global", "per-agent"]).default("per-agent"),
     mainKey: z.string().default("main"),
     storePath: z.string().optional(),
+    resetTriggers: z.array(z.string()).optional(),
+    summaryModel: z.string().optional(),
+    summarizeOnReset: z.boolean().default(true),
   })
   .default({ scope: "per-agent", mainKey: "main" });
 

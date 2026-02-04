@@ -18,6 +18,7 @@ import { callWithFailover, type LLMProvider } from "../agent/runner.js";
 import { buildSystemPrompt } from "../agent/system-prompt.js";
 import type { MsgContext } from "../channels/interface.js";
 import { shouldHandleMessage } from "./activation.js";
+import { tryHandleCommand } from "./commands.js";
 import { ToolRegistry } from "../agent/tools/registry.js";
 import { executeToolCalls } from "../agent/tools/executor.js";
 import {
@@ -181,6 +182,24 @@ async function handleMessage(
 
   const agentId = resolveAgentId({ config });
   const sessionKey = resolveSessionKey({ ctx, config });
+
+  // Intercept slash commands before the LLM loop
+  const cmd = await tryHandleCommand({
+    ctx,
+    sessionKey,
+    sessionStore,
+    transcripts,
+    channels,
+    resetTriggers: config.session?.resetTriggers,
+    defaultModelLabel: config.providers?.[0]?.model,
+    workspacePath: config.workspace,
+    summaryModel: config.session?.summaryModel 
+      ? { model: config.session.summaryModel } 
+      : undefined,
+    summarizeOnReset: config.session?.summarizeOnReset,
+    timezone: config.timezone,
+  });
+  if (cmd.handled) return;
 
   log.info(`Message from ${sessionKey}: ${ctx.body.slice(0, 50)}...`);
 
