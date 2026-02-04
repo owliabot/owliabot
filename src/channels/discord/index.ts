@@ -63,8 +63,17 @@ export function createDiscordPlugin(config: DiscordConfig): ChannelPlugin {
         }
 
         // Compute mention signal (gateway will decide whether to respond)
+        // Explicitly ignore @everyone/@here, role mentions, and reply-to mentions
+        // so that only a direct @bot mention triggers activation.
         const botUser = client.user;
-        const mentioned = !isDM && botUser ? message.mentions.has(botUser) : false;
+        const mentioned =
+          !isDM && botUser
+            ? message.mentions.has(botUser, {
+                ignoreEveryone: true,
+                ignoreRoles: true,
+                ignoreRepliedUser: true,
+              })
+            : false;
 
         // Strip bot mention prefix for cleaner prompts (best-effort)
         let body = message.content;
