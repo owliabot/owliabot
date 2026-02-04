@@ -495,7 +495,7 @@ export function redactParams(params: Record<string, unknown>): Record<string, un
   
   for (const [key, value] of Object.entries(params)) {
     // 完全移除敏感字段
-    if (SENSITIVE_KEYS.some(sk => key.toLowerCase().includes(sk))) {
+    if (SENSITIVE_KEYS.some(sk => key.toLowerCase().includes(sk.toLowerCase()))) {
       redacted[key] = "[REDACTED]";
       continue;
     }
