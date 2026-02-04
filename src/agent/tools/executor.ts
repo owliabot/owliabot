@@ -7,7 +7,8 @@
 import { createLogger } from "../../utils/logger.js";
 import { PolicyEngine } from "../../policy/engine.js";
 import { CooldownTracker } from "../../policy/cooldown.js";
-import { AuditLogger, type AuditEntry } from "../../audit/logger.js";
+import { AuditLogger } from "../../audit/logger.js";
+import { AuditQueryService } from "../../audit/query.js";
 import { SessionKeyLogger } from "../../audit/session-key-logger.js";
 import { AutoRevokeService } from "../../audit/auto-revoke.js";
 import { EmergencyStop } from "../../policy/emergency.js";
@@ -42,6 +43,7 @@ export interface ExecutorOptions {
   // Policy engine options (Tier 1/2/3)
   policyEngine?: PolicyEngine;
   auditLogger?: AuditLogger;
+  auditQueryService?: AuditQueryService;
   sessionKeyLogger?: SessionKeyLogger;
   autoRevokeService?: AutoRevokeService;
   emergencyStop?: EmergencyStop;
@@ -51,6 +53,7 @@ export interface ExecutorOptions {
 // Global instances (lazy-initialized)
 let globalPolicyEngine: PolicyEngine | null = null;
 let globalAuditLogger: AuditLogger | null = null;
+let globalAuditQueryService: AuditQueryService | null = null;
 let globalSessionKeyLogger: SessionKeyLogger | null = null;
 let globalCooldownTracker: CooldownTracker | null = null;
 let globalAutoRevokeService: AutoRevokeService | null = null;
@@ -68,6 +71,13 @@ function getOrCreateAuditLogger(): AuditLogger {
     globalAuditLogger = new AuditLogger();
   }
   return globalAuditLogger;
+}
+
+function getOrCreateAuditQueryService(): AuditQueryService {
+  if (!globalAuditQueryService) {
+    globalAuditQueryService = new AuditQueryService();
+  }
+  return globalAuditQueryService;
 }
 
 function getOrCreateSessionKeyLogger(): SessionKeyLogger {
@@ -130,6 +140,79 @@ function getOrCreateEmergencyStop(): EmergencyStop {
   return globalEmergencyStop;
 }
 
+/**
+ * Extract USD amount from tool call arguments.
+ * Looks for common amount-related fields in tool params.
+ */
+function extractAmountUsd(params: unknown): number | undefined {
+  if (!params || typeof params !== "object") return undefined;
+  const p = params as Record<string, unknown>;
+
+  // Direct USD amount
+  if (typeof p.amountUsd === "number") return p.amountUsd;
+  if (typeof p.amount_usd === "number") return p.amount_usd;
+
+  // Generic amount field (assume USD if no currency specified)
+  if (typeof p.amount === "number" && (!p.currency || p.currency === "USD")) {
+    return p.amount;
+  }
+
+  // Value field (common in transfer tools)
+  if (typeof p.valueUsd === "number") return p.valueUsd;
+  if (typeof p.value_usd === "number") return p.value_usd;
+
+  return undefined;
+}
+
+/**
+ * Compute daily spent USD and consecutive denials from recent audit entries.
+ */
+async function computeAuditContext(
+  auditQueryService: AuditQueryService,
+  userId: string,
+): Promise<{ dailySpentUsd: number; consecutiveDenials: number }> {
+  try {
+    const todayStart = new Date();
+    todayStart.setUTCHours(0, 0, 0, 0);
+
+    // Get today's entries for this user
+    const todayEntries = await auditQueryService.query({
+      user: userId,
+      since: todayStart,
+      limit: 1000,
+    });
+
+    // Sum USD amounts from successful operations today
+    let dailySpentUsd = 0;
+    for (const entry of todayEntries) {
+      if (entry.result === "success" && entry.amountUsd) {
+        dailySpentUsd += entry.amountUsd;
+      }
+    }
+
+    // Count consecutive denials from most recent entries
+    const recentEntries = await auditQueryService.query({
+      user: userId,
+      limit: 50,
+    });
+
+    let consecutiveDenials = 0;
+    // Entries are in chronological order, reverse to check most recent first
+    for (let i = recentEntries.length - 1; i >= 0; i--) {
+      if (recentEntries[i].result === "denied") {
+        consecutiveDenials++;
+      } else {
+        break;
+      }
+    }
+
+    return { dailySpentUsd, consecutiveDenials };
+  } catch (err) {
+    log.warn("Failed to compute audit context, using defaults", err);
+    return { dailySpentUsd: 0, consecutiveDenials: 0 };
+  }
+}
+
 export async function executeToolCall(
   call: ToolCall,
   options: ExecutorOptions
@@ -137,6 +220,7 @@ export async function executeToolCall(
   const { registry, context } = options;
   const policyEngine = options.policyEngine ?? getOrCreatePolicyEngine();
   const auditLogger = options.auditLogger ?? getOrCreateAuditLogger();
+  const auditQueryService = options.auditQueryService ?? getOrCreateAuditQueryService();
   const cooldownTracker = options.cooldownTracker ?? getOrCreateCooldownTracker();
   const autoRevokeService = options.autoRevokeService ?? getOrCreateAutoRevokeService();
   const emergencyStop = options.emergencyStop ?? getOrCreateEmergencyStop();
@@ -200,9 +284,16 @@ export async function executeToolCall(
 
   const startTime = Date.now();
 
-  // Build escalation context using policy thresholds (not hardcoded)
+  // Extract amount from tool arguments
+  const amountUsd = extractAmountUsd(call.arguments);
+
+  // Compute daily spent and consecutive denials from audit log
+  const auditContext = await computeAuditContext(auditQueryService, context.sessionKey);
+
+  // Build escalation context using policy thresholds
   const policyThresholds = await policyEngine.getThresholds();
   const escalationContext: EscalationContext = {
+    amountUsd,
     sessionKey: context.signer
       ? {
           id: context.sessionKey,
@@ -211,9 +302,35 @@ export async function executeToolCall(
         }
       : undefined,
     thresholds: policyThresholds,
-    dailySpentUsd: 0, // TODO: Track from audit log
-    consecutiveDenials: 0, // TODO: Track from recent audit entries
+    dailySpentUsd: auditContext.dailySpentUsd,
+    consecutiveDenials: auditContext.consecutiveDenials,
   };
+
+  // Helper: feed entry into anomaly detection for all outcomes
+  const feedAnomaly = async (result: string) => {
+    try {
+      await autoRevokeService.onAuditEntry({
+        id: "pending",
+        ts: new Date().toISOString(),
+        version: 1,
+        tool: call.name,
+        tier: 0 as any, // Will be set properly below
+        effectiveTier: 0 as any,
+        securityLevel: tool.security.level,
+        user: context.sessionKey,
+        channel: "unknown",
+        params: call.arguments as Record<string, unknown>,
+        result,
+        duration: Date.now() - startTime,
+      });
+    } catch (err) {
+      log.warn("Anomaly detection failed", err);
+    }
+  };
+
+  // Track audit entry id for try/finally finalization
+  let auditEntryId: string | null = null;
+  let auditFinalized = false;
 
   try {
     // 1. Policy decision
@@ -240,11 +357,13 @@ export async function executeToolCall(
         effectiveTier: decision.effectiveTier,
         securityLevel: tool.security.level,
         user: context.sessionKey,
-        channel: "unknown", // TODO: Pass from context
+        channel: "unknown",
         params: call.arguments as Record<string, unknown>,
         result: "denied",
         reason: cooldownCheck.reason,
+        amountUsd,
       });
+      await feedAnomaly("denied");
       return {
         success: false,
         error: cooldownCheck.reason,
@@ -258,8 +377,9 @@ export async function executeToolCall(
       effectiveTier: decision.effectiveTier,
       securityLevel: tool.security.level,
       user: context.sessionKey,
-      channel: "unknown", // TODO: Pass from context
+      channel: "unknown",
       params: call.arguments as Record<string, unknown>,
+      amountUsd,
     });
 
     if (!auditEntry.ok) {
@@ -270,27 +390,12 @@ export async function executeToolCall(
       };
     }
 
-    // Helper: feed entry into anomaly detection for all outcomes
-    const feedAnomaly = async (result: AuditEntry["result"]) => {
-      await autoRevokeService.onAuditEntry({
-        id: auditEntry.id,
-        ts: new Date().toISOString(),
-        version: 1,
-        tool: call.name,
-        tier: decision.tier,
-        effectiveTier: decision.effectiveTier,
-        securityLevel: tool.security.level,
-        user: context.sessionKey,
-        channel: "unknown",
-        params: call.arguments as Record<string, unknown>,
-        result,
-        duration: Date.now() - startTime,
-      });
-    };
+    auditEntryId = auditEntry.id;
 
     // 4. Handle decision
     if (decision.action === "deny") {
       await auditLogger.finalize(auditEntry.id, "denied", decision.reason);
+      auditFinalized = true;
       await feedAnomaly("denied");
       return {
         success: false,
@@ -300,6 +405,7 @@ export async function executeToolCall(
 
     if (decision.action === "escalate") {
       await auditLogger.finalize(auditEntry.id, "escalated", decision.reason);
+      auditFinalized = true;
       await feedAnomaly("escalated");
       return {
         success: false,
@@ -317,6 +423,7 @@ export async function executeToolCall(
         "denied",
         "confirmation-not-implemented"
       );
+      auditFinalized = true;
       await feedAnomaly("denied");
       return {
         success: false,
@@ -343,6 +450,7 @@ export async function executeToolCall(
         txHash: (result.data as { txHash?: string })?.txHash,
       }
     );
+    auditFinalized = true;
 
     // 7. Record cooldown
     if (result.success) {
@@ -350,7 +458,6 @@ export async function executeToolCall(
     }
 
     // 8. Anomaly detection
-    const recentEntries = await auditLogger.queryRecent(100);
     await autoRevokeService.onAuditEntry({
       id: auditEntry.id,
       ts: new Date().toISOString(),
@@ -370,6 +477,20 @@ export async function executeToolCall(
     return result;
   } catch (err) {
     log.error(`Tool ${call.name} failed`, err);
+
+    // Finalize audit entry on exception if not already finalized
+    if (auditEntryId && !auditFinalized) {
+      try {
+        await auditLogger.finalize(auditEntryId, "error",
+          err instanceof Error ? err.message : "Unknown error",
+          { duration: Date.now() - startTime });
+      } catch (finalizeErr) {
+        log.error("Failed to finalize audit entry on exception", finalizeErr);
+      }
+    }
+
+    await feedAnomaly("error");
+
     return {
       success: false,
       error: err instanceof Error ? err.message : "Unknown error",

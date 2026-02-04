@@ -52,8 +52,9 @@ export class AuditQueryService {
    */
   async query(query: AuditQuery): Promise<AuditEntry[]> {
     const files = await this.resolveLogFiles(query.since, query.until);
-    const results: AuditEntry[] = [];
-    let skipped = 0;
+    // Two-pass: collect pre-log entries and finalize records, then merge
+    const preLogEntries = new Map<string, AuditEntry>();
+    const finalizeRecords = new Map<string, Record<string, unknown>>();
 
     for (const file of files) {
       const stream = file.endsWith(".gz")
@@ -66,30 +67,49 @@ export class AuditQueryService {
         if (!line.trim()) continue;
 
         try {
-          const entry = JSON.parse(line) as AuditEntry;
+          const parsed = JSON.parse(line);
 
-          // Skip finalization records
-          if ("_finalize" in entry) continue;
-
-          // Apply filters
-          if (!this.matchesQuery(entry, query)) continue;
-
-          // Handle offset
-          if (query.offset && skipped < query.offset) {
-            skipped++;
-            continue;
-          }
-
-          results.push(entry);
-
-          // Check limit
-          if (query.limit && results.length >= query.limit) {
-            rl.close();
-            return results;
+          if (parsed._finalize && parsed.id) {
+            // Store finalize record for merging
+            finalizeRecords.set(parsed.id, parsed);
+          } else if (parsed.id) {
+            preLogEntries.set(parsed.id, parsed as AuditEntry);
           }
         } catch (err) {
           log.warn("Failed to parse audit line", err);
         }
+      }
+    }
+
+    // Merge finalize data into pre-log entries
+    for (const [id, finalize] of finalizeRecords) {
+      const entry = preLogEntries.get(id);
+      if (entry) {
+        // Apply finalize fields (result, reason, duration, txHash, etc.)
+        if (finalize.result) entry.result = finalize.result as string;
+        if (finalize.reason) entry.reason = finalize.reason as string;
+        if (finalize.duration !== undefined) entry.duration = finalize.duration as number;
+        if (finalize.txHash) entry.txHash = finalize.txHash as string;
+        if (finalize.finalizedAt) entry.finalizedAt = finalize.finalizedAt as string;
+      }
+    }
+
+    // Filter and collect results
+    const results: AuditEntry[] = [];
+    let skipped = 0;
+
+    for (const entry of preLogEntries.values()) {
+      if (!this.matchesQuery(entry, query)) continue;
+
+      if (query.offset && skipped < query.offset) {
+        skipped++;
+        continue;
+      }
+
+      results.push(entry);
+
+      if (query.limit && results.length >= query.limit) {
+        return results;
       }
     }
 
@@ -151,6 +171,8 @@ export class AuditQueryService {
    */
   async getById(id: string): Promise<AuditEntry | null> {
     const files = await this.resolveLogFiles();
+    let entry: AuditEntry | null = null;
+    let finalize: Record<string, unknown> | null = null;
 
     for (const file of files) {
       try {
@@ -163,11 +185,14 @@ export class AuditQueryService {
         for await (const line of rl) {
           if (!line.trim()) continue;
           try {
-            const entry = JSON.parse(line) as AuditEntry;
-            if ("_finalize" in entry) continue;
-            if (entry.id === id) {
-              rl.close();
-              return entry;
+            const parsed = JSON.parse(line);
+            if (parsed.id === id) {
+              if (parsed._finalize) {
+                finalize = parsed;
+              } else {
+                entry = parsed as AuditEntry;
+              }
+              // Keep scanning — finalize record may come after pre-log
             }
           } catch {
             // skip malformed lines
@@ -178,7 +203,16 @@ export class AuditQueryService {
       }
     }
 
-    return null;
+    // Merge finalize data if both found
+    if (entry && finalize) {
+      if (finalize.result) entry.result = finalize.result as string;
+      if (finalize.reason) entry.reason = finalize.reason as string;
+      if (finalize.duration !== undefined) entry.duration = finalize.duration as number;
+      if (finalize.txHash) entry.txHash = finalize.txHash as string;
+      if (finalize.finalizedAt) entry.finalizedAt = finalize.finalizedAt as string;
+    }
+
+    return entry;
   }
 
   private matchesQuery(entry: AuditEntry, query: AuditQuery): boolean {

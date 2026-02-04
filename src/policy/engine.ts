@@ -169,7 +169,8 @@ export class PolicyEngine {
       };
     }
 
-    if (policy.requireConfirmation) {
+    // Tier 1 ALWAYS requires confirmation (security invariant)
+    if (effectiveTier === 1 || policy.requireConfirmation) {
       return {
         action: "confirm",
         tier: policy.tier,
@@ -208,7 +209,7 @@ export class PolicyEngine {
   private mapTierToSigner(tier: Tier): SignerTier {
     if (tier === 1) return "app";
     if (tier === 2 || tier === 3) return "session-key";
-    return "session-key"; // none also uses session-key but won't need signing
+    return "none"; // tier none doesn't need signing
   }
 
   async reload(): Promise<void> {
