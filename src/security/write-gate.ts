@@ -13,7 +13,7 @@
 import { appendFile, mkdir } from "node:fs/promises";
 import { dirname } from "node:path";
 import { createLogger } from "../utils/logger.js";
-import type { ToolCall } from "./tools/interface.js";
+import type { ToolCall } from "../agent/tools/interface.js";
 import type { OutboundMessage } from "../channels/interface.js";
 
 const log = createLogger("write-gate");
