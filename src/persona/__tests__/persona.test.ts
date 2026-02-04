@@ -86,6 +86,15 @@ describe("persona loader", () => {
     ]);
     expect(docs[0]?.frontmatter.name).toBe("Base");
     expect(docs[3]?.frontmatter.name).toBe("Overlay");
+
+    const baseDocs = docs.filter((doc) => doc.source === "base");
+    const overlayDocs = docs.filter((doc) => doc.source === "overlay");
+    expect(baseDocs).toHaveLength(3);
+    expect(overlayDocs).toHaveLength(2);
+    expect(baseDocs.every((doc) => doc.readonly)).toBe(true);
+    expect(overlayDocs.every((doc) => !doc.readonly)).toBe(true);
+    expect(baseDocs.every((doc) => loader.isFromBase(doc))).toBe(true);
+    expect(overlayDocs.every((doc) => !loader.isFromBase(doc))).toBe(true);
   });
 });
 
@@ -95,6 +104,8 @@ describe("persona merger", () => {
       {
         kind: "base-core",
         path: "/base/core.md",
+        source: "base",
+        readonly: true,
         frontmatter: {
           name: "Base",
           do: ["be clear"],
@@ -107,6 +118,8 @@ describe("persona merger", () => {
       {
         kind: "overlay",
         path: "/agents/main/overlay.md",
+        source: "overlay",
+        readonly: false,
         frontmatter: {
           name: "Overlay",
           do: ["ask questions"],
@@ -119,6 +132,8 @@ describe("persona merger", () => {
       {
         kind: "notes",
         path: "/agents/main/notes.md",
+        source: "overlay",
+        readonly: false,
         frontmatter: { notes: ["runtime note"] },
         body: "Note body.",
       },
@@ -133,5 +148,46 @@ describe("persona merger", () => {
     expect(merged.tools).toEqual(["tool-b"]);
     expect(merged.content).toBe("Base content.\n\nOverlay content.");
     expect(merged.notes).toEqual(["base note", "runtime note", "Note body."]);
+  });
+
+  it("supports merge strategy configuration", () => {
+    const documents: PersonaDocument[] = [
+      {
+        kind: "base-core",
+        path: "/base/core.md",
+        source: "base",
+        readonly: true,
+        frontmatter: {
+          do: ["a", "b"],
+          boundaries: ["x", "y"],
+          tools: ["tool-a", "tool-b"],
+        },
+        body: "Base content.",
+      },
+      {
+        kind: "overlay",
+        path: "/agents/main/overlay.md",
+        source: "overlay",
+        readonly: false,
+        frontmatter: {
+          do: ["b", "c"],
+          boundaries: ["y", "z"],
+          tools: ["tool-b", "tool-c"],
+        },
+        body: "Overlay content.",
+      },
+    ];
+
+    const merged = new PersonaMerger({
+      listStrategies: {
+        do: "replace",
+        boundaries: "intersect",
+        tools: "append",
+      },
+    }).merge(documents);
+
+    expect(merged.do).toEqual(["b", "c"]);
+    expect(merged.boundaries).toEqual(["y"]);
+    expect(merged.tools).toEqual(["tool-a", "tool-b", "tool-c"]);
   });
 });

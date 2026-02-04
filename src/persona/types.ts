@@ -23,9 +23,13 @@ export type PersonaDocumentKind =
   | "notes"
   | "mask";
 
+export type PersonaDocumentSource = "base" | "overlay";
+
 export interface PersonaDocument {
   kind: PersonaDocumentKind;
   path: string;
+  source: PersonaDocumentSource;
+  readonly: boolean;
   frontmatter: PersonaFrontmatter;
   body: string;
 }

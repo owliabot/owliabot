@@ -1,10 +1,31 @@
 import type { PersonaDocument, PersonaProfile } from "./types.js";
 
+export type PersonaMergeStrategy = "append" | "replace" | "intersect";
+
+export interface PersonaMergerOptions {
+  defaultListStrategy?: PersonaMergeStrategy;
+  listStrategies?: Partial<
+    Record<"do" | "dont" | "boundaries" | "tools", PersonaMergeStrategy>
+  >;
+}
+
 export class PersonaMerger {
+  private readonly options: PersonaMergerOptions;
+
+  constructor(options: PersonaMergerOptions = {}) {
+    this.options = options;
+  }
+
   merge(documents: PersonaDocument[]): PersonaProfile {
     const merged: PersonaProfile = { sources: documents };
     const contentSegments: string[] = [];
     const notesSegments: string[] = [];
+    const listStrategies = this.options.listStrategies ?? {};
+    const defaultListStrategy = this.options.defaultListStrategy ?? "append";
+    const doStrategy = listStrategies.do ?? defaultListStrategy;
+    const dontStrategy = listStrategies.dont ?? defaultListStrategy;
+    const boundariesStrategy = listStrategies.boundaries ?? defaultListStrategy;
+    const toolsStrategy = listStrategies.tools ?? "intersect";
 
     for (const doc of documents) {
       const { frontmatter, body } = doc;
@@ -17,11 +38,15 @@ export class PersonaMerger {
       merged.tone = takeOverride(merged.tone, frontmatter.tone);
       merged.memoryPolicy = takeOverride(merged.memoryPolicy, frontmatter.memoryPolicy);
 
-      merged.do = mergeList(merged.do, frontmatter.do);
-      merged.dont = mergeList(merged.dont, frontmatter.dont);
-      merged.boundaries = mergeList(merged.boundaries, frontmatter.boundaries);
+      merged.do = mergeList(merged.do, frontmatter.do, doStrategy);
+      merged.dont = mergeList(merged.dont, frontmatter.dont, dontStrategy);
+      merged.boundaries = mergeList(
+        merged.boundaries,
+        frontmatter.boundaries,
+        boundariesStrategy
+      );
 
-      merged.tools = mergeTools(merged.tools, frontmatter.tools);
+      merged.tools = mergeList(merged.tools, frontmatter.tools, toolsStrategy);
 
       if (frontmatter.notes && frontmatter.notes.length > 0) {
         notesSegments.push(...frontmatter.notes);
@@ -52,30 +77,39 @@ function takeOverride<T>(current: T | undefined, next: T | undefined): T | undef
   return next !== undefined ? next : current;
 }
 
-function mergeList(current: string[] | undefined, next: string[] | undefined): string[] | undefined {
-  if (!current && !next) {
-    return undefined;
-  }
-  const combined = [...(current ?? []), ...(next ?? [])];
-  return dedupe(combined);
-}
-
-function mergeTools(
+function mergeList(
   current: string[] | undefined,
-  next: string[] | undefined
+  next: string[] | undefined,
+  strategy: PersonaMergeStrategy
 ): string[] | undefined {
   if (!current && !next) {
     return undefined;
   }
-  if (!current) {
-    return next ? dedupe(next) : undefined;
+
+  switch (strategy) {
+    case "replace": {
+      if (next) {
+        return dedupe(next);
+      }
+      return current ? dedupe(current) : undefined;
+    }
+    case "intersect": {
+      if (!current) {
+        return next ? dedupe(next) : undefined;
+      }
+      if (!next) {
+        return dedupe(current);
+      }
+      const nextSet = new Set(next);
+      const intersection = current.filter((item) => nextSet.has(item));
+      return dedupe(intersection);
+    }
+    case "append":
+    default: {
+      const combined = [...(current ?? []), ...(next ?? [])];
+      return dedupe(combined);
+    }
   }
-  if (!next) {
-    return dedupe(current);
-  }
-  const nextSet = new Set(next);
-  const intersection = current.filter((tool) => nextSet.has(tool));
-  return dedupe(intersection);
 }
 
 function dedupe(items: string[]): string[] {
