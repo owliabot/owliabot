@@ -45,3 +45,4 @@ workspace/*.jsonl
 
 # Worktrees
 .worktrees/
+workspace/gateway.db*

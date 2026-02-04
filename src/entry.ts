@@ -242,4 +242,85 @@ auth
     }
   });
 
+// Pair command - pair a device with the gateway
+program
+  .command("pair")
+  .description("Pair a device with the gateway HTTP server")
+  .option("--gateway-url <url>", "Gateway HTTP URL", "http://127.0.0.1:8787")
+  .option("--gateway-token <token>", "Gateway token for auto-approve")
+  .option("--device-id <id>", "Device ID (auto-generated if not provided)")
+  .action(async (options) => {
+    try {
+      const { randomUUID } = await import("node:crypto");
+      const deviceId = options.deviceId ?? randomUUID();
+      const gatewayUrl = options.gatewayUrl.replace(/\/$/, "");
+
+      log.info(`Pairing device: ${deviceId}`);
+      log.info(`Gateway URL: ${gatewayUrl}`);
+
+      // Step 1: Request pairing
+      const requestRes = await fetch(`${gatewayUrl}/pairing/request`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Device-Id": deviceId,
+        },
+      });
+
+      if (!requestRes.ok) {
+        const err = await requestRes.json().catch(() => ({}));
+        throw new Error(`Pairing request failed: ${JSON.stringify(err)}`);
+      }
+
+      log.info("Pairing request submitted, status: pending");
+
+      // Step 2: Auto-approve if gateway token provided
+      if (options.gatewayToken) {
+        log.info("Auto-approving with gateway token...");
+
+        const approveRes = await fetch(`${gatewayUrl}/pairing/approve`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-Gateway-Token": options.gatewayToken,
+          },
+          body: JSON.stringify({ deviceId }),
+        });
+
+        if (!approveRes.ok) {
+          const err = await approveRes.json().catch(() => ({}));
+          throw new Error(`Pairing approval failed: ${JSON.stringify(err)}`);
+        }
+
+        const result = (await approveRes.json()) as {
+          ok: boolean;
+          data?: { deviceId: string; deviceToken: string };
+        };
+
+        if (result.ok && result.data?.deviceToken) {
+          log.info("Device paired successfully!");
+          log.info(`Device ID: ${result.data.deviceId}`);
+          log.info(`Device Token: ${result.data.deviceToken}`);
+          log.info("");
+          log.info("Use this token in requests:");
+          log.info(`  X-Device-Id: ${result.data.deviceId}`);
+          log.info(`  X-Device-Token: ${result.data.deviceToken}`);
+        } else {
+          throw new Error("Unexpected response format");
+        }
+      } else {
+        log.info("");
+        log.info("Device is pending approval.");
+        log.info("To approve, run with --gateway-token or use the API:");
+        log.info(`  curl -X POST ${gatewayUrl}/pairing/approve \\`);
+        log.info(`    -H "X-Gateway-Token: <token>" \\`);
+        log.info(`    -H "Content-Type: application/json" \\`);
+        log.info(`    -d '{"deviceId": "${deviceId}"}'`);
+      }
+    } catch (err) {
+      log.error("Pairing failed", err);
+      process.exit(1);
+    }
+  });
+
 await program.parseAsync();
