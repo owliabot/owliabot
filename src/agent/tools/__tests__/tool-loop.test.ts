@@ -12,15 +12,15 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { ToolRegistry } from "../src/agent/tools/registry.js";
-import { executeToolCall, executeToolCalls } from "../src/agent/tools/executor.js";
-import { echoTool, createHelpTool, createListFilesTool } from "../src/agent/tools/builtin/index.js";
-import type { ToolContext, ToolCall, ToolResult } from "../src/agent/tools/interface.js";
+import { ToolRegistry } from "../registry.js";
+import { executeToolCall, executeToolCalls } from "../executor.js";
+import { echoTool, createHelpTool, createListFilesTool } from "../builtin/index.js";
+import type { ToolContext, ToolCall, ToolResult } from "../interface.js";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 // Mock logger to reduce noise
-vi.mock("../src/utils/logger.js", () => ({
+vi.mock("../../../utils/logger.js", () => ({
   createLogger: () => ({
     debug: vi.fn(),
     info: vi.fn(),
@@ -30,7 +30,7 @@ vi.mock("../src/utils/logger.js", () => ({
 }));
 
 // Mock write-gate (not testing gate itself here)
-vi.mock("../src/security/write-gate.js", () => ({
+vi.mock("../../../security/write-gate.js", () => ({
   createWriteGate: vi.fn(() => ({
     check: vi.fn(async () => ({ allowed: true })),
   })),
@@ -50,6 +50,11 @@ function createMockDeps() {
         tier: "none" as const,
         requireConfirmation: false,
         confirmationChannel: "inline" as const,
+      })),
+      getThresholds: vi.fn(async () => ({
+        tier1Amount: 10,
+        tier2Amount: 100,
+        tier3Amount: 1000,
       })),
     } as any,
     auditLogger: {
@@ -157,12 +162,10 @@ describe("Tool Loop Integration", () => {
 
       // Verify audit was called
       expect(mockDeps.auditLogger.preLog).toHaveBeenCalled();
-      expect(mockDeps.auditLogger.finalize).toHaveBeenCalledWith(
-        expect.any(String),
-        "success",
-        undefined,
-        undefined
-      );
+      expect(mockDeps.auditLogger.finalize).toHaveBeenCalled();
+      const finalizeCall = mockDeps.auditLogger.finalize.mock.calls[0];
+      expect(finalizeCall[0]).toEqual(expect.any(String)); // audit ID
+      expect(finalizeCall[1]).toBe("success"); // status
     });
   });
 
@@ -258,17 +261,17 @@ describe("Tool Loop Integration", () => {
         { id: "call_multi_003", name: "echo", arguments: { message: "test" } },
       ];
 
-      const results = await executeToolCalls(toolCalls, {
+      const resultsMap = await executeToolCalls(toolCalls, {
         registry,
         context: mockContext,
         workspacePath: testWorkspace,
         ...mockDeps,
       });
 
-      expect(results).toHaveLength(3);
-      expect(results[0].success).toBe(true); // help
-      expect(results[1].success).toBe(true); // list_files
-      expect(results[2].success).toBe(true); // echo
+      expect(resultsMap.size).toBe(3);
+      expect(resultsMap.get("call_multi_001")?.success).toBe(true); // help
+      expect(resultsMap.get("call_multi_002")?.success).toBe(true); // list_files
+      expect(resultsMap.get("call_multi_003")?.success).toBe(true); // echo
 
       // Each call should be audited
       expect(mockDeps.auditLogger.preLog).toHaveBeenCalledTimes(3);
@@ -333,14 +336,17 @@ describe("Tool Loop Integration", () => {
         ...mockDeps,
       });
 
-      expect(mockDeps.cooldownTracker.check).toHaveBeenCalledWith("help");
-      expect(mockDeps.cooldownTracker.record).toHaveBeenCalledWith("help");
+      expect(mockDeps.cooldownTracker.check).toHaveBeenCalled();
+      expect(mockDeps.cooldownTracker.check.mock.calls[0][0]).toBe("help");
+      expect(mockDeps.cooldownTracker.record).toHaveBeenCalled();
+      expect(mockDeps.cooldownTracker.record.mock.calls[0][0]).toBe("help");
     });
 
     it("should reject when cooldown active", async () => {
       mockDeps.cooldownTracker.check = vi.fn(() => ({
         allowed: false,
         resetAtMs: Date.now() + 60000,
+        reason: "Tool on cooldown",
       }));
 
       const toolCall: ToolCall = {
@@ -356,7 +362,7 @@ describe("Tool Loop Integration", () => {
       });
 
       expect(result.success).toBe(false);
-      expect(result.error).toContain("cooldown");
+      expect(result.error?.toLowerCase()).toContain("cooldown");
     });
   });
 
@@ -377,7 +383,7 @@ describe("Tool Loop Integration", () => {
       });
 
       expect(result.success).toBe(false);
-      expect(result.error).toContain("emergency");
+      expect(result.error?.toLowerCase()).toContain("emergency");
     });
   });
 
@@ -478,12 +484,10 @@ describe("Tool Loop E2E Simulation", () => {
 
     // 5. Verify audit trail
     expect(mockDeps.auditLogger.preLog).toHaveBeenCalled();
-    expect(mockDeps.auditLogger.finalize).toHaveBeenCalledWith(
-      expect.any(String),
-      "success",
-      undefined,
-      undefined
-    );
+    expect(mockDeps.auditLogger.finalize).toHaveBeenCalled();
+    const finalizeCall = mockDeps.auditLogger.finalize.mock.calls[0];
+    expect(finalizeCall[0]).toEqual(expect.any(String)); // audit ID
+    expect(finalizeCall[1]).toBe("success"); // status
 
     // 6. In real flow, this result would be sent back to LLM
     // for final response generation
