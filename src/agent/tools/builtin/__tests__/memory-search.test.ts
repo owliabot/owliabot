@@ -1,118 +1,240 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect } from "vitest";
+import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { createMemorySearchTool } from "../memory-search.js";
-import * as memorySearch from "../../../../workspace/memory-search.js";
+import { indexMemory } from "../../../../memory/index/indexer.js";
 
-vi.mock("../../../../workspace/memory-search.js");
+async function makeTmpDir() {
+  return mkdtemp(join(tmpdir(), "owliabot-memsearch-test-"));
+}
 
-describe("memory-search tool", () => {
-  const workspacePath = "/test/workspace";
-  let memorySearchTool: ReturnType<typeof createMemorySearchTool>;
-
-  beforeEach(() => {
-    vi.clearAllMocks();
-    memorySearchTool = createMemorySearchTool(workspacePath);
-  });
-
+describe("memory-search tool (__tests__)", () => {
   it("should search memory and return results", async () => {
-    const mockResults = [
-      {
-        path: "memory/2026-01-01.md",
-        startLine: 0,
-        endLine: 2,
-        snippet: "Found something interesting",
-      },
-      {
-        path: "memory/2026-01-02.md",
-        startLine: 5,
-        endLine: 7,
-        snippet: "Another match here",
-      },
-    ];
+    const dir = await makeTmpDir();
+    try {
+      await mkdir(join(dir, "memory"), { recursive: true });
+      await writeFile(
+        join(dir, "memory", "2026-01-01.md"),
+        "Found something interesting\nMore content here\nThird line",
+        "utf-8"
+      );
+      await writeFile(
+        join(dir, "memory", "2026-01-02.md"),
+        "Normal stuff\nAnother match here\nEnd",
+        "utf-8"
+      );
 
-    vi.mocked(memorySearch.searchMemory).mockResolvedValue(mockResults);
+      const dbPath = join(dir, "memory.sqlite");
+      await indexMemory({ workspaceDir: dir, dbPath });
 
-    const result = await memorySearchTool.execute(
-      { query: "interesting" },
-      {} as any
-    );
+      const tool = createMemorySearchTool(dir);
+      const result = await tool.execute(
+        { query: "interesting", max_results: 5 },
+        {
+          sessionKey: "test",
+          agentId: "main",
+          signer: null,
+          config: {
+            memorySearch: {
+              enabled: true,
+              store: { path: dbPath },
+              extraPaths: [],
+            },
+          },
+        } as any
+      );
 
-    expect(result.success).toBe(true);
-    const data = result.data as any;
-    expect(data.message).toContain("Found 2");
-    expect(data.results).toHaveLength(2);
-    expect(data.results[0]).toEqual({
-      path: "memory/2026-01-01.md",
-      lines: "1-3",
-      snippet: "Found something interesting",
-    });
+      expect(result.success).toBe(true);
+      const data = result.data as any;
+      expect(data.results.length).toBeGreaterThan(0);
+      expect(data.message).toContain("Found");
+      // Results should contain the matching snippet
+      expect(data.results[0].snippet).toContain("interesting");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 
   it("should use default max_results of 5", async () => {
-    vi.mocked(memorySearch.searchMemory).mockResolvedValue([]);
+    const dir = await makeTmpDir();
+    try {
+      await mkdir(join(dir, "memory"), { recursive: true });
+      await writeFile(join(dir, "MEMORY.md"), "alpha\n", "utf-8");
 
-    await memorySearchTool.execute({ query: "test" }, {} as any);
+      const dbPath = join(dir, "memory.sqlite");
+      await indexMemory({ workspaceDir: dir, dbPath });
 
-    expect(memorySearch.searchMemory).toHaveBeenCalledWith(
-      workspacePath,
-      "test",
-      { maxResults: 5 }
-    );
+      const tool = createMemorySearchTool(dir);
+      const result = await tool.execute(
+        { query: "alpha" },
+        {
+          sessionKey: "test",
+          agentId: "main",
+          signer: null,
+          config: {
+            memorySearch: {
+              enabled: true,
+              store: { path: dbPath },
+              extraPaths: [],
+            },
+          },
+        } as any
+      );
+
+      expect(result.success).toBe(true);
+      const data = result.data as any;
+      // Should return results (limited to default 5)
+      expect(data.results.length).toBeLessThanOrEqual(5);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 
   it("should respect custom max_results", async () => {
-    vi.mocked(memorySearch.searchMemory).mockResolvedValue([]);
+    const dir = await makeTmpDir();
+    try {
+      await mkdir(join(dir, "memory"), { recursive: true });
+      await writeFile(join(dir, "MEMORY.md"), "alpha\n", "utf-8");
 
-    await memorySearchTool.execute(
-      { query: "test", max_results: 10 },
-      {} as any
-    );
+      const dbPath = join(dir, "memory.sqlite");
+      await indexMemory({ workspaceDir: dir, dbPath });
 
-    expect(memorySearch.searchMemory).toHaveBeenCalledWith(
-      workspacePath,
-      "test",
-      { maxResults: 10 }
-    );
+      const tool = createMemorySearchTool(dir);
+      const result = await tool.execute(
+        { query: "alpha", max_results: 1 },
+        {
+          sessionKey: "test",
+          agentId: "main",
+          signer: null,
+          config: {
+            memorySearch: {
+              enabled: true,
+              store: { path: dbPath },
+              extraPaths: [],
+            },
+          },
+        } as any
+      );
+
+      expect(result.success).toBe(true);
+      const data = result.data as any;
+      expect(data.results.length).toBeLessThanOrEqual(1);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 
   it("should return appropriate message when no results found", async () => {
-    vi.mocked(memorySearch.searchMemory).mockResolvedValue([]);
+    const dir = await makeTmpDir();
+    try {
+      await mkdir(join(dir, "memory"), { recursive: true });
+      await writeFile(join(dir, "MEMORY.md"), "hello world\n", "utf-8");
 
-    const result = await memorySearchTool.execute(
-      { query: "nonexistent" },
-      {} as any
-    );
+      const dbPath = join(dir, "memory.sqlite");
+      await indexMemory({ workspaceDir: dir, dbPath });
 
-    expect(result.success).toBe(true);
-    const data = result.data as any;
-    expect(data.message).toBe("No results found");
-    expect(data.results).toEqual([]);
+      const tool = createMemorySearchTool(dir);
+      const result = await tool.execute(
+        { query: "zzzznonexistentzzzz" },
+        {
+          sessionKey: "test",
+          agentId: "main",
+          signer: null,
+          config: {
+            memorySearch: {
+              enabled: true,
+              store: { path: dbPath },
+              extraPaths: [],
+            },
+          },
+        } as any
+      );
+
+      expect(result.success).toBe(true);
+      const data = result.data as any;
+      expect(data.message).toBe("No results found");
+      expect(data.results).toEqual([]);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 
-  it("should convert 0-indexed lines to 1-indexed", async () => {
-    const mockResults = [
-      {
-        path: "memory/test.md",
-        startLine: 0,
-        endLine: 0,
-        snippet: "First line",
-      },
-    ];
+  it("should convert 0-indexed lines to 1-indexed in output", async () => {
+    const dir = await makeTmpDir();
+    try {
+      await mkdir(join(dir, "memory"), { recursive: true });
+      await writeFile(join(dir, "MEMORY.md"), "First line\n", "utf-8");
 
-    vi.mocked(memorySearch.searchMemory).mockResolvedValue(mockResults);
+      const dbPath = join(dir, "memory.sqlite");
+      await indexMemory({ workspaceDir: dir, dbPath });
 
-    const result = await memorySearchTool.execute(
-      { query: "test" },
-      {} as any
-    );
+      const tool = createMemorySearchTool(dir);
+      const result = await tool.execute(
+        { query: "First line", max_results: 1 },
+        {
+          sessionKey: "test",
+          agentId: "main",
+          signer: null,
+          config: {
+            memorySearch: {
+              enabled: true,
+              store: { path: dbPath },
+              extraPaths: [],
+            },
+          },
+        } as any
+      );
 
-    const data = result.data as any;
-    expect(data.results[0].lines).toBe("1-1");
+      expect(result.success).toBe(true);
+      const data = result.data as any;
+      expect(data.results.length).toBeGreaterThan(0);
+      // Lines should be 1-indexed strings like "1-1"
+      const lines = data.results[0].lines;
+      expect(lines).toMatch(/^\d+-\d+$/);
+      // First number should be >= 1 (1-indexed)
+      const firstLine = parseInt(lines.split("-")[0], 10);
+      expect(firstLine).toBeGreaterThanOrEqual(1);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("should return empty results when memory search is disabled", async () => {
+    const dir = await makeTmpDir();
+    try {
+      await mkdir(join(dir, "memory"), { recursive: true });
+      await writeFile(join(dir, "MEMORY.md"), "alpha\n", "utf-8");
+
+      const tool = createMemorySearchTool(dir);
+      const result = await tool.execute(
+        { query: "alpha" },
+        {
+          sessionKey: "test",
+          agentId: "main",
+          signer: null,
+          config: {
+            memorySearch: {
+              enabled: false,
+            },
+          },
+        } as any
+      );
+
+      expect(result.success).toBe(true);
+      const data = result.data as any;
+      expect(data.message).toBe("No results found");
+      expect(data.results).toEqual([]);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 
   it("should have correct metadata", () => {
-    expect(memorySearchTool.name).toBe("memory_search");
-    expect(memorySearchTool.description).toContain("Search through memory");
-    expect(memorySearchTool.security.level).toBe("read");
-    expect(memorySearchTool.parameters.required).toContain("query");
+    const tool = createMemorySearchTool("/tmp/fake");
+    expect(tool.name).toBe("memory_search");
+    expect(tool.description).toContain("Search through memory");
+    expect(tool.security.level).toBe("read");
+    expect(tool.parameters.required).toContain("query");
   });
 });

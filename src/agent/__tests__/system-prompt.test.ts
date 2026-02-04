@@ -10,6 +10,7 @@ describe("system-prompt", () => {
         channel: "discord",
         timezone: "UTC",
         model: "claude-sonnet-4-5",
+        chatType: "direct",
       };
 
       const prompt = buildSystemPrompt(ctx);
@@ -29,6 +30,7 @@ describe("system-prompt", () => {
         channel: "telegram",
         timezone: "America/New_York",
         model: "gpt-4o",
+        chatType: "direct",
       };
 
       const prompt = buildSystemPrompt(ctx);
@@ -45,6 +47,7 @@ describe("system-prompt", () => {
         channel: "discord",
         timezone: "UTC",
         model: "sonnet",
+        chatType: "direct",
       };
 
       const prompt = buildSystemPrompt(ctx);
@@ -61,6 +64,7 @@ describe("system-prompt", () => {
         channel: "discord",
         timezone: "UTC",
         model: "sonnet",
+        chatType: "direct",
       };
 
       const prompt = buildSystemPrompt(ctx);
@@ -77,6 +81,7 @@ describe("system-prompt", () => {
         channel: "discord",
         timezone: "UTC",
         model: "sonnet",
+        chatType: "direct",
       };
 
       const prompt = buildSystemPrompt(ctx);
@@ -93,12 +98,30 @@ describe("system-prompt", () => {
         channel: "discord",
         timezone: "UTC",
         model: "sonnet",
+        chatType: "direct",
       };
 
       const prompt = buildSystemPrompt(ctx);
 
       expect(prompt).toContain("## Memory");
       expect(prompt).toContain("User likes DeFi projects");
+    });
+
+    it("should NOT include memory section in non-direct chat types", () => {
+      const ctx: PromptContext = {
+        workspace: {
+          memory: "User likes DeFi projects",
+        },
+        channel: "discord",
+        timezone: "UTC",
+        model: "sonnet",
+        chatType: "group",
+      };
+
+      const prompt = buildSystemPrompt(ctx);
+
+      expect(prompt).not.toContain("## Memory");
+      expect(prompt).not.toContain("User likes DeFi projects");
     });
 
     it("should include heartbeat instructions when in heartbeat mode", () => {
@@ -109,6 +132,7 @@ describe("system-prompt", () => {
         channel: "discord",
         timezone: "UTC",
         model: "sonnet",
+        chatType: "direct",
         isHeartbeat: true,
       };
 
@@ -127,6 +151,7 @@ describe("system-prompt", () => {
         channel: "discord",
         timezone: "UTC",
         model: "sonnet",
+        chatType: "direct",
         isHeartbeat: false,
       };
 
@@ -148,6 +173,7 @@ describe("system-prompt", () => {
         channel: "discord",
         timezone: "Europe/London",
         model: "claude-opus-4-5",
+        chatType: "direct",
       };
 
       const prompt = buildSystemPrompt(ctx);
@@ -167,6 +193,7 @@ describe("system-prompt", () => {
         channel: "telegram",
         timezone: "Asia/Tokyo",
         model: "gpt-4o",
+        chatType: "direct",
       };
 
       const prompt = buildSystemPrompt(ctx);

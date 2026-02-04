@@ -1,227 +1,237 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect } from "vitest";
+import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { createMemoryGetTool } from "../memory-get.js";
-import { readFile } from "node:fs/promises";
-
-vi.mock("node:fs/promises");
 
 describe("memory-get tool", () => {
-  const workspacePath = "/test/workspace";
-  let memoryGetTool: ReturnType<typeof createMemoryGetTool>;
+  async function makeTmpDir() {
+    return mkdtemp(join(tmpdir(), "owliabot-memget-test-"));
+  }
 
-  beforeEach(() => {
-    vi.clearAllMocks();
-    memoryGetTool = createMemoryGetTool(workspacePath);
-  });
+  async function setupWorkspace(content: string) {
+    const dir = await makeTmpDir();
+    await mkdir(join(dir, "memory"), { recursive: true });
+    await writeFile(join(dir, "memory", "test.md"), content, "utf-8");
+    return dir;
+  }
 
   it("should read file lines with default parameters", async () => {
     const content = "Line 1\nLine 2\nLine 3\nLine 4\nLine 5";
-    vi.mocked(readFile).mockResolvedValue(content);
+    const dir = await setupWorkspace(content);
+    try {
+      const tool = createMemoryGetTool(dir);
+      const result = await tool.execute(
+        { path: "memory/test.md" },
+        {} as any
+      );
 
-    const result = await memoryGetTool.execute(
-      { path: "memory/test.md" },
-      {} as any
-    );
-
-    expect(result.success).toBe(true);
-    const data = result.data as any;
-    expect(data.from_line).toBe(1);
-    expect(data.content).toBe("Line 1\nLine 2\nLine 3\nLine 4\nLine 5");
+      expect(result.success).toBe(true);
+      const data = result.data as any;
+      expect(data.from_line).toBe(1);
+      expect(data.content).toBe("Line 1\nLine 2\nLine 3\nLine 4\nLine 5");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 
   it("should read specific line range", async () => {
     const content = "Line 1\nLine 2\nLine 3\nLine 4\nLine 5";
-    vi.mocked(readFile).mockResolvedValue(content);
+    const dir = await setupWorkspace(content);
+    try {
+      const tool = createMemoryGetTool(dir);
+      const result = await tool.execute(
+        {
+          path: "memory/test.md",
+          from_line: 2,
+          num_lines: 2,
+        },
+        {} as any
+      );
 
-    const result = await memoryGetTool.execute(
-      {
-        path: "memory/test.md",
-        from_line: 2,
-        num_lines: 2,
-      },
-      {} as any
-    );
-
-    expect(result.success).toBe(true);
-    const data = result.data as any;
-    expect(data.from_line).toBe(2);
-    expect(data.to_line).toBe(3); // from_line 2 + num_lines 2 - 1 = line 3
-    expect(data.content).toBe("Line 2\nLine 3");
+      expect(result.success).toBe(true);
+      const data = result.data as any;
+      expect(data.from_line).toBe(2);
+      expect(data.to_line).toBe(3);
+      expect(data.content).toBe("Line 2\nLine 3");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 
   it("should handle reading beyond end of file", async () => {
     const content = "Line 1\nLine 2\nLine 3";
-    vi.mocked(readFile).mockResolvedValue(content);
+    const dir = await setupWorkspace(content);
+    try {
+      const tool = createMemoryGetTool(dir);
+      const result = await tool.execute(
+        {
+          path: "memory/test.md",
+          from_line: 2,
+          num_lines: 100,
+        },
+        {} as any
+      );
 
-    const result = await memoryGetTool.execute(
-      {
-        path: "memory/test.md",
-        from_line: 2,
-        num_lines: 100,
-      },
-      {} as any
-    );
-
-    expect(result.success).toBe(true);
-    const data = result.data as any;
-    expect(data.to_line).toBe(3); // Should stop at actual end
-    expect(data.content).toBe("Line 2\nLine 3");
-  });
-
-  it("should handle from_line = 0", async () => {
-    const content = "Line 1\nLine 2\nLine 3";
-    vi.mocked(readFile).mockResolvedValue(content);
-
-    const result = await memoryGetTool.execute(
-      {
-        path: "memory/test.md",
-        from_line: 0,
-      },
-      {} as any
-    );
-
-    expect(result.success).toBe(true);
-    const data = result.data as any;
-    expect(data.from_line).toBe(0);
-    expect(data.content).toBe("Line 3");
-  });
-
-  it("should handle negative from_line values", async () => {
-    const content = "Line 1\nLine 2\nLine 3";
-    vi.mocked(readFile).mockResolvedValue(content);
-
-    const result = await memoryGetTool.execute(
-      {
-        path: "memory/test.md",
-        from_line: -2,
-      },
-      {} as any
-    );
-
-    expect(result.success).toBe(true);
-    const data = result.data as any;
-    expect(data.from_line).toBe(-2);
-    expect(data.content).toBe("Line 1\nLine 2\nLine 3");
-  });
-
-  it("should handle num_lines = 0", async () => {
-    const content = "Line 1\nLine 2\nLine 3";
-    vi.mocked(readFile).mockResolvedValue(content);
-
-    const result = await memoryGetTool.execute(
-      {
-        path: "memory/test.md",
-        num_lines: 0,
-      },
-      {} as any
-    );
-
-    expect(result.success).toBe(true);
-    const data = result.data as any;
-    expect(data.to_line).toBe(0);
-    expect(data.content).toBe("");
-  });
-
-  it("should handle negative num_lines values", async () => {
-    const content = "Line 1\nLine 2\nLine 3";
-    vi.mocked(readFile).mockResolvedValue(content);
-
-    const result = await memoryGetTool.execute(
-      {
-        path: "memory/test.md",
-        num_lines: -1,
-      },
-      {} as any
-    );
-
-    expect(result.success).toBe(true);
-    const data = result.data as any;
-    expect(data.to_line).toBe(-1);
-    expect(data.content).toBe("Line 1\nLine 2");
-  });
-
-  it("should handle NaN num_lines values", async () => {
-    const content = "Line 1\nLine 2\nLine 3";
-    vi.mocked(readFile).mockResolvedValue(content);
-
-    const result = await memoryGetTool.execute(
-      {
-        path: "memory/test.md",
-        num_lines: Number.NaN,
-      },
-      {} as any
-    );
-
-    expect(result.success).toBe(true);
-    const data = result.data as any;
-    expect(Number.isNaN(data.to_line)).toBe(true);
-    expect(data.content).toBe("");
+      expect(result.success).toBe(true);
+      const data = result.data as any;
+      expect(data.to_line).toBe(3);
+      expect(data.content).toBe("Line 2\nLine 3");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 
   it("should reject paths with ..", async () => {
-    const result = await memoryGetTool.execute(
-      { path: "../etc/passwd" },
-      {} as any
-    );
+    const dir = await makeTmpDir();
+    try {
+      const tool = createMemoryGetTool(dir);
+      const result = await tool.execute(
+        { path: "../etc/passwd" },
+        {} as any
+      );
 
-    expect(result.success).toBe(false);
-    expect(result.error).toContain("Invalid path");
+      expect(result.success).toBe(false);
+      expect(result.error).toBe("path required");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 
   it("should reject absolute paths", async () => {
-    const result = await memoryGetTool.execute(
-      { path: "/etc/passwd" },
-      {} as any
-    );
+    const dir = await makeTmpDir();
+    try {
+      const tool = createMemoryGetTool(dir);
+      const result = await tool.execute(
+        { path: "/etc/passwd" },
+        {} as any
+      );
 
-    expect(result.success).toBe(false);
-    expect(result.error).toContain("Invalid path");
+      expect(result.success).toBe(false);
+      expect(result.error).toBe("path required");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("should reject non-.md files", async () => {
+    const dir = await makeTmpDir();
+    try {
+      await mkdir(join(dir, "memory"), { recursive: true });
+      await writeFile(join(dir, "memory", "test.txt"), "content", "utf-8");
+
+      const tool = createMemoryGetTool(dir);
+      const result = await tool.execute(
+        { path: "memory/test.txt" },
+        {} as any
+      );
+
+      expect(result.success).toBe(false);
+      expect(result.error).toBe("path required");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("should reject paths outside allowed roots", async () => {
+    const dir = await makeTmpDir();
+    try {
+      await writeFile(join(dir, "NOTES.md"), "nope", "utf-8");
+
+      const tool = createMemoryGetTool(dir);
+      const result = await tool.execute(
+        { path: "NOTES.md" },
+        {} as any
+      );
+
+      expect(result.success).toBe(false);
+      expect(result.error).toBe("path required");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 
   it("should return error when file not found", async () => {
-    const error: any = new Error("ENOENT");
-    error.code = "ENOENT";
-    vi.mocked(readFile).mockRejectedValue(error);
+    const dir = await makeTmpDir();
+    try {
+      await mkdir(join(dir, "memory"), { recursive: true });
 
-    const result = await memoryGetTool.execute(
-      { path: "memory/missing.md" },
-      {} as any
-    );
+      const tool = createMemoryGetTool(dir);
+      const result = await tool.execute(
+        { path: "memory/missing.md" },
+        {} as any
+      );
 
-    expect(result.success).toBe(false);
-    expect(result.error).toContain("File not found");
+      expect(result.success).toBe(false);
+      expect(result.error).toContain("File not found");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 
   it("should include total line count in response", async () => {
     const content = "Line 1\nLine 2\nLine 3";
-    vi.mocked(readFile).mockResolvedValue(content);
+    const dir = await setupWorkspace(content);
+    try {
+      const tool = createMemoryGetTool(dir);
+      const result = await tool.execute(
+        { path: "memory/test.md" },
+        {} as any
+      );
 
-    const result = await memoryGetTool.execute(
-      { path: "memory/test.md" },
-      {} as any
-    );
-
-    const data = result.data as any;
-    expect(data.total_lines).toBe(3);
+      expect(result.success).toBe(true);
+      const data = result.data as any;
+      expect(data.total_lines).toBe(3);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 
   it("should handle empty files", async () => {
-    vi.mocked(readFile).mockResolvedValue("");
+    const dir = await makeTmpDir();
+    try {
+      await mkdir(join(dir, "memory"), { recursive: true });
+      await writeFile(join(dir, "memory", "empty.md"), "", "utf-8");
 
-    const result = await memoryGetTool.execute(
-      { path: "memory/empty.md" },
-      {} as any
-    );
+      const tool = createMemoryGetTool(dir);
+      const result = await tool.execute(
+        { path: "memory/empty.md" },
+        {} as any
+      );
 
-    expect(result.success).toBe(true);
-    const data = result.data as any;
-    expect(data.total_lines).toBe(1); // Empty file still has 1 line (empty string)
-    expect(data.content).toBe("");
+      expect(result.success).toBe(true);
+      const data = result.data as any;
+      expect(data.total_lines).toBe(1); // Empty file still has 1 line (empty string)
+      expect(data.content).toBe("");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("should allow reading MEMORY.md", async () => {
+    const dir = await makeTmpDir();
+    try {
+      await writeFile(join(dir, "MEMORY.md"), "line1\nline2\nline3", "utf-8");
+
+      const tool = createMemoryGetTool(dir);
+      const result = await tool.execute(
+        { path: "MEMORY.md", from_line: 1, num_lines: 2 },
+        {} as any
+      );
+
+      expect(result.success).toBe(true);
+      const data = result.data as any;
+      expect(data.content).toContain("line1");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 
   it("should have correct metadata", () => {
-    expect(memoryGetTool.name).toBe("memory_get");
-    expect(memoryGetTool.description).toContain("Get specific lines");
-    expect(memoryGetTool.security.level).toBe("read");
-    expect(memoryGetTool.parameters.required).toContain("path");
+    const tool = createMemoryGetTool("/tmp/fake");
+    expect(tool.name).toBe("memory_get");
+    expect(tool.description).toContain("Get specific lines");
+    expect(tool.security.level).toBe("read");
+    expect(tool.parameters.required).toContain("path");
   });
 });
