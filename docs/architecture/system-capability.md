@@ -1,20 +1,22 @@
-# System Capability 集成规范（v0.1）
+# System Capability 集成规范（v0.1） 🚫
 
 > 目标：定义 exec / web.fetch / web.search 的统一能力模型与安全约束（HTTP v1）。
+>
+> **实现状态：未开始**
 
-## 1. 能力形态
+## 1. 能力形态 🚫
 
 - 统一为 SystemCapability。
 - 通过 `POST /command/system` 调用。
 - Tool Executor 负责 read/write 权限判断与确认。
 
-## 2. 动作与权限映射
+## 2. 动作与权限映射 🚫
 
 - `exec` → `write`
 - `web.fetch` → `read`
 - `web.search` → `read`
 
-## 3. 安全策略
+## 3. 安全策略 🚫
 
 ### 3.1 exec
 - 命令白名单（只允许预定义指令）。
@@ -26,9 +28,9 @@
 - 超时与最大响应体限制。
 - 允许 POST，但需执行敏感信息审查。
   - 自动扫描常见机密模式（API Key、Token、私钥、助记词等）。
-  - 命中高置信规则时默认阻断；可配置为“需要显式确认后放行”。
+  - 命中高置信规则时默认阻断；可配置为"需要显式确认后放行"。
 
-## 4. 请求模型（建议）
+## 4. 请求模型（建议） 🚫
 
 ```
 POST /command/system
@@ -62,7 +64,7 @@ POST /command/system
 }
 ```
 
-## 5. 审计字段（建议）
+## 5. 审计字段（建议） 🚫
 
 - action / args
 - security.level
@@ -73,3 +75,13 @@ POST /command/system
 ---
 
 > 本文档为 System Capability 集成规范基线，可在 v1 迭代中调整字段与策略。
+
+---
+
+## 实现状态图例
+
+- ✅ 已实现且测试通过
+- ⏳ 部分实现或进行中
+- 🚫 未开始或设计已废弃
+
+_最后更新: 2026-02-04_

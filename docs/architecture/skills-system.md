@@ -4,7 +4,7 @@
 
 ---
 
-## 1. 概述
+## 1. 概述 ✅
 
 ### 1.1 设计目标
 
@@ -41,9 +41,9 @@ const res = await context.fetch(url);
 
 ---
 
-## 2. 架构设计
+## 2. 架构设计 ✅
 
-### 2.1 MVP 架构（单进程）
+### 2.1 MVP 架构（单进程） ✅
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -71,7 +71,7 @@ const res = await context.fetch(url);
 - Skill 与核心在同一进程，共享 Node.js 运行时
 - 适合自托管场景（用户自己写 Skill，信任边界模糊）
 
-### 2.2 可选增强：双容器架构
+### 2.2 可选增强：双容器架构 🚫
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -166,7 +166,7 @@ Core Container                     Skill Container
 
 ---
 
-## 3. Skill 格式定义
+## 3. Skill 格式定义 ✅
 
 ### 3.1 目录结构
 
@@ -340,7 +340,7 @@ export const tools = {
 
 ---
 
-## 4. 加载机制
+## 4. 加载机制 ✅
 
 ### 4.1 启动流程
 
@@ -367,7 +367,7 @@ OwliaBot 启动
 Skill Tools 可用
 ```
 
-### 4.2 热重载
+### 4.2 热重载 ⏳
 
 支持运行时重新加载 Skills：
 
@@ -515,9 +515,9 @@ return { balance: "1.5" };  // → { success: true, data: { balance: "1.5" } }
 
 ---
 
-## 5. 安全模型
+## 5. 安全模型 ⏳
 
-### 5.1 容器级隔离
+### 5.1 容器级隔离 🚫
 
 **Skill Container 限制**
 
@@ -552,7 +552,7 @@ networks:
 
 Skill 网络请求通过 `context.fetch()` 进行，容器化模式下会代理到 Core。
 
-### 5.2 权限分级
+### 5.2 权限分级 ⏳
 
 | 级别 | 说明 | 示例 | 确认 |
 |------|------|------|------|
@@ -593,9 +593,9 @@ Skill 只能访问 package.json 中声明的环境变量：
 
 ---
 
-## 6. 认证方案（分阶段）
+## 6. 认证方案（分阶段） ⏳
 
-### 6.1 MVP：本地信任
+### 6.1 MVP：本地信任 ✅
 
 只加载 `workspace/skills/` 目录下的 Skill。
 
@@ -603,7 +603,7 @@ Skill 只能访问 package.json 中声明的环境变量：
 
 无需额外实现。
 
-### 6.2 Phase 2：仓库信任
+### 6.2 Phase 2：仓库信任 🚫
 
 支持从信任的仓库安装 Skill。
 
@@ -652,7 +652,7 @@ GET /skills/{name}/versions     # 获取版本列表
 GET /skills/{name}/{version}    # 下载 skill 包
 ```
 
-### 6.3 Phase 3：代码签名
+### 6.3 Phase 3：代码签名 🚫
 
 为高安全场景提供代码签名验证。
 
@@ -683,7 +683,7 @@ GET /skills/{name}/{version}    # 下载 skill 包
 
 ---
 
-## 7. 接口定义
+## 7. 接口定义 ✅
 
 ### 7.1 Skill Executor RPC
 
@@ -761,7 +761,7 @@ interface CoreRPC {
 
 ## 8. 实现计划
 
-### 8.1 MVP（1 周）
+### 8.1 MVP（1 周） ✅
 
 - [ ] Skill 加载器：扫描目录、解析 package.json、dynamic import
 - [ ] Skill Registry：管理已加载的 tools
@@ -769,20 +769,20 @@ interface CoreRPC {
 - [ ] 集成到 ToolRegistry：Skill tools 与 builtin tools 统一管理
 - [ ] 1-2 个示例 Skill：crypto-price、crypto-balance
 
-### 8.2 Phase 2：仓库支持（1 周）
+### 8.2 Phase 2：仓库支持（1 周） 🚫
 
 - [ ] `owliabot skill install` 命令
 - [ ] 仓库 API 客户端
 - [ ] 哈希验证
 
-### 8.3 Phase 3：容器隔离（可选，1 周）
+### 8.3 Phase 3：容器隔离（可选，1 周） 🚫
 
 - [ ] Skill Executor 独立服务
 - [ ] JSON-RPC 通信
 - [ ] Docker Compose 配置
 - [ ] Context 能力代理
 
-### 8.4 Phase 4：代码签名（按需）
+### 8.4 Phase 4：代码签名（按需） 🚫
 
 - [ ] 签名生成工具
 - [ ] 证书验证逻辑
@@ -924,3 +924,13 @@ export const tools = {
 ---
 
 _创建于 2026-01-27_
+
+---
+
+## 实现状态图例
+
+- ✅ 已实现且测试通过
+- ⏳ 部分实现或进行中
+- 🚫 未开始或设计已废弃
+
+_最后更新: 2026-02-04_
