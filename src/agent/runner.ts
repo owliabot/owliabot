@@ -21,6 +21,11 @@ import {
 import { createLogger } from "../utils/logger.js";
 import type { Message } from "./session.js";
 import type { ToolDefinition, ToolCall, ToolResult } from "./tools/interface.js";
+import {
+  openAICompatibleComplete,
+  isOpenAICompatible,
+  type OpenAICompatibleConfig,
+} from "./openai-compatible.js";
 import { resolveModel, type ModelConfig } from "./models.js";
 import {
   loadOAuthCredentials,
@@ -255,14 +260,37 @@ function fromAssistantMessage(msg: AssistantMessage): LLMResponse {
 
 /**
  * Call LLM with a specific model configuration
+ * Supports both pi-ai providers and openai-compatible endpoints
  * Important fix #4: Handle all stopReasons
  * Important fix #6: Pass reasoning option
  */
 export async function runLLM(
   modelConfig: ModelConfig,
   messages: Message[],
-  options?: RunnerOptions
+  options?: RunnerOptions,
+  provider?: LLMProvider
 ): Promise<LLMResponse> {
+  // Check if this is an openai-compatible provider
+  if (provider && isOpenAICompatible(provider.id)) {
+    if (!provider.baseUrl) {
+      throw new Error(
+        "openai-compatible provider requires baseUrl to be set. " +
+          "Example: baseUrl: http://localhost:11434/v1"
+      );
+    }
+
+    log.info(`Using OpenAI-compatible endpoint: ${provider.baseUrl}`);
+
+    const config: OpenAICompatibleConfig = {
+      baseUrl: provider.baseUrl,
+      model: modelConfig.model,
+      apiKey: provider.apiKey,
+    };
+
+    return openAICompatibleComplete(config, messages, options);
+  }
+
+  // Standard pi-ai path
   const model = resolveModel(modelConfig);
   const apiKey = await resolveApiKey(model.provider, modelConfig.apiKey);
   const context = toContext(messages, options?.tools, model);
@@ -298,6 +326,7 @@ export async function runLLM(
 
 /**
  * Call LLM with failover support (for backward compatibility)
+ * Now passes provider to runLLM for openai-compatible detection
  */
 export async function callWithFailover(
   providers: LLMProvider[],
@@ -314,7 +343,8 @@ export async function callWithFailover(
       return await runLLM(
         { provider: provider.id, model: provider.model, apiKey: provider.apiKey },
         messages,
-        options
+        options,
+        provider // Pass provider for openai-compatible detection
       );
     } catch (err) {
       lastError = err as Error;

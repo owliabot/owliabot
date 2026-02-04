@@ -5,13 +5,29 @@
 
 import { z } from "zod";
 
-export const providerSchema = z.object({
-  id: z.string(),
-  model: z.string(),
-  apiKey: z.string(),
-  priority: z.number().int().positive(),
-  baseUrl: z.string().url().optional(),
-});
+export const providerSchema = z
+  .object({
+    id: z.string(),
+    model: z.string(),
+    apiKey: z.string(),
+    priority: z.number().int().positive(),
+    baseUrl: z.string().url().optional(),
+  })
+  .refine(
+    (data) => {
+      // If provider is openai-compatible, baseUrl is required
+      if (data.id === "openai-compatible" && !data.baseUrl) {
+        return false;
+      }
+      return true;
+    },
+    {
+      message:
+        "baseUrl is required when provider id is 'openai-compatible'. " +
+        "Example: http://localhost:11434/v1 for Ollama",
+      path: ["baseUrl"],
+    }
+  );
 
 export const telegramConfigSchema = z.object({
   // token can be set via onboarding + secrets.yaml (or env) later
