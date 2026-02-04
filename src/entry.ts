@@ -8,6 +8,7 @@ import { join } from "node:path";
 import { loadConfig } from "./config/loader.js";
 import { loadWorkspace } from "./workspace/loader.js";
 import { startGateway } from "./gateway/server.js";
+import { startGatewayHttp } from "./gateway-http/server.js";
 import { logger } from "./utils/logger.js";
 import {
   startOAuthFlow,
@@ -56,17 +57,30 @@ program
       const homeDir = process.env.HOME ?? process.env.USERPROFILE ?? ".";
       const sessionsDir = join(homeDir, ".owliabot", "sessions");
 
-      // Start gateway
-      const stop = await startGateway({
+      // Start gateway (message handler)
+      const stopGateway = await startGateway({
         config,
         workspace,
         sessionsDir,
       });
 
+      // Start HTTP gateway if configured
+      let stopHttp: (() => Promise<void>) | undefined;
+      if (config.gateway?.http) {
+        const httpGateway = await startGatewayHttp({
+          config: config.gateway.http,
+          workspacePath: config.workspace,
+          system: config.system,
+        });
+        stopHttp = httpGateway.stop;
+        log.info(`Gateway HTTP server listening on ${httpGateway.baseUrl}`);
+      }
+
       // Handle shutdown
       const shutdown = async () => {
         log.info("Shutting down...");
-        await stop();
+        if (stopHttp) await stopHttp();
+        await stopGateway();
         process.exit(0);
       };
 
