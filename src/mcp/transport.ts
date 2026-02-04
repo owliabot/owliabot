@@ -1,6 +1,21 @@
 /**
  * MCP Transport Abstraction
  * Handles communication with MCP servers via different transport mechanisms
+ *
+ * ⚠️  SECURITY WARNING ⚠️
+ * ---------------------
+ * StdioTransport spawns external processes with user-configured commands.
+ * This is a HIGH-PRIVILEGE operation that can lead to:
+ *   - Remote Code Execution (RCE) if command/args are derived from untrusted input
+ *   - Privilege escalation if the MCP server binary is malicious
+ *   - Data exfiltration via malicious MCP servers
+ *
+ * Mitigations:
+ *   1. Only allow MCP server configs from trusted sources (e.g., user config files)
+ *   2. Never construct commands from user chat input or external APIs
+ *   3. Consider running MCP servers in sandboxed environments (containers, VMs)
+ *   4. Validate server binaries via checksums or code signing where possible
+ *   5. Apply principle of least privilege to MCP server processes
  */
 
 import { spawn, type ChildProcess } from "node:child_process";
@@ -17,6 +32,9 @@ const log = createLogger("mcp:transport");
 export type MessageCallback = (message: JSONRPCMessage) => void;
 export type ErrorCallback = (error: Error) => void;
 export type CloseCallback = (code?: number) => void;
+
+/** Health status for transport connections */
+export type HealthStatus = "healthy" | "unhealthy" | "unknown";
 
 export interface MCPTransport {
   /** Connect to the MCP server */
@@ -39,6 +57,12 @@ export interface MCPTransport {
 
   /** Check if transport is connected */
   isConnected(): boolean;
+
+  /** Get the current health status of the transport */
+  getHealthStatus(): HealthStatus;
+
+  /** Mark the transport as unhealthy (e.g., after repeated failures) */
+  markUnhealthy(reason?: string): void;
 }
 
 // ============================================================================
@@ -56,6 +80,10 @@ export interface StdioTransportOptions {
 /**
  * Stdio transport implementation
  * Spawns MCP server as subprocess, communicates via stdin/stdout
+ *
+ * ⚠️  SECURITY: This class executes arbitrary commands. See module-level warning.
+ * The command and args should ONLY come from trusted configuration sources.
+ * Never pass user-provided or externally-sourced values to the constructor.
  */
 export class StdioTransport implements MCPTransport {
   private process: ChildProcess | null = null;
@@ -66,6 +94,11 @@ export class StdioTransport implements MCPTransport {
   private connected = false;
   private closing = false;
   private closingPromise: Promise<void> | null = null;
+  private healthStatus: HealthStatus = "unknown";
+  private unhealthyReason?: string;
+
+  /** Timeout for graceful shutdown before SIGKILL (ms) */
+  static readonly GRACEFUL_SHUTDOWN_TIMEOUT_MS = 5000;
 
   constructor(private options: StdioTransportOptions) {}
 
@@ -157,6 +190,7 @@ export class StdioTransport implements MCPTransport {
         this.process.once("spawn", () => {
           clearTimeout(timeout);
           this.connected = true;
+          this.healthStatus = "healthy";
           log.info("MCP server process started");
           resolve();
         });
@@ -212,6 +246,19 @@ export class StdioTransport implements MCPTransport {
     return this.connected;
   }
 
+  getHealthStatus(): HealthStatus {
+    if (!this.connected) {
+      return "unknown";
+    }
+    return this.healthStatus;
+  }
+
+  markUnhealthy(reason?: string): void {
+    this.healthStatus = "unhealthy";
+    this.unhealthyReason = reason;
+    log.warn(`Transport marked unhealthy${reason ? `: ${reason}` : ""}`);
+  }
+
   async close(): Promise<void> {
     if (this.closingPromise) return this.closingPromise;
     this.closing = true;
@@ -221,28 +268,38 @@ export class StdioTransport implements MCPTransport {
 
       this.cleanup();
 
-      // Give the process time to exit gracefully
+      // Graceful shutdown with hard kill fallback:
+      // 1. Close stdin to signal shutdown intent
+      // 2. Send SIGTERM for graceful termination
+      // 3. Wait for GRACEFUL_SHUTDOWN_TIMEOUT_MS
+      // 4. If still running, force kill with SIGKILL (prevents stuck processes)
       if (this.process && !this.process.killed) {
         await new Promise<void>((resolve) => {
-          const timeout = setTimeout(() => {
-            log.warn("Process did not exit gracefully, sending SIGKILL");
-            this.process?.kill("SIGKILL");
+          const hardKillTimeout = setTimeout(() => {
+            if (this.process && !this.process.killed) {
+              log.warn(
+                `Process did not exit after ${StdioTransport.GRACEFUL_SHUTDOWN_TIMEOUT_MS}ms, sending SIGKILL`
+              );
+              this.process.kill("SIGKILL");
+            }
             resolve();
-          }, 5000);
+          }, StdioTransport.GRACEFUL_SHUTDOWN_TIMEOUT_MS);
 
           this.process!.once("exit", () => {
-            clearTimeout(timeout);
+            clearTimeout(hardKillTimeout);
             resolve();
           });
 
           // Close stdin to signal shutdown
           this.process!.stdin?.end();
+          // Send SIGTERM for graceful termination
           this.process!.kill("SIGTERM");
         });
       }
 
       this.process = null;
       this.connected = false;
+      this.healthStatus = "unknown";
     })();
 
     return this.closingPromise;
@@ -287,6 +344,8 @@ export interface SSETransportOptions {
  * SSE transport implementation (stub for future implementation)
  */
 export class SSETransport implements MCPTransport {
+  private healthStatus: HealthStatus = "unknown";
+
   constructor(private options: SSETransportOptions) {}
 
   async connect(): Promise<void> {
@@ -317,6 +376,15 @@ export class SSETransport implements MCPTransport {
 
   isConnected(): boolean {
     return false;
+  }
+
+  getHealthStatus(): HealthStatus {
+    return this.healthStatus;
+  }
+
+  markUnhealthy(reason?: string): void {
+    this.healthStatus = "unhealthy";
+    // Stub: log would go here in real implementation
   }
 
   async close(): Promise<void> {

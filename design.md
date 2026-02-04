@@ -327,6 +327,24 @@ OwliaBot 借鉴 Clawdbot 的架构理念，但针对 Crypto 场景重新设计�
 - **安全策略**：不强制 sandbox；启用动作白名单；默认允许任意域名（后续可加 allow/deny）；下载与上传允许但目录受控（按 `sessionId`）。  
 - **生产加固建议**：可启用沙箱/容器化运行，并配置域名 allowlist 作为默认策略。  
 
+**⚠️ MCP Server 安全警告**
+
+MCP Server 通过 stdio transport 启动时，会执行用户配置中的命令。这是一个**高权限操作**，存在以下风险：
+
+| 风险 | 说明 | 缓解措施 |
+|------|------|----------|
+| **远程代码执行 (RCE)** | 恶意配置可执行任意命令 | 仅从可信来源加载 MCP 配置（如本地用户配置文件） |
+| **权限提升** | 恶意 MCP Server 可能滥用进程权限 | 以最小权限运行 OwliaBot，考虑使用容器隔离 |
+| **数据窃取** | 恶意 MCP Server 可访问 Bot 进程的环境变量和文件系统 | 沙箱化运行 MCP Server，限制文件系统访问 |
+| **持久化攻击** | 恶意 Server 可能尝试持久化恶意代码 | 定期审计 MCP 配置，使用只读文件系统 |
+
+**安全建议：**
+1. **仅从可信来源加载 MCP Server 配置**：永远不要从用户聊天输入或外部 API 构造 MCP 命令
+2. **验证 Server 二进制文件**：如果可能，通过校验和或代码签名验证 MCP Server 可执行文件
+3. **最小权限原则**：MCP Server 进程不应有比所需更多的权限
+4. **容器隔离**：生产环境建议在 Docker 容器中运行 MCP Server
+5. **审计日志**：记录所有 MCP Server 启动和工具调用，便于事后追溯
+
 **系统能力层（exec/web fetch/search）**
 - **统一形态**：SystemCapability（与 MCP 能力一致，统一注册/调用/审计）。  
 - **调用路径**：`Client → Gateway /command/system → Tool Executor → SystemCapability`。  
