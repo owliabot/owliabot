@@ -117,6 +117,45 @@ describe("cron tool", () => {
     expect(mockCronService.update).toHaveBeenCalledWith("job-1", expect.any(Object));
   });
 
+  it("allows partial payload update patches (e.g., deliver only)", async () => {
+    const result = await tool.execute(
+      {
+        action: "update",
+        jobId: "job-1",
+        patch: {
+          payload: {
+            kind: "agentTurn",
+            deliver: true,
+          },
+        },
+      },
+      mockCtx,
+    );
+
+    expect(result.success).toBe(true);
+
+    const patchArg = (mockCronService.update as any).mock.calls[0][1];
+    expect(patchArg.payload).toMatchObject({ kind: "agentTurn", deliver: true });
+    expect(patchArg.payload).not.toHaveProperty("message");
+  });
+
+  it("rejects every schedules missing everyMs", async () => {
+    const result = await tool.execute(
+      {
+        action: "add",
+        job: {
+          name: "Bad Every",
+          schedule: { kind: "every" },
+          payload: { kind: "systemEvent", text: "hello" },
+        },
+      },
+      mockCtx,
+    );
+
+    expect(result.success).toBe(false);
+    expect(result.error).toContain("everyMs must be a positive number");
+  });
+
   it("requires jobId for update action", async () => {
     const result = await tool.execute(
       { action: "update", patch: { name: "x" } },
