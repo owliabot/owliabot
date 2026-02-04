@@ -1,10 +1,18 @@
 import { describe, it, expect } from "vitest";
+import { readFile } from "node:fs/promises";
+import { resolve } from "node:path";
 
 describe("entry", () => {
-  it("should be importable as a module", () => {
-    // The entry.ts file uses commander and defines CLI commands
-    // We just verify it's structured correctly
-    expect(true).toBe(true);
+  it("should be importable as a module", async () => {
+    // Verify the entry file declares the expected CLI structure without executing it.
+    const entryPath = resolve(process.cwd(), "src", "entry.ts");
+    const content = await readFile(entryPath, "utf-8");
+
+    expect(content).toContain('.name("owliabot")');
+    expect(content).toContain('.command("start")');
+    expect(content).toContain('.command("onboard")');
+    expect(content).toContain('.command("token")');
+    expect(content).toContain('.command("auth")');
   });
 
   it("should check Node.js version requirements", () => {

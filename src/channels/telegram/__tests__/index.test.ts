@@ -1,18 +1,28 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import { createTelegramPlugin } from "../index.js";
 
 vi.mock("grammy", () => {
+  let lastBot: any;
+
   class MockBot {
-    start = vi.fn();
-    stop = vi.fn();
-    on = vi.fn();
+    handlers: Record<string, any> = {};
+    start = vi.fn().mockResolvedValue(undefined);
+    stop = vi.fn().mockResolvedValue(undefined);
+    on = vi.fn((event: string, handler: any) => {
+      this.handlers[event] = handler;
+    });
     api = {
       sendMessage: vi.fn(),
     };
+
+    constructor() {
+      lastBot = this;
+    }
   }
 
   return {
     Bot: MockBot,
+    __getLastBot: () => lastBot,
   };
 });
 
@@ -25,85 +35,101 @@ vi.mock("../../../utils/logger.js", () => ({
   }),
 }));
 
+const makeCtx = (overrides: Partial<any> = {}) => ({
+  chat: { type: "private" },
+  from: { id: 123, first_name: "Alice", username: "alice" },
+  message: {
+    text: "Hello",
+    message_id: 42,
+    date: 1700000000,
+  },
+  ...overrides,
+});
+
 describe("telegram plugin", () => {
-  it("should create telegram plugin with required config", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("dispatches direct messages to the handler", async () => {
+    const plugin = createTelegramPlugin({ token: "test-token" });
+    const handler = vi.fn();
+    plugin.onMessage(handler);
+
+    await plugin.start();
+
+    const grammy = (await import("grammy")) as any;
+    const bot = grammy.__getLastBot();
+    const ctx = makeCtx({ message: { text: "Hi there", message_id: 1, date: 1700000000 } });
+
+    await bot.handlers["message:text"](ctx);
+
+    expect(handler).toHaveBeenCalledTimes(1);
+    const msgCtx = handler.mock.calls[0][0];
+    expect(msgCtx.body).toBe("Hi there");
+    expect(msgCtx.chatType).toBe("direct");
+    expect(msgCtx.channel).toBe("telegram");
+  });
+
+  it("enforces allow list for direct messages", async () => {
     const plugin = createTelegramPlugin({
       token: "test-token",
+      allowList: ["999"],
     });
+    const handler = vi.fn();
+    plugin.onMessage(handler);
 
-    expect(plugin).toBeDefined();
-    expect(plugin.id).toBe("telegram");
-    expect(plugin.capabilities).toBeDefined();
+    await plugin.start();
+
+    const grammy = (await import("grammy")) as any;
+    const bot = grammy.__getLastBot();
+    const ctx = makeCtx({ from: { id: 123, first_name: "Alice", username: "alice" } });
+
+    await bot.handlers["message:text"](ctx);
+
+    expect(handler).not.toHaveBeenCalled();
   });
 
-  it("should have correct capabilities", () => {
+  it("ignores group messages", async () => {
     const plugin = createTelegramPlugin({ token: "test-token" });
+    const handler = vi.fn();
+    plugin.onMessage(handler);
 
-    expect(plugin.capabilities.reactions).toBe(true);
-    expect(plugin.capabilities.threads).toBe(false);
-    expect(plugin.capabilities.buttons).toBe(true);
-    expect(plugin.capabilities.markdown).toBe(true);
-    expect(plugin.capabilities.maxMessageLength).toBe(4096);
+    await plugin.start();
+
+    const grammy = (await import("grammy")) as any;
+    const bot = grammy.__getLastBot();
+    const ctx = makeCtx({ chat: { type: "group" } });
+
+    await bot.handlers["message:text"](ctx);
+
+    expect(handler).not.toHaveBeenCalled();
   });
 
-  it("should support user allow list", () => {
-    const plugin = createTelegramPlugin({
-      token: "test-token",
-      userAllowList: ["user1", "user2"],
-    });
-
-    expect(plugin).toBeDefined();
-  });
-
-  it("should support group allow list", () => {
-    const plugin = createTelegramPlugin({
-      token: "test-token",
-      groupAllowList: ["group1", "group2"],
-    });
-
-    expect(plugin).toBeDefined();
-  });
-
-  it("should support requireMentionInGroup option", () => {
-    const plugin = createTelegramPlugin({
-      token: "test-token",
-      requireMentionInGroup: true,
-    });
-
-    expect(plugin).toBeDefined();
-  });
-
-  it("should support preFilter option", () => {
-    const preFilter = vi.fn(() => true);
-    const plugin = createTelegramPlugin({
-      token: "test-token",
-      preFilter,
-    });
-
-    expect(plugin).toBeDefined();
-  });
-
-  it("should have start method", () => {
+  it("sends markdown as HTML and falls back to plain text", async () => {
     const plugin = createTelegramPlugin({ token: "test-token" });
+    const grammy = (await import("grammy")) as any;
+    const bot = grammy.__getLastBot();
 
-    expect(typeof plugin.start).toBe("function");
-  });
+    const firstError = new Error("HTML parse error");
+    bot.api.sendMessage
+      .mockRejectedValueOnce(firstError)
+      .mockResolvedValueOnce(undefined);
 
-  it("should have stop method", () => {
-    const plugin = createTelegramPlugin({ token: "test-token" });
+    await plugin.send("123", { text: "**Bold** message", replyToId: "99" });
 
-    expect(typeof plugin.stop).toBe("function");
-  });
-
-  it("should have send method", () => {
-    const plugin = createTelegramPlugin({ token: "test-token" });
-
-    expect(typeof plugin.send).toBe("function");
-  });
-
-  it("should have onMessage method", () => {
-    const plugin = createTelegramPlugin({ token: "test-token" });
-
-    expect(typeof plugin.onMessage).toBe("function");
+    expect(bot.api.sendMessage).toHaveBeenCalledTimes(2);
+    expect(bot.api.sendMessage).toHaveBeenNthCalledWith(
+      1,
+      123,
+      "<b>Bold</b> message",
+      { parse_mode: "HTML", reply_to_message_id: 99 }
+    );
+    expect(bot.api.sendMessage).toHaveBeenNthCalledWith(
+      2,
+      123,
+      "**Bold** message",
+      { reply_to_message_id: 99 }
+    );
   });
 });

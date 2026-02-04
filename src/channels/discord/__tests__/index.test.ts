@@ -1,15 +1,27 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import { createDiscordPlugin } from "../index.js";
 
 vi.mock("discord.js", () => {
+  let lastClient: any;
+
   class MockClient {
-    login = vi.fn();
+    handlers: Record<string, any> = {};
+    login = vi.fn().mockResolvedValue("ok");
     destroy = vi.fn();
-    on = vi.fn();
+    on = vi.fn((event: string, handler: any) => {
+      this.handlers[event] = handler;
+    });
     channels = {
       fetch: vi.fn(),
     };
+    users = {
+      fetch: vi.fn(),
+    };
     user = { id: "bot123" };
+
+    constructor() {
+      lastClient = this;
+    }
   }
 
   return {
@@ -24,6 +36,7 @@ vi.mock("discord.js", () => {
       MessageCreate: "messageCreate",
       ClientReady: "ready",
     },
+    __getLastClient: () => lastClient,
   };
 });
 
@@ -36,87 +49,165 @@ vi.mock("../../../utils/logger.js", () => ({
   }),
 }));
 
+const makeMessage = (overrides: Partial<any> = {}) => ({
+  author: {
+    id: "user1",
+    bot: false,
+    displayName: "User One",
+    username: "user1",
+  },
+  guild: undefined,
+  channel: { id: "channel-1" },
+  content: "Hello",
+  createdTimestamp: 123456,
+  id: "msg-1",
+  reference: undefined,
+  mentions: { has: vi.fn(() => false) },
+  ...overrides,
+});
+
 describe("discord plugin", () => {
-  it("should create discord plugin with required config", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("dispatches direct messages to the handler", async () => {
+    const plugin = createDiscordPlugin({ token: "test-token" });
+    const handler = vi.fn();
+    plugin.onMessage(handler);
+
+    await plugin.start();
+
+    const discord = (await import("discord.js")) as any;
+    const client = discord.__getLastClient();
+    const message = makeMessage({ content: "Hi there" });
+
+    await client.handlers.messageCreate(message);
+
+    expect(handler).toHaveBeenCalledTimes(1);
+    const ctx = handler.mock.calls[0][0];
+    expect(ctx.body).toBe("Hi there");
+    expect(ctx.chatType).toBe("direct");
+    expect(ctx.channel).toBe("discord");
+  });
+
+  it("enforces member allow list", async () => {
     const plugin = createDiscordPlugin({
       token: "test-token",
+      memberAllowList: ["allowed-user"],
     });
+    const handler = vi.fn();
+    plugin.onMessage(handler);
 
-    expect(plugin).toBeDefined();
-    expect(plugin.id).toBe("discord");
-    expect(plugin.capabilities).toBeDefined();
-    expect(plugin.capabilities.reactions).toBe(true);
-    expect(plugin.capabilities.markdown).toBe(true);
+    await plugin.start();
+
+    const discord = (await import("discord.js")) as any;
+    const client = discord.__getLastClient();
+    const message = makeMessage({ author: { id: "blocked", bot: false, username: "blocked" } });
+
+    await client.handlers.messageCreate(message);
+
+    expect(handler).not.toHaveBeenCalled();
   });
 
-  it("should have correct capabilities", () => {
+  it("requires mentions in guilds by default and strips mention tokens", async () => {
     const plugin = createDiscordPlugin({ token: "test-token" });
+    const handler = vi.fn();
+    plugin.onMessage(handler);
 
-    expect(plugin.capabilities.reactions).toBe(true);
-    expect(plugin.capabilities.threads).toBe(true);
-    expect(plugin.capabilities.buttons).toBe(true);
-    expect(plugin.capabilities.markdown).toBe(true);
-    expect(plugin.capabilities.maxMessageLength).toBe(2000);
+    await plugin.start();
+
+    const discord = (await import("discord.js")) as any;
+    const client = discord.__getLastClient();
+
+    const noMention = makeMessage({
+      guild: { name: "Guild" },
+      channel: { id: "channel-2" },
+    });
+    await client.handlers.messageCreate(noMention);
+    expect(handler).not.toHaveBeenCalled();
+
+    const mentionMessage = makeMessage({
+      guild: { name: "Guild" },
+      channel: { id: "channel-2" },
+      content: "<@123> Hello bot",
+      mentions: { has: vi.fn(() => true) },
+    });
+    await client.handlers.messageCreate(mentionMessage);
+
+    expect(handler).toHaveBeenCalledTimes(1);
+    const ctx = handler.mock.calls[0][0];
+    expect(ctx.body).toBe("Hello bot");
+    expect(ctx.chatType).toBe("group");
+    expect(ctx.groupId).toBe("channel-2");
   });
 
-  it("should support member allow list", () => {
+  it("applies channel allow list when mentions are not required", async () => {
     const plugin = createDiscordPlugin({
       token: "test-token",
-      memberAllowList: ["user1", "user2"],
+      requireMentionInGuild: false,
+      channelAllowList: ["allowed-channel"],
     });
+    const handler = vi.fn();
+    plugin.onMessage(handler);
 
-    expect(plugin).toBeDefined();
+    await plugin.start();
+
+    const discord = (await import("discord.js")) as any;
+    const client = discord.__getLastClient();
+
+    const blocked = makeMessage({
+      guild: { name: "Guild" },
+      channel: { id: "blocked-channel" },
+    });
+    await client.handlers.messageCreate(blocked);
+    expect(handler).not.toHaveBeenCalled();
+
+    const allowed = makeMessage({
+      guild: { name: "Guild" },
+      channel: { id: "allowed-channel" },
+    });
+    await client.handlers.messageCreate(allowed);
+    expect(handler).toHaveBeenCalledTimes(1);
   });
 
-  it("should support channel allow list", () => {
-    const plugin = createDiscordPlugin({
-      token: "test-token",
-      channelAllowList: ["channel1", "channel2"],
-    });
-
-    expect(plugin).toBeDefined();
-  });
-
-  it("should support requireMentionInGuild option", () => {
-    const plugin = createDiscordPlugin({
-      token: "test-token",
-      requireMentionInGuild: true,
-    });
-
-    expect(plugin).toBeDefined();
-  });
-
-  it("should support preFilter option", () => {
-    const preFilter = vi.fn(() => true);
-    const plugin = createDiscordPlugin({
-      token: "test-token",
-      preFilter,
-    });
-
-    expect(plugin).toBeDefined();
-  });
-
-  it("should have start method", () => {
+  it("sends to a text channel when available", async () => {
     const plugin = createDiscordPlugin({ token: "test-token" });
 
-    expect(typeof plugin.start).toBe("function");
+    const discord = (await import("discord.js")) as any;
+    const client = discord.__getLastClient();
+    const send = vi.fn();
+    client.channels.fetch.mockResolvedValue({
+      isTextBased: () => true,
+      send,
+    });
+
+    await plugin.send("channel-123", { text: "Ping", replyToId: "msg-9" });
+
+    expect(send).toHaveBeenCalledWith({
+      content: "Ping",
+      reply: { messageReference: "msg-9" },
+    });
   });
 
-  it("should have stop method", () => {
+  it("falls back to DM send when channel fetch fails", async () => {
     const plugin = createDiscordPlugin({ token: "test-token" });
 
-    expect(typeof plugin.stop).toBe("function");
-  });
+    const discord = (await import("discord.js")) as any;
+    const client = discord.__getLastClient();
+    const dmSend = vi.fn();
+    client.channels.fetch.mockResolvedValue(null);
+    client.users.fetch.mockResolvedValue({
+      createDM: async () => ({
+        send: dmSend,
+      }),
+    });
 
-  it("should have send method", () => {
-    const plugin = createDiscordPlugin({ token: "test-token" });
+    await plugin.send("user-123", { text: "Hello" });
 
-    expect(typeof plugin.send).toBe("function");
-  });
-
-  it("should have onMessage method", () => {
-    const plugin = createDiscordPlugin({ token: "test-token" });
-
-    expect(typeof plugin.onMessage).toBe("function");
+    expect(dmSend).toHaveBeenCalledWith({
+      content: "Hello",
+      reply: undefined,
+    });
   });
 });

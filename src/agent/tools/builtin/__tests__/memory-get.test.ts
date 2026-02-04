@@ -67,6 +67,96 @@ describe("memory-get tool", () => {
     expect(data.content).toBe("Line 2\nLine 3");
   });
 
+  it("should handle from_line = 0", async () => {
+    const content = "Line 1\nLine 2\nLine 3";
+    vi.mocked(readFile).mockResolvedValue(content);
+
+    const result = await memoryGetTool.execute(
+      {
+        path: "memory/test.md",
+        from_line: 0,
+      },
+      {} as any
+    );
+
+    expect(result.success).toBe(true);
+    const data = result.data as any;
+    expect(data.from_line).toBe(0);
+    expect(data.content).toBe("Line 3");
+  });
+
+  it("should handle negative from_line values", async () => {
+    const content = "Line 1\nLine 2\nLine 3";
+    vi.mocked(readFile).mockResolvedValue(content);
+
+    const result = await memoryGetTool.execute(
+      {
+        path: "memory/test.md",
+        from_line: -2,
+      },
+      {} as any
+    );
+
+    expect(result.success).toBe(true);
+    const data = result.data as any;
+    expect(data.from_line).toBe(-2);
+    expect(data.content).toBe("Line 1\nLine 2\nLine 3");
+  });
+
+  it("should handle num_lines = 0", async () => {
+    const content = "Line 1\nLine 2\nLine 3";
+    vi.mocked(readFile).mockResolvedValue(content);
+
+    const result = await memoryGetTool.execute(
+      {
+        path: "memory/test.md",
+        num_lines: 0,
+      },
+      {} as any
+    );
+
+    expect(result.success).toBe(true);
+    const data = result.data as any;
+    expect(data.to_line).toBe(0);
+    expect(data.content).toBe("");
+  });
+
+  it("should handle negative num_lines values", async () => {
+    const content = "Line 1\nLine 2\nLine 3";
+    vi.mocked(readFile).mockResolvedValue(content);
+
+    const result = await memoryGetTool.execute(
+      {
+        path: "memory/test.md",
+        num_lines: -1,
+      },
+      {} as any
+    );
+
+    expect(result.success).toBe(true);
+    const data = result.data as any;
+    expect(data.to_line).toBe(-1);
+    expect(data.content).toBe("Line 1\nLine 2");
+  });
+
+  it("should handle NaN num_lines values", async () => {
+    const content = "Line 1\nLine 2\nLine 3";
+    vi.mocked(readFile).mockResolvedValue(content);
+
+    const result = await memoryGetTool.execute(
+      {
+        path: "memory/test.md",
+        num_lines: Number.NaN,
+      },
+      {} as any
+    );
+
+    expect(result.success).toBe(true);
+    const data = result.data as any;
+    expect(Number.isNaN(data.to_line)).toBe(true);
+    expect(data.content).toBe("");
+  });
+
   it("should reject paths with ..", async () => {
     const result = await memoryGetTool.execute(
       { path: "../etc/passwd" },

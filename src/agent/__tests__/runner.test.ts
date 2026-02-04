@@ -5,13 +5,57 @@ import * as oauth from "../../auth/oauth.js";
 
 vi.mock("@mariozechner/pi-ai");
 vi.mock("../../auth/oauth.js");
-vi.mock("../models.js", () => ({
-  resolveModel: vi.fn((config) => ({
-    provider: config.provider || "anthropic",
-    id: config.model,
-    api: "anthropic-messages",
-  })),
-}));
+vi.mock("../models.js", () => {
+  const resolveModel = vi.fn((config: { provider?: string; model: string }) => {
+    const aliasMap: Record<
+      string,
+      { provider: string; id: string; api: string }
+    > = {
+      sonnet: { provider: "anthropic", id: "claude-sonnet-4-5", api: "anthropic-messages" },
+      opus: { provider: "anthropic", id: "claude-opus-4-5", api: "anthropic-messages" },
+      haiku: { provider: "anthropic", id: "claude-3-5-haiku", api: "anthropic-messages" },
+      "claude-sonnet-4-5": {
+        provider: "anthropic",
+        id: "claude-sonnet-4-5",
+        api: "anthropic-messages",
+      },
+      "claude-opus-4-5": {
+        provider: "anthropic",
+        id: "claude-opus-4-5",
+        api: "anthropic-messages",
+      },
+      "gpt-4o": { provider: "openai", id: "gpt-4o", api: "openai" },
+      "gpt-4o-mini": { provider: "openai", id: "gpt-4o-mini", api: "openai" },
+      "o1": { provider: "openai", id: "o1", api: "openai" },
+      "o1-mini": { provider: "openai", id: "o1-mini", api: "openai" },
+      "gemini": { provider: "google", id: "gemini-2.5-pro", api: "google" },
+      "gemini-2.5-pro": { provider: "google", id: "gemini-2.5-pro", api: "google" },
+      "gemini-2.5-flash": { provider: "google", id: "gemini-2.5-flash", api: "google" },
+    };
+
+    if (aliasMap[config.model]) {
+      return aliasMap[config.model];
+    }
+
+    if (config.model.includes("/")) {
+      const [provider, id] = config.model.split("/", 2);
+      return {
+        provider,
+        id,
+        api: provider === "openai" ? "openai" : provider === "google" ? "google" : "anthropic-messages",
+      };
+    }
+
+    const provider = config.provider ?? "anthropic";
+    return {
+      provider,
+      id: config.model,
+      api: provider === "openai" ? "openai" : provider === "google" ? "google" : "anthropic-messages",
+    };
+  });
+
+  return { resolveModel };
+});
 vi.mock("../../utils/logger.js", () => ({
   createLogger: () => ({
     debug: vi.fn(),

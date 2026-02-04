@@ -14,10 +14,11 @@ describe("system-prompt", () => {
 
       const prompt = buildSystemPrompt(ctx);
 
-      expect(prompt).toContain("crypto-focused AI assistant");
+      expect(prompt).toContain("## Runtime");
       expect(prompt).toContain("Channel: discord");
       expect(prompt).toContain("Model: claude-sonnet-4-5");
       expect(prompt).toContain("Timezone: UTC");
+      expect(prompt).not.toContain("## Persona & Boundaries");
     });
 
     it("should include soul section when present", () => {

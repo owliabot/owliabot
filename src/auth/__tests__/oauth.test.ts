@@ -6,10 +6,16 @@ import {
   getOAuthStatus,
   refreshOAuthCredentials,
 } from "../oauth.js";
-import { readFile, writeFile, mkdir } from "node:fs/promises";
+import { readFile, writeFile, mkdir, unlink } from "node:fs/promises";
+import { join } from "node:path";
 import * as piAi from "@mariozechner/pi-ai";
 
-vi.mock("node:fs/promises");
+vi.mock("node:fs/promises", () => ({
+  readFile: vi.fn(),
+  writeFile: vi.fn(),
+  mkdir: vi.fn(),
+  unlink: vi.fn(),
+}));
 vi.mock("@mariozechner/pi-ai");
 vi.mock("open", () => ({ default: vi.fn() }));
 vi.mock("../../utils/logger.js", () => ({
@@ -119,23 +125,30 @@ describe("oauth", () => {
 
   describe("clearOAuthCredentials", () => {
     it("should delete credentials file", async () => {
-      const mockUnlink = vi.fn().mockResolvedValue(undefined);
-      vi.doMock("node:fs/promises", () => ({
-        unlink: mockUnlink,
-      }));
-
+      vi.mocked(unlink).mockResolvedValue(undefined);
+      const expectedPath = join(
+        process.env.HOME ?? process.env.USERPROFILE ?? ".",
+        ".owliabot",
+        "auth.json"
+      );
       await clearOAuthCredentials();
 
-      // Can't easily test this due to dynamic import, just ensure it doesn't throw
-      expect(true).toBe(true);
+      expect(unlink).toHaveBeenCalledWith(expectedPath);
     });
 
     it("should ignore ENOENT errors", async () => {
       const error: any = new Error("ENOENT");
       error.code = "ENOENT";
-      
+      vi.mocked(unlink).mockRejectedValue(error);
+      const expectedPath = join(
+        process.env.HOME ?? process.env.USERPROFILE ?? ".",
+        ".owliabot",
+        "auth.json"
+      );
+
       // Should not throw
       await expect(clearOAuthCredentials()).resolves.toBeUndefined();
+      expect(unlink).toHaveBeenCalledWith(expectedPath);
     });
   });
 
