@@ -25,6 +25,62 @@ describe("system/executor", () => {
     }
   });
 
+  it("rejects exec action when security.level = 'read' (exec requires 'write')", async () => {
+    // exec action explicitly requires "write" security level
+    // This test confirms the enforcement is working correctly
+    const result = await executeSystemRequest(
+      {
+        payload: {
+          action: "exec",
+          args: { command: "echo", params: ["hello"] },
+        },
+        security: { level: "read" },
+      },
+      { workspacePath: "/tmp" }
+    );
+
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.code).toBe("ERR_PERMISSION_DENIED");
+      expect(result.error.message).toContain("security.level mismatch");
+      expect(result.error.message).toContain("exec");
+      expect(result.error.message).toContain("required write");
+    }
+  });
+
+  it("allows exec action when security.level = 'write'", async () => {
+    // With write level, should pass security check (may still fail on command allowlist)
+    const cfg: SystemCapabilityConfig = {
+      exec: {
+        commandAllowList: [], // empty = block all
+        envAllowList: [],
+        timeoutMs: 1000,
+        maxOutputBytes: 1024,
+      },
+    };
+
+    const result = await executeSystemRequest(
+      {
+        payload: {
+          action: "exec",
+          args: { command: "echo", params: ["test"] },
+        },
+        security: { level: "write" },
+      },
+      { workspacePath: "/tmp" },
+      cfg
+    );
+
+    // Should fail on command allowlist, not security level
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      // Should NOT be permission denied - that would mean security check failed
+      expect(result.error.code).not.toBe("ERR_PERMISSION_DENIED");
+      // Should fail on command not allowed
+      expect(result.error.message).toContain("not allowed");
+    }
+  });
+
   it("executes web.fetch via injected fetch", async () => {
     const cfg: SystemCapabilityConfig = {
       web: {

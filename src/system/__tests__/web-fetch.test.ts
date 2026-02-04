@@ -96,6 +96,6 @@ describe("system/actions/web-fetch", () => {
           blockOnSecret: true,
         }
       )
-    ).rejects.toThrow(/secret scanner/);
+    ).rejects.toThrow(/high-severity secret/);
   });
 });

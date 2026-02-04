@@ -31,8 +31,42 @@ function decodeHtmlEntities(text: string): string {
     .replace(/&#39;/g, "'");
 }
 
-function parseDuckDuckGoHtml(html: string, max: number): WebSearchResultItem[] {
+export interface DdgParseResult {
+  results: WebSearchResultItem[];
+  parseSucceeded: boolean;
+  parseError?: string;
+}
+
+function parseDuckDuckGoHtml(html: string, max: number): DdgParseResult {
   const out: WebSearchResultItem[] = [];
+
+  // Validate we received HTML-like content
+  if (!html || typeof html !== "string") {
+    return {
+      results: [],
+      parseSucceeded: false,
+      parseError: "Empty or invalid response from DuckDuckGo",
+    };
+  }
+
+  // Check for basic HTML structure
+  const hasHtmlTag = /<html/i.test(html) || /<body/i.test(html) || /<div/i.test(html);
+  if (!hasHtmlTag) {
+    return {
+      results: [],
+      parseSucceeded: false,
+      parseError: "Response does not appear to be HTML (missing expected tags)",
+    };
+  }
+
+  // Check for error indicators
+  if (/<title[^>]*>Error/i.test(html) || /rate.?limit/i.test(html.slice(0, 2000))) {
+    return {
+      results: [],
+      parseSucceeded: false,
+      parseError: "DuckDuckGo returned an error or rate limit response",
+    };
+  }
 
   // Common DDG HTML patterns (best-effort)
   const re = /<a[^>]+class="[^"]*(?:result__a|result-link)[^"]*"[^>]+href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/gi;
@@ -46,6 +80,8 @@ function parseDuckDuckGoHtml(html: string, max: number): WebSearchResultItem[] {
     const url = safeText(decodeHtmlEntities(href));
 
     if (!title || !url) continue;
+    // Validate URL shape
+    if (!url.startsWith("http://") && !url.startsWith("https://")) continue;
     out.push({ title, url });
     if (out.length >= max) break;
   }
@@ -57,12 +93,23 @@ function parseDuckDuckGoHtml(html: string, max: number): WebSearchResultItem[] {
       const url = safeText(decodeHtmlEntities(m[1] ?? ""));
       const title = safeText(decodeHtmlEntities(m[2] ?? ""));
       if (!title || !url) continue;
+      // Validate URL shape
+      if (!url.startsWith("http://") && !url.startsWith("https://")) continue;
       out.push({ title, url });
       if (out.length >= max) break;
     }
   }
 
-  return out;
+  // If we have HTML but found no results, the structure may have changed
+  if (out.length === 0) {
+    return {
+      results: [],
+      parseSucceeded: false,
+      parseError: "No results found in DuckDuckGo HTML (page structure may have changed)",
+    };
+  }
+
+  return { results: out, parseSucceeded: true };
 }
 
 function parseBraveJson(json: any, max: number): WebSearchResultItem[] {
@@ -171,10 +218,16 @@ export async function webSearchAction(
     });
 
     const html = await res.text();
+    const parsed = parseDuckDuckGoHtml(html, maxResults);
+
+    if (!parsed.parseSucceeded) {
+      throw new Error(`DuckDuckGo search failed: ${parsed.parseError}`);
+    }
+
     return {
       provider: "duckduckgo",
       query: args.query,
-      results: parseDuckDuckGoHtml(html, maxResults),
+      results: parsed.results,
       durationMs: Date.now() - started,
     };
   } finally {

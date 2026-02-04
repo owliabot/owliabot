@@ -1,6 +1,6 @@
 import { webFetchArgsSchema, type SystemCapabilityConfig, type WebFetchArgs } from "../interface.js";
 import { checkUrlAgainstDomainPolicy } from "../security/domain-policy.js";
-import { scanForSecrets } from "../security/secret-scanner.js";
+import { scanForSecrets, formatBlockReason } from "../security/secret-scanner.js";
 
 export interface WebFetchActionContext {
   fetchImpl?: typeof fetch;
@@ -93,9 +93,15 @@ export async function webFetchAction(
     if (webCfg?.blockOnSecret ?? true) {
       const scan = scanForSecrets(body);
       if (scan.hasHighConfidence) {
-        throw new Error(
-          `Request body blocked by secret scanner: ${scan.findings.map((f) => f.type).join(",")}`
-        );
+        const reason = formatBlockReason(scan);
+        // Log structured reason (safe - no secrets leaked)
+        console.warn("[secret-scanner]", JSON.stringify({
+          event: "request_blocked",
+          types: reason.types,
+          count: reason.findingCount,
+          summary: reason.summary,
+        }));
+        throw new Error(`Request body blocked: ${reason.summary}`);
       }
     }
   }

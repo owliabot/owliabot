@@ -85,3 +85,41 @@ heartbeat:
 #     rateLimit:
 #       windowMs: 60000
 #       max: 60
+
+# System Capability (optional) - controls exec, web.fetch, web.search actions
+# system:
+#   exec:
+#     commandAllowList:        # Only these commands may be executed
+#       - ls
+#       - cat
+#       - grep
+#       - find
+#       - echo
+#     envAllowList:            # Only these env vars may be passed through
+#       - PATH
+#       - HOME
+#       - USER
+#     timeoutMs: 60000         # Max execution time (default: 60s)
+#     maxOutputBytes: 262144   # Max stdout/stderr size (default: 256KB)
+#
+#   web:
+#     domainAllowList:         # If non-empty, only these domains allowed (supports *.example.com)
+#       - "*.example.com"
+#       - "api.github.com"
+#     domainDenyList:          # Always denied domains (supports wildcards)
+#       - "*.internal.corp"
+#     allowPrivateNetworks: false  # Allow requests to private/loopback IPs (default: false)
+#     timeoutMs: 15000         # Request timeout (default: 15s)
+#     maxResponseBytes: 524288 # Max response size (default: 512KB)
+#     userAgent: "OwliaBot/0.1 (+system-capability)"
+#     blockOnSecret: true      # Block POST/PUT bodies containing detected secrets (default: true)
+#
+#   webSearch:
+#     defaultProvider: duckduckgo  # brave | duckduckgo
+#     brave:
+#       apiKey: ${BRAVE_SEARCH_API_KEY}
+#       endpoint: https://api.search.brave.com/res/v1/web/search
+#     duckduckgo:
+#       endpoint: https://duckduckgo.com/html/
+#     timeoutMs: 15000
+#     maxResults: 10
