@@ -101,6 +101,20 @@ export class PolicyEngine {
 
     // 2. Amount threshold check
     if (context.amountUsd !== undefined) {
+      // Per-tool maxAmount cap (deny if exceeded, regardless of tier)
+      if (policy.maxAmount?.usd && context.amountUsd > policy.maxAmount.usd) {
+        log.warn(
+          `Amount ${context.amountUsd} exceeds per-tool maxAmount ${policy.maxAmount.usd} for ${toolName}`
+        );
+        return {
+          action: "deny",
+          tier: policy.tier,
+          effectiveTier,
+          reason: `Amount exceeds tool limit (max: $${policy.maxAmount.usd})`,
+          signerTier: this.mapTierToSigner(effectiveTier),
+        };
+      }
+
       if (effectiveTier === 3 && context.amountUsd > context.thresholds.tier3MaxUsd) {
         effectiveTier = 2;
         log.info(`Amount exceeds Tier 3 limit, escalating ${toolName} to Tier 2`);

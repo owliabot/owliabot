@@ -347,7 +347,26 @@ export async function executeToolCall(
       effectiveTier: decision.effectiveTier,
     });
 
-    // 2. Check cooldown
+    // 2. Check allowedUsers
+    if (policy.allowedUsers) {
+      const userId = options.userId ?? context.sessionKey;
+      const allowed =
+        policy.allowedUsers === "assignee-only"
+          ? false // TODO: resolve assignee from config; for now deny non-explicit users
+          : Array.isArray(policy.allowedUsers) && policy.allowedUsers.includes(userId);
+
+      if (!allowed && policy.allowedUsers !== "assignee-only") {
+        log.warn(`User ${userId} not in allowedUsers for ${call.name}`);
+        await feedAnomaly("denied");
+        return {
+          success: false,
+          error: `User not authorized for tool ${call.name}`,
+        };
+      }
+      // TODO: For "assignee-only", resolve assignee ID from config and compare
+    }
+
+    // 3. Check cooldown
     const cooldownCheck = cooldownTracker.check(call.name, policy);
     if (!cooldownCheck.allowed) {
       log.warn(`Cooldown limit hit for ${call.name}: ${cooldownCheck.reason}`);
