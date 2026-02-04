@@ -288,7 +288,9 @@ export async function executeToolCall(
   const amountUsd = extractAmountUsd(call.arguments);
 
   // Compute daily spent and consecutive denials from audit log
-  const auditContext = await computeAuditContext(auditQueryService, context.sessionKey);
+  // Use stable userId (not session key) for per-user limits to prevent bypass via key rotation
+  const stableUserId = options.userId ?? context.sessionKey;
+  const auditContext = await computeAuditContext(auditQueryService, stableUserId);
 
   // Build escalation context using policy thresholds
   const policyThresholds = await policyEngine.getThresholds();
@@ -354,6 +356,20 @@ export async function executeToolCall(
       const userId = options.userId ?? context.sessionKey;
       if (!policy.allowedUsers.includes(userId)) {
         log.warn(`User ${userId} not in allowedUsers for ${call.name}`);
+        // Audit the denial
+        const authAudit = await auditLogger.preLog({
+          tool: call.name,
+          tier: decision.tier,
+          effectiveTier: decision.effectiveTier,
+          securityLevel: tool.security.level,
+          user: userId,
+          channel: "unknown",
+          params: call.arguments as Record<string, unknown>,
+          amountUsd,
+        });
+        if (authAudit.ok) {
+          await auditLogger.finalize(authAudit.id, "denied", "not-in-allowedUsers");
+        }
         await feedAnomaly("denied");
         return {
           success: false,
