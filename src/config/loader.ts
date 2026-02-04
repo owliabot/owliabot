@@ -4,22 +4,63 @@
 
 import { readFile } from "node:fs/promises";
 import { parse } from "yaml";
-import { resolve, dirname } from "node:path";
+import { resolve, dirname, join } from "node:path";
 import { configSchema, type Config } from "./schema.js";
 import { createLogger } from "../utils/logger.js";
+import { ZodError } from "zod";
 
 const log = createLogger("config");
 
 export async function loadConfig(path: string): Promise<Config> {
-  // Expand leading ~
-  const expandedPath = path.startsWith("~")
-    ? resolve(process.env.HOME ?? process.env.USERPROFILE ?? ".", path.slice(1))
-    : path;
+  // Expand leading ~ (HOME)
+  // - "~/x" => "$HOME/x"
+  // - "~"   => "$HOME"
+  const home = process.env.HOME ?? process.env.USERPROFILE ?? ".";
+  const expandedPath =
+    path === "~"
+      ? home
+      : path.startsWith("~/")
+        ? resolve(home, path.slice(2))
+        : path;
 
   log.info(`Loading config from ${expandedPath}`);
 
-  const content = await readFile(expandedPath, "utf-8");
-  const raw = parse(content);
+  let content: string;
+  try {
+    content = await readFile(expandedPath, "utf-8");
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+      throw new Error(`Config file not found: ${expandedPath}`);
+    }
+    throw err;
+  }
+  const raw = parse(content) as any;
+
+  // Resolve workspace path relative to config file
+  const configDir = dirname(resolve(expandedPath));
+
+  // Load secrets from same directory (optional): ~/.owlia_dev/secrets.yaml
+  // This allows onboarding to keep tokens out of app.yaml while still satisfying schemas.
+  const secretsPath = join(configDir, "secrets.yaml");
+  let secrets: any = null;
+  try {
+    const secretsContent = await readFile(secretsPath, "utf-8");
+    secrets = parse(secretsContent) as any;
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
+      throw err;
+    }
+  }
+
+  // Merge secrets/env tokens into raw config (before env expansion + schema validation)
+  if (raw?.discord && !raw.discord.token) {
+    raw.discord.token =
+      secrets?.discord?.token ?? process.env.DISCORD_BOT_TOKEN ?? undefined;
+  }
+  if (raw?.telegram && !raw.telegram.token) {
+    raw.telegram.token =
+      secrets?.telegram?.token ?? process.env.TELEGRAM_BOT_TOKEN ?? undefined;
+  }
 
   // Expand environment variables
   const expanded = expandEnvVars(raw) as any;
@@ -32,10 +73,16 @@ export async function loadConfig(path: string): Promise<Config> {
   }
 
   // Validate with Zod
-  const config = configSchema.parse(expanded);
+  let config: Config;
+  try {
+    config = configSchema.parse(expanded);
+  } catch (err) {
+    if (err instanceof ZodError) {
+      throw new Error(formatZodError(err));
+    }
+    throw err;
+  }
 
-  // Resolve workspace path relative to config file
-  const configDir = dirname(resolve(expandedPath));
   config.workspace = resolve(configDir, config.workspace);
   log.debug(`Resolved workspace path: ${config.workspace}`);
 
@@ -58,4 +105,12 @@ function expandEnvVars(obj: unknown): unknown {
     return result;
   }
   return obj;
+}
+
+function formatZodError(error: ZodError): string {
+  const lines = error.errors.map((issue) => {
+    const path = issue.path.length > 0 ? issue.path.join(".") : "(root)";
+    return `- ${path}: ${issue.message}`;
+  });
+  return `Config validation failed:\n${lines.join("\n")}`;
 }

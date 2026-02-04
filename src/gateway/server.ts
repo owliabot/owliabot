@@ -12,7 +12,7 @@ import { createTelegramPlugin } from "../channels/telegram/index.js";
 import { createDiscordPlugin } from "../channels/discord/index.js";
 import type { Message } from "../agent/session.js";
 import { resolveAgentId, resolveSessionKey } from "../agent/session-key.js";
-import { createSessionStore } from "../agent/session-store.js";
+import { createSessionStore, type SessionKey } from "../agent/session-store.js";
 import { createSessionTranscriptStore } from "../agent/session-transcript.js";
 import { callWithFailover, type LLMProvider } from "../agent/runner.js";
 import { buildSystemPrompt } from "../agent/system-prompt.js";
@@ -28,6 +28,11 @@ import {
   createMemoryGetTool,
   createListFilesTool,
 } from "../agent/tools/builtin/index.js";
+import {
+  WriteGateReplyRouter,
+  createWriteGateChannelAdapter,
+} from "../security/write-gate-adapter.js";
+import type { WriteGateChannel } from "../security/write-gate.js";
 import type { ToolResult } from "../agent/tools/interface.js";
 import { createCronService } from "../cron/service.js";
 import { executeHeartbeat } from "../cron/heartbeat.js";
@@ -76,33 +81,55 @@ export async function startGateway(
     await initializeSkills(skillsDir, tools);
   }
 
+  // WriteGate reply router (shared across all channels)
+  const replyRouter = new WriteGateReplyRouter();
+
+  // Map channel id → WriteGateChannel adapter
+  const writeGateChannels = new Map<string, WriteGateChannel>();
+
   // Register Telegram if configured
-  if (config.telegram) {
+  if (config.telegram && config.telegram.token) {
     const telegram = createTelegramPlugin({
       token: config.telegram.token,
       allowList: config.telegram.allowList,
     });
 
+    writeGateChannels.set("telegram", createWriteGateChannelAdapter(telegram, replyRouter));
+
     telegram.onMessage(async (ctx) => {
-      await handleMessage(ctx, config, workspace, sessionStore, transcripts, channels, tools);
+      if (replyRouter.tryRoute(ctx)) return; // confirmation reply consumed
+      await handleMessage(ctx, config, workspace, sessionStore, transcripts, channels, tools, writeGateChannels);
     });
 
     channels.register(telegram);
   }
 
   // Register Discord if configured
-  if (config.discord) {
+  if (config.discord && config.discord.token) {
     const discord = createDiscordPlugin({
       token: config.discord.token,
-      allowList: config.discord.allowList,
+      memberAllowList: config.discord.memberAllowList,
       channelAllowList: config.discord.channelAllowList,
+      requireMentionInGuild: config.discord.requireMentionInGuild,
+      // Let WriteGate confirmation replies bypass the mention gate
+      preFilter: (ctx) => replyRouter.hasPendingWaiter(ctx),
     });
 
+    writeGateChannels.set("discord", createWriteGateChannelAdapter(discord, replyRouter));
+
     discord.onMessage(async (ctx) => {
-      await handleMessage(ctx, config, workspace, sessionStore, transcripts, channels, tools);
+      if (replyRouter.tryRoute(ctx)) return; // confirmation reply consumed
+      await handleMessage(ctx, config, workspace, sessionStore, transcripts, channels, tools, writeGateChannels);
     });
 
     channels.register(discord);
+  }
+
+  if (config.telegram && !config.telegram.token) {
+    log.warn("Telegram configured but token missing; skipping Telegram channel startup");
+  }
+  if (config.discord && !config.discord.token) {
+    log.warn("Discord configured but token missing; skipping Discord channel startup");
   }
 
   // Start all channels
@@ -145,7 +172,8 @@ async function handleMessage(
   sessionStore: ReturnType<typeof createSessionStore>,
   transcripts: ReturnType<typeof createSessionTranscriptStore>,
   channels: ChannelRegistry,
-  tools: ToolRegistry
+  tools: ToolRegistry,
+  writeGateChannels: Map<string, WriteGateChannel>,
 ): Promise<void> {  
   if (!shouldHandleMessage(ctx, config)) {
     return;
@@ -192,72 +220,88 @@ async function handleMessage(
     ...history,
   ];
 
-  while (iteration < MAX_ITERATIONS) {
-    iteration++;
-    log.debug(`Agentic loop iteration ${iteration}`);
+  try {
+    while (iteration < MAX_ITERATIONS) {
+      iteration++;
+      log.debug(`Agentic loop iteration ${iteration}`);
 
-    // Call LLM with tools
-    const providers: LLMProvider[] = config.providers;
-    const response = await callWithFailover(providers, conversationMessages, {
-      tools: tools.getAll(),
-    });
+      // Call LLM with tools
+      const providers: LLMProvider[] = config.providers;
+      const response = await callWithFailover(providers, conversationMessages, {
+        tools: tools.getAll(),
+      });
 
-    // If no tool calls, we're done
-    if (!response.toolCalls || response.toolCalls.length === 0) {
-      finalContent = response.content;
-      break;
-    }
+      // If no tool calls, we're done
+      if (!response.toolCalls || response.toolCalls.length === 0) {
+        finalContent = response.content;
+        break;
+      }
 
-    log.info(`LLM requested ${response.toolCalls.length} tool calls`);
+      log.info(`LLM requested ${response.toolCalls.length} tool calls`);
 
-    // Execute tool calls
-    const toolResults = await executeToolCalls(response.toolCalls, {
-      registry: tools,
-      context: {
-        sessionKey,
-        agentId,
-        signer: null,
-        config: {},
-      },
-    });
+      // Execute tool calls
+      const toolResults = await executeToolCalls(response.toolCalls, {
+        registry: tools,
+        context: {
+          sessionKey,
+          agentId,
+          signer: null,
+          config: {},
+        },
+        writeGateChannel: writeGateChannels.get(ctx.channel),
+        securityConfig: config.security,
+        workspacePath: config.workspace,
+        userId: ctx.from,
+      });
 
-    // Add assistant message with tool calls to conversation
-    const assistantToolCallMessage: Message = {
-      role: "assistant",
-      content: response.content || "",
-      timestamp: Date.now(),
-      toolCalls: response.toolCalls,
-    };
-    conversationMessages.push(assistantToolCallMessage);
-    await transcripts.append(entry.sessionId, assistantToolCallMessage);
+      // Add assistant message with tool calls to conversation
+      const assistantToolCallMessage: Message = {
+        role: "assistant",
+        content: response.content || "",
+        timestamp: Date.now(),
+        toolCalls: response.toolCalls,
+      };
+      conversationMessages.push(assistantToolCallMessage);
+      await transcripts.append(entry.sessionId, assistantToolCallMessage);
 
-    // Add tool results as user message with proper toolResults structure
-    // The runner will convert this to pi-ai's ToolResultMessage format
-    const toolResultsArray = response.toolCalls.map((call) => {
-      const result = toolResults.get(call.id);
-      if (!result) {
+      // Add tool results as user message with proper toolResults structure
+      // The runner will convert this to pi-ai's ToolResultMessage format
+      const toolResultsArray = response.toolCalls.map((call) => {
+        const result = toolResults.get(call.id);
+        if (!result) {
+          return {
+            success: false,
+            error: "Missing tool result",
+            toolCallId: call.id,
+            toolName: call.name,
+          } as ToolResult;
+        }
         return {
-          success: false,
-          error: "Missing tool result",
+          ...result,
           toolCallId: call.id,
           toolName: call.name,
         } as ToolResult;
-      }
-      return {
-        ...result,
-        toolCallId: call.id,
-        toolName: call.name,
-      } as ToolResult;
-    });
+      });
 
-    const toolResultMessage: Message = {
-      role: "user",
-      content: "", // Content is empty, tool results are in toolResults array
-      timestamp: Date.now(),
-      toolResults: toolResultsArray,
-    };
-    conversationMessages.push(toolResultMessage);
-    await transcripts.append(entry.sessionId, toolResultMessage);
+      const toolResultMessage: Message = {
+        role: "user",
+        content: "", // Content is empty, tool results are in toolResults array
+        timestamp: Date.now(),
+        toolResults: toolResultsArray,
+      };
+      conversationMessages.push(toolResultMessage);
+      await transcripts.append(entry.sessionId, toolResultMessage);
+    }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+
+    // Provide a user-visible hint for missing provider keys / auth.
+    if (message.includes("No API key found for anthropic")) {
+      finalContent =
+        "⚠️ Anthropic 未授权：请先运行 `owliabot auth setup`（或设置 `ANTHROPIC_API_KEY`），然后再试一次。";
+    } else {
+      finalContent = `⚠️ 处理失败：${message}`;
+    }
   }
 
   if (!finalContent && iteration >= MAX_ITERATIONS) {
@@ -285,4 +329,3 @@ async function handleMessage(
     });
   }
 }
-

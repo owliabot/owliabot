@@ -33,6 +33,9 @@ sessions/
 
 # Config (contains secrets)
 config.yaml
+secrets.yaml
+auth.json
+.owlia_dev/
 
 # codex
 .codex

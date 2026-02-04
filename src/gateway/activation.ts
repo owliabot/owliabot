@@ -12,7 +12,7 @@ export function shouldHandleMessage(ctx: MsgContext, config: Config): boolean {
   // 1) User allowlist gate (applies to DM + group)
   const allowList =
     ctx.channel === "discord"
-      ? config.discord?.allowList
+      ? config.discord?.memberAllowList
       : ctx.channel === "telegram"
         ? config.telegram?.allowList
         : undefined;

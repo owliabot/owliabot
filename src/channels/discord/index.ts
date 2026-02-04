@@ -13,11 +13,18 @@ const log = createLogger("discord");
 export interface DiscordConfig {
   token: string;
   /** Allow list of Discord user IDs */
-  allowList?: string[];
+  memberAllowList?: string[];
   /** Allow list of guild channel IDs where the bot will respond */
   channelAllowList?: string[];
-  /** Deprecated: use config.group.activation in gateway. */
+  /** If true, only respond in guild when mentioned OR channel is allowlisted */
   requireMentionInGuild?: boolean;
+  /**
+   * Optional pre-filter called before guild mention/channel gating.
+   * If it returns true the message is forwarded to the handler immediately,
+   * bypassing mention and channel-allowlist checks (user allowlist still applies).
+   * Used by WriteGate to let confirmation replies ("yes"/"no") through.
+   */
+  preFilter?: (ctx: MsgContext) => boolean;
 }
 
 export function createDiscordPlugin(config: DiscordConfig): ChannelPlugin {
@@ -55,30 +62,20 @@ export function createDiscordPlugin(config: DiscordConfig): ChannelPlugin {
         const isDM = !message.guild;
 
         // Check user allowlist (applies to both DM + guild)
-        if (config.allowList && config.allowList.length > 0) {
-          if (!config.allowList.includes(message.author.id)) {
-            log.warn(`User ${message.author.id} not in allowlist`);
+        if (config.memberAllowList && config.memberAllowList.length > 0) {
+          if (!config.memberAllowList.includes(message.author.id)) {
+            log.warn(`User ${message.author.id} not in memberAllowList`);
             return;
           }
         }
 
-        // Compute mention signal (gateway will decide whether to respond)
-        const botUser = client.user;
-        const mentioned = !isDM && botUser ? message.mentions.has(botUser) : false;
-
-        // Strip bot mention prefix for cleaner prompts (best-effort)
-        let body = message.content;
-        if (!isDM && botUser) {
-          const prefixRe = new RegExp(`^<@!?${botUser.id}>\\s*`);
-          body = body.replace(prefixRe, "");
-        }
-        body = body.trim();
+        // Build MsgContext early so preFilter can inspect it
+        const body = message.content.replace(/<@!?\d+>\s*/g, "").trim();
 
         const msgCtx: MsgContext = {
           from: message.author.id,
           senderName: message.author.displayName ?? message.author.username,
           senderUsername: message.author.username,
-          mentioned: isDM ? true : mentioned,
           body: body.length > 0 ? body : message.content,
           messageId: message.id,
           replyToId: message.reference?.messageId,
@@ -88,6 +85,47 @@ export function createDiscordPlugin(config: DiscordConfig): ChannelPlugin {
           groupName: isDM ? undefined : message.guild?.name,
           timestamp: message.createdTimestamp,
         };
+
+        // Pre-filter bypass (e.g. WriteGate confirmation replies)
+        if (config.preFilter && config.preFilter(msgCtx)) {
+          try {
+            await messageHandler(msgCtx);
+          } catch (err) {
+            log.error("Error handling pre-filtered message", err);
+          }
+          return;
+        }
+
+        // Guild filtering rules
+        if (!isDM) {
+          const botUser = client.user;
+          // Explicitly ignore @everyone/@here, role mentions, and reply-to
+          // mentions so only a direct @botUser mention triggers activation.
+          const mentioned = botUser
+            ? message.mentions.has(botUser, {
+                ignoreEveryone: true,
+                ignoreRoles: true,
+                ignoreRepliedUser: true,
+              })
+            : false;
+          const inAllowedChannel =
+            config.channelAllowList && config.channelAllowList.length > 0
+              ? config.channelAllowList.includes(message.channel.id)
+              : false;
+
+          const requireMention = config.requireMentionInGuild ?? true;
+
+          // Strict mode: if mention is required, ONLY respond when the bot user is mentioned.
+          // (Channel allowlist does not bypass mention requirement.)
+          if (requireMention && !mentioned) {
+            return;
+          }
+
+          // If mention is not required, and a channel allowlist is set, gate by it.
+          if (!requireMention && config.channelAllowList && !inAllowedChannel) {
+            return;
+          }
+        }
 
         try {
           await messageHandler(msgCtx);
