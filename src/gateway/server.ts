@@ -193,9 +193,12 @@ async function handleMessage(
     resetTriggers: config.session?.resetTriggers,
     defaultModelLabel: config.providers?.[0]?.model,
     workspacePath: config.workspace,
+    // Use configured summaryModel, or fall back to default provider's model (OpenClaw strategy)
     summaryModel: config.session?.summaryModel 
-      ? { model: config.session.summaryModel } 
-      : undefined,
+      ? { provider: config.providers?.[0]?.id, model: config.session.summaryModel } 
+      : config.providers?.[0] 
+        ? { provider: config.providers[0].id, model: config.providers[0].model }
+        : undefined,
     summarizeOnReset: config.session?.summarizeOnReset,
     timezone: config.timezone,
   });

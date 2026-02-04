@@ -23,11 +23,10 @@ const log = createLogger("session-summarizer");
 /** Minimum user messages before we bother summarizing. */
 const MIN_USER_MESSAGES = 2;
 
-/** Default model for summarization (fast & cheap). */
-const DEFAULT_SUMMARY_MODEL: ModelConfig = {
-  provider: "anthropic",
-  model: "claude-haiku-4-5",
-};
+/**
+ * No hardcoded default model - caller must provide one.
+ * This aligns with OpenClaw's strategy of using the session's model.
+ */
 
 const SUMMARY_SYSTEM_PROMPT = `You are a conversation summarizer. Given a conversation transcript, produce a concise summary of key points, decisions, and action items.
 
@@ -75,9 +74,15 @@ export async function summarizeAndSave(
     sessionId,
     transcripts,
     workspacePath,
-    summaryModel = DEFAULT_SUMMARY_MODEL,
+    summaryModel,
     timezone = "UTC",
   } = options;
+
+  // Model is required - caller should provide it (aligned with OpenClaw strategy)
+  if (!summaryModel) {
+    log.warn(`Skipping summary for ${sessionId}: no model configured`);
+    return { summarized: false };
+  }
 
   try {
     // 1. Read transcript

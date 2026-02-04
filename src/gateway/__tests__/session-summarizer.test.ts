@@ -59,6 +59,7 @@ describe("summarizeAndSave", () => {
     ]);
 
     const result = await summarizeAndSave({
+      summaryModel: { provider: "anthropic", model: "claude-sonnet-4-5" },
       sessionId: "sess-1",
       transcripts,
       workspacePath: "/tmp/workspace",
@@ -76,10 +77,11 @@ describe("summarizeAndSave", () => {
       content: "- Discussed project setup\n- Decided on TypeScript",
       usage: { promptTokens: 100, completionTokens: 30 },
       provider: "anthropic",
-      model: "claude-haiku-4-5",
+      model: "claude-sonnet-4-5",
     });
 
     const result = await summarizeAndSave({
+      summaryModel: { provider: "anthropic", model: "claude-sonnet-4-5" },
       sessionId: "sess-2",
       transcripts,
       workspacePath: "/tmp/workspace",
@@ -107,10 +109,11 @@ describe("summarizeAndSave", () => {
       content: "- New summary point",
       usage: { promptTokens: 50, completionTokens: 10 },
       provider: "anthropic",
-      model: "claude-haiku-4-5",
+      model: "claude-sonnet-4-5",
     });
 
     const result = await summarizeAndSave({
+      summaryModel: { provider: "anthropic", model: "claude-sonnet-4-5" },
       sessionId: "sess-3",
       transcripts,
       workspacePath: "/tmp/workspace",
@@ -130,6 +133,7 @@ describe("summarizeAndSave", () => {
     mockRunLLM.mockRejectedValue(new Error("API key invalid"));
 
     const result = await summarizeAndSave({
+      summaryModel: { provider: "anthropic", model: "claude-sonnet-4-5" },
       sessionId: "sess-4",
       transcripts,
       workspacePath: "/tmp/workspace",
@@ -147,10 +151,11 @@ describe("summarizeAndSave", () => {
       content: "   ",
       usage: { promptTokens: 50, completionTokens: 1 },
       provider: "anthropic",
-      model: "claude-haiku-4-5",
+      model: "claude-sonnet-4-5",
     });
 
     const result = await summarizeAndSave({
+      summaryModel: { provider: "anthropic", model: "claude-sonnet-4-5" },
       sessionId: "sess-5",
       transcripts,
       workspacePath: "/tmp/workspace",
@@ -171,6 +176,7 @@ describe("summarizeAndSave", () => {
     });
 
     await summarizeAndSave({
+      summaryModel: { provider: "anthropic", model: "claude-sonnet-4-5" },
       sessionId: "sess-6",
       transcripts,
       workspacePath: "/tmp/workspace",
@@ -198,10 +204,11 @@ describe("summarizeAndSave", () => {
       content: "- Summary",
       usage: { promptTokens: 50, completionTokens: 10 },
       provider: "anthropic",
-      model: "claude-haiku-4-5",
+      model: "claude-sonnet-4-5",
     });
 
     await summarizeAndSave({
+      summaryModel: { provider: "anthropic", model: "claude-sonnet-4-5" },
       sessionId: "sess-7",
       transcripts,
       workspacePath: "/tmp/workspace",
