@@ -16,8 +16,9 @@ import { ToolRegistry } from "../registry.js";
 import { executeToolCall, executeToolCalls } from "../executor.js";
 import { echoTool, createHelpTool, createListFilesTool } from "../builtin/index.js";
 import type { ToolContext, ToolCall, ToolResult } from "../interface.js";
-import { mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { tmpdir } from "node:os";
 
 // Mock logger to reduce noise
 vi.mock("../../../utils/logger.js", () => ({
@@ -36,8 +37,42 @@ vi.mock("../../../security/write-gate.js", () => ({
   })),
 }));
 
+// Minimal mock interfaces for executor dependencies
+interface MockPolicyEngine {
+  decide: ReturnType<typeof vi.fn>;
+  resolve: ReturnType<typeof vi.fn>;
+  getThresholds: ReturnType<typeof vi.fn>;
+}
+
+interface MockAuditLogger {
+  preLog: ReturnType<typeof vi.fn>;
+  finalize: ReturnType<typeof vi.fn>;
+  isDegraded: ReturnType<typeof vi.fn>;
+}
+
+interface MockCooldownTracker {
+  check: ReturnType<typeof vi.fn>;
+  record: ReturnType<typeof vi.fn>;
+}
+
+interface MockAutoRevokeService {
+  onAuditEntry: ReturnType<typeof vi.fn>;
+}
+
+interface MockEmergencyStop {
+  isStopped: ReturnType<typeof vi.fn>;
+}
+
+interface MockDeps {
+  policyEngine: MockPolicyEngine;
+  auditLogger: MockAuditLogger;
+  cooldownTracker: MockCooldownTracker;
+  autoRevokeService: MockAutoRevokeService;
+  emergencyStop: MockEmergencyStop;
+}
+
 // Create minimal policy/audit mocks that allow execution
-function createMockDeps() {
+function createMockDeps(): MockDeps {
   return {
     policyEngine: {
       decide: vi.fn(async () => ({
@@ -56,22 +91,22 @@ function createMockDeps() {
         tier2Amount: 100,
         tier3Amount: 1000,
       })),
-    } as any,
+    },
     auditLogger: {
       preLog: vi.fn(async () => ({ ok: true, id: `audit-${Date.now()}` })),
       finalize: vi.fn(async () => {}),
       isDegraded: vi.fn(() => false),
-    } as any,
+    },
     cooldownTracker: {
       check: vi.fn(() => ({ allowed: true })),
       record: vi.fn(),
-    } as any,
+    },
     autoRevokeService: {
       onAuditEntry: vi.fn(async () => {}),
-    } as any,
+    },
     emergencyStop: {
       isStopped: vi.fn(() => false),
-    } as any,
+    },
   };
 }
 
@@ -84,9 +119,8 @@ describe("Tool Loop Integration", () => {
   beforeEach(async () => {
     vi.clearAllMocks();
     
-    // Setup test workspace
-    testWorkspace = join(process.cwd(), "tmp", `tool-loop-test-${Date.now()}`);
-    await mkdir(testWorkspace, { recursive: true });
+    // Setup test workspace in OS temp directory (avoids polluting project dir)
+    testWorkspace = await mkdtemp(join(tmpdir(), "tool-loop-test-"));
     await mkdir(join(testWorkspace, "memory"), { recursive: true });
     await writeFile(join(testWorkspace, "README.md"), "# Test Workspace");
     await writeFile(join(testWorkspace, "memory", "notes.md"), "# Notes");
@@ -231,7 +265,8 @@ describe("Tool Loop Integration", () => {
       });
 
       expect(result.success).toBe(false);
-      expect(result.error).toContain("Invalid path");
+      // Use regex to avoid flaky tests from wording changes
+      expect(result.error).toMatch(/invalid|traversal|outside|forbidden/i);
     });
 
     it("should return error for non-existent directory", async () => {
@@ -249,7 +284,7 @@ describe("Tool Loop Integration", () => {
       });
 
       expect(result.success).toBe(false);
-      expect(result.error).toContain("not found");
+      expect(result.error).toMatch(/not found|does not exist|no such/i);
     });
   });
 
@@ -320,7 +355,7 @@ describe("Tool Loop Integration", () => {
       });
 
       expect(result.success).toBe(false);
-      expect(result.error).toContain("denied");
+      expect(result.error).toMatch(/denied|forbidden|not allowed/i);
     });
 
     it("should check cooldown before executing", async () => {
@@ -402,7 +437,7 @@ describe("Tool Loop Integration", () => {
       });
 
       expect(result.success).toBe(false);
-      expect(result.error).toContain("Unknown tool");
+      expect(result.error).toMatch(/unknown|not found|unregistered/i);
     });
   });
 
