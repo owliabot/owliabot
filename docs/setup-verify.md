@@ -28,7 +28,7 @@ npm install
 #### 方式 A：交互式引导（推荐）
 
 ```bash
-npx owliabot onboard
+npx tsx src/entry.ts onboard
 ```
 
 引导流程会依次询问：
@@ -70,7 +70,7 @@ providers:
 
 可配置多个提供商，按 `priority` 顺序回退。
 
-> **OAuth 认证**：运行 `npx owliabot auth setup` 完成浏览器授权后，将 `apiKey` 设为 `oauth` 即可使用 Claude 订阅额度。
+> **OAuth 认证**：运行 `npx tsx src/entry.ts auth setup` 完成浏览器授权后，将 `apiKey` 设为 `oauth` 即可使用 Claude 订阅额度。
 
 ### `discord` — Discord 集成
 
@@ -102,7 +102,7 @@ telegram:
 | `heartbeat` | 定时任务，`enabled: true` + `cron` 表达式 |
 | `gateway.http` | HTTP 网关（可选），含速率限制、IP 白名单等 |
 
-完整选项请参考 [`config.example.yaml`](./config.example.yaml)。
+完整选项请参考 [`config.example.yaml`](../config.example.yaml)。
 
 ---
 
@@ -191,13 +191,13 @@ OwliaBot is running. Press Ctrl+C to stop.
 
 ```bash
 # 检查 OAuth 状态
-npx owliabot auth status
+npx tsx src/entry.ts auth status
 
 # 重新认证
-npx owliabot auth setup
+npx tsx src/entry.ts auth setup
 
 # 清除凭据重来
-npx owliabot auth logout
+npx tsx src/entry.ts auth logout
 ```
 
 OAuth Token 会自动刷新，但如果长时间未使用可能失效，需重新运行 `auth setup`。
@@ -211,4 +211,4 @@ OAuth Token 会自动刷新，但如果长时间未使用可能失效，需重�
 
 - 查看详细日志：Bot 使用 `tslog`，启动时会输出配置加载和连接状态信息。
 - 使用 `npm run dev` 启动（watch 模式），修改代码后自动重启，方便调试。
-- 令牌管理：可使用 `npx owliabot token set discord` / `npx owliabot token set telegram` 从环境变量写入 `~/.owlia_dev/secrets.yaml`。
+- 令牌管理：可使用 `npx tsx src/entry.ts token set discord` / `npx tsx src/entry.ts token set telegram` 从环境变量写入 `~/.owlia_dev/secrets.yaml`。
