@@ -1,0 +1,252 @@
+/**
+ * MCP Module - Public API
+ * Provides Model Context Protocol support for OwliaBot
+ */
+
+import { createLogger } from "../utils/logger.js";
+import { MCPClient, createMCPClient } from "./client.js";
+import { MCPToolAdapter, createMCPToolAdapter } from "./adapter.js";
+import {
+  MCPError,
+  MCPErrorCode,
+  mcpConfigSchema,
+  type MCPConfig,
+  type MCPServerConfig,
+  type MCPSecurityOverride,
+} from "./types.js";
+import type { ToolDefinition } from "../agent/tools/interface.js";
+
+// Re-export types and classes
+export { MCPClient, createMCPClient } from "./client.js";
+export { MCPToolAdapter, createMCPToolAdapter } from "./adapter.js";
+export {
+  StdioTransport,
+  SSETransport,
+  createTransport,
+  type MCPTransport,
+} from "./transport.js";
+export {
+  MCPError,
+  MCPErrorCode,
+  mcpConfigSchema,
+  mcpServerConfigSchema,
+  mcpSecurityOverrideSchema,
+  mcpDefaultsSchema,
+  type MCPConfig,
+  type MCPServerConfig,
+  type MCPSecurityOverride,
+  type MCPDefaults,
+  type MCPToolDefinition,
+  type ToolCallResult,
+} from "./types.js";
+
+const log = createLogger("mcp");
+
+// ============================================================================
+// Types
+// ============================================================================
+
+export interface CreateMCPToolsResult {
+  /** All loaded tool definitions */
+  tools: ToolDefinition[];
+  
+  /** Connected MCP clients by server name */
+  clients: Map<string, MCPClient>;
+  
+  /** Adapters by server name */
+  adapters: Map<string, MCPToolAdapter>;
+  
+  /** Servers that failed to connect */
+  failed: Array<{
+    name: string;
+    error: string;
+  }>;
+  
+  /** Refresh tools from all connected servers */
+  refreshTools: () => Promise<ToolDefinition[]>;
+  
+  /** Close all connections */
+  close: () => Promise<void>;
+}
+
+// ============================================================================
+// Main Factory
+// ============================================================================
+
+/**
+ * Create MCP tools from configuration
+ * 
+ * This is the main entry point for MCP integration. It:
+ * 1. Validates configuration
+ * 2. Connects to all configured MCP servers
+ * 3. Retrieves and adapts tools from each server
+ * 4. Returns tools ready for registration with ToolRegistry
+ * 
+ * @example
+ * ```typescript
+ * import { createMCPTools } from "./mcp/index.js";
+ * 
+ * const result = await createMCPTools({
+ *   servers: [
+ *     { name: "playwright", command: "npx", args: ["@anthropic/mcp-server-playwright"] }
+ *   ]
+ * });
+ * 
+ * // Register tools
+ * for (const tool of result.tools) {
+ *   registry.register(tool);
+ * }
+ * 
+ * // Clean up on shutdown
+ * await result.close();
+ * ```
+ */
+export async function createMCPTools(
+  config: MCPConfig | unknown
+): Promise<CreateMCPToolsResult> {
+  // Validate configuration
+  const validatedConfig = mcpConfigSchema.parse(config);
+  const { servers, securityOverrides, defaults } = validatedConfig;
+
+  if (servers.length === 0) {
+    log.info("No MCP servers configured");
+    return {
+      tools: [],
+      clients: new Map(),
+      adapters: new Map(),
+      failed: [],
+      refreshTools: async () => [],
+      close: async () => {},
+    };
+  }
+
+  const clients = new Map<string, MCPClient>();
+  const adapters = new Map<string, MCPToolAdapter>();
+  const failed: Array<{ name: string; error: string }> = [];
+  let allTools: ToolDefinition[] = [];
+
+  // Connect to each server
+  for (const serverConfig of servers) {
+    try {
+      log.info(`Connecting to MCP server: ${serverConfig.name}`);
+
+      // Create and connect client
+      const client = await createMCPClient(serverConfig, defaults);
+      clients.set(serverConfig.name, client);
+
+      // Create adapter with security overrides for this server
+      const serverOverrides = filterSecurityOverrides(
+        securityOverrides ?? {},
+        serverConfig.name
+      );
+      const adapter = createMCPToolAdapter(client, {
+        securityOverrides: serverOverrides,
+        timeout: defaults?.timeout,
+      });
+      adapters.set(serverConfig.name, adapter);
+
+      // Get tools
+      const tools = await adapter.getTools();
+      allTools.push(...tools);
+
+      log.info(
+        `Loaded ${tools.length} tools from MCP server: ${serverConfig.name}`
+      );
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : String(err);
+      log.error(`Failed to connect to MCP server ${serverConfig.name}: ${errorMsg}`);
+      failed.push({
+        name: serverConfig.name,
+        error: errorMsg,
+      });
+    }
+  }
+
+  log.info(
+    `MCP initialization complete: ${allTools.length} tools loaded, ` +
+      `${failed.length} servers failed`
+  );
+
+  // Return result with management functions
+  return {
+    tools: allTools,
+    clients,
+    adapters,
+    failed,
+
+    async refreshTools(): Promise<ToolDefinition[]> {
+      allTools = [];
+      for (const [name, adapter] of adapters) {
+        adapter.invalidateCache();
+        try {
+          const tools = await adapter.getTools();
+          allTools.push(...tools);
+        } catch (err) {
+          log.error(`Failed to refresh tools from ${name}:`, err);
+        }
+      }
+      return allTools;
+    },
+
+    async close(): Promise<void> {
+      log.info("Closing all MCP connections");
+      const closePromises: Promise<void>[] = [];
+      for (const [name, client] of clients) {
+        closePromises.push(
+          client.close().catch((err) => {
+            log.error(`Error closing MCP client ${name}:`, err);
+          })
+        );
+      }
+      await Promise.all(closePromises);
+      clients.clear();
+      adapters.clear();
+      allTools = [];
+    },
+  };
+}
+
+// ============================================================================
+// Helpers
+// ============================================================================
+
+/**
+ * Filter security overrides to only those applicable to a specific server
+ */
+function filterSecurityOverrides(
+  overrides: Record<string, MCPSecurityOverride>,
+  serverName: string
+): Record<string, MCPSecurityOverride> {
+  const prefix = `${serverName}__`;
+  const filtered: Record<string, MCPSecurityOverride> = {};
+
+  for (const [key, value] of Object.entries(overrides)) {
+    if (key.startsWith(prefix)) {
+      filtered[key] = value;
+    }
+  }
+
+  return filtered;
+}
+
+// ============================================================================
+// Integration Helper
+// ============================================================================
+
+/**
+ * Load MCP tools and integrate with existing ToolRegistry
+ * 
+ * Convenience function that combines createMCPTools with registry registration
+ */
+export async function integrateWithRegistry(
+  config: MCPConfig | unknown,
+  registry: { register: (tool: ToolDefinition) => void }
+): Promise<CreateMCPToolsResult> {
+  const result = await createMCPTools(config);
+
+  for (const tool of result.tools) {
+    registry.register(tool);
+  }
+
+  return result;
+}
