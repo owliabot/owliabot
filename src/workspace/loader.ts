@@ -20,7 +20,7 @@ export async function loadWorkspace(workspacePath: string): Promise<WorkspaceFil
   const files: WorkspaceFiles = {};
 
   for (const filename of WORKSPACE_FILES) {
-    const key = filename.replace(".md", "").toLowerCase() as keyof WorkspaceFiles;
+    const key = filename.replace(/\.md$/i, "").toLowerCase() as keyof WorkspaceFiles;
     const content = await readWorkspaceFile(workspacePath, filename);
     if (content) {
       files[key] = content;

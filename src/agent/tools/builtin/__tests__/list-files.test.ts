@@ -9,7 +9,7 @@ describe("list-files tool", () => {
   let listFilesTool: ReturnType<typeof createListFilesTool>;
 
   beforeEach(() => {
-    vi.clearAllMocks();
+    vi.resetAllMocks();
     listFilesTool = createListFilesTool(workspacePath);
   });
 
@@ -79,6 +79,17 @@ describe("list-files tool", () => {
 
     expect(result.success).toBe(false);
     expect(result.error).toContain("Directory not found");
+  });
+
+  it("should surface stat permission errors", async () => {
+    vi.mocked(readdir).mockResolvedValue(["secret.txt"] as any);
+    const error: any = new Error("EACCES");
+    error.code = "EACCES";
+    vi.mocked(stat).mockImplementationOnce(() => {
+      throw error;
+    });
+
+    await expect(listFilesTool.execute({}, {} as any)).rejects.toThrow("EACCES");
   });
 
   it("should sort directories before files", async () => {

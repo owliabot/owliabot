@@ -180,4 +180,4 @@ auth
     log.info("Logged out successfully");
   });
 
-program.parse();
+await program.parseAsync();
