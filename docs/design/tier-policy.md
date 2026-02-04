@@ -689,7 +689,7 @@ export function resolveEffectiveTier(
   // 5. 映射到 SignerTier
   const signerTier: SignerTier = tier === 1 ? "app" 
     : (tier === 2 || tier === 3) ? "session-key" 
-    : "session-key"; // none 也用 session-key（实际不需要签名）
+    : "none"; // tier none 不需要签名，跳过 signer
   
   return {
     action: policy.requireConfirmation && tier !== "none" ? "confirm" : "allow",
@@ -818,7 +818,9 @@ export async function executeToolCall(
     }
     
     case "escalate":
-      // 递归，用升级后的 tier
+      // 先 finalize 当前审计条目（标记为 escalated），再递归
+      await auditLogger.finalize(auditEntry.id, "escalated", 
+        `escalated from tier ${decision.tier} to ${decision.effectiveTier}`);
       return executeWithEscalatedTier(call, options, decision);
       
     case "allow":
