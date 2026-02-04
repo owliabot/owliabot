@@ -18,3 +18,7 @@
 {"_finalize":"01KGKS9R7RS0SR1YH6514AQY0Y","ts":"2026-02-04T07:36:34.298Z","result":"success","duration":34}
 {"id":"01KGKS9VXWWASKRCK0GXNJ8705","ts":"2026-02-04T07:36:38.076Z","version":1,"result":"pending","tool":"echo","tier":"none","effectiveTier":"none","securityLevel":"read","user":"gateway:device-e2e-1","channel":"unknown","params":{"message":"hello"}}
 {"_finalize":"01KGKS9VXWWASKRCK0GXNJ8705","ts":"2026-02-04T07:36:38.077Z","result":"success","duration":14}
+{"id":"01KGKSJW91CM33W3PM4FDGVPRZ","ts":"2026-02-04T07:41:33.346Z","version":1,"result":"pending","tool":"echo","tier":"none","effectiveTier":"none","securityLevel":"read","user":"gateway:dev1","channel":"unknown","params":{"text":"hi"}}
+{"_finalize":"01KGKSJW91CM33W3PM4FDGVPRZ","ts":"2026-02-04T07:41:33.347Z","result":"success","duration":27}
+{"id":"01KGKSK0313AVW57J665VPJVS4","ts":"2026-02-04T07:41:37.250Z","version":1,"result":"pending","tool":"echo","tier":"none","effectiveTier":"none","securityLevel":"read","user":"gateway:device-e2e-1","channel":"unknown","params":{"message":"hello"}}
+{"_finalize":"01KGKSK0313AVW57J665VPJVS4","ts":"2026-02-04T07:41:37.251Z","result":"success","duration":16}

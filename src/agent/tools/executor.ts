@@ -175,11 +175,10 @@ async function computeAuditContext(
     const todayStart = new Date();
     todayStart.setUTCHours(0, 0, 0, 0);
 
-    // Get today's entries for this user
+    // Get all of today's entries for this user (no limit to avoid undercounting)
     const todayEntries = await auditQueryService.query({
       user: userId,
       since: todayStart,
-      limit: 1000,
     });
 
     // Sum USD amounts from successful operations today
@@ -296,7 +295,9 @@ export async function executeToolCall(
   const policyThresholds = await policyEngine.getThresholds();
   const escalationContext: EscalationContext = {
     amountUsd,
-    sessionKey: context.signer
+    // Only mark session key as available if the signer is actually a session-key type
+    // (not app-tier or contract signers)
+    sessionKey: context.signer && (context.signer as any).tier === "session-key"
       ? {
           id: context.sessionKey,
           expired: false,
