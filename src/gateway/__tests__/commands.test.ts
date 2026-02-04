@@ -1,8 +1,10 @@
 // src/gateway/__tests__/commands.test.ts
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { tryHandleCommand, type CommandContext } from "../commands.js";
+import { tryHandleCommand, resolveModelFromRemainder, type CommandContext } from "../commands.js";
 import type { MsgContext } from "../../channels/interface.js";
 import type { SessionStore, SessionEntry } from "../../agent/session-store.js";
+import type { SessionTranscriptStore } from "../../agent/session-transcript.js";
+import type { ChannelRegistry } from "../../channels/registry.js";
 
 // Mock the session-summarizer module
 vi.mock("../session-summarizer.js", () => ({
@@ -11,8 +13,6 @@ vi.mock("../session-summarizer.js", () => ({
 
 import { summarizeAndSave } from "../session-summarizer.js";
 const mockSummarize = summarizeAndSave as ReturnType<typeof vi.fn>;
-import type { SessionTranscriptStore } from "../../agent/session-transcript.js";
-import type { ChannelRegistry } from "../../channels/registry.js";
 
 function createMockCtx(overrides: Partial<MsgContext> = {}): MsgContext {
   return {
@@ -70,6 +70,7 @@ function createMockTranscripts(): SessionTranscriptStore & { cleared: string[] }
   return {
     cleared,
     async append() {},
+    async readAll() { return []; },
     async getHistory() {
       return [];
     },
@@ -112,6 +113,56 @@ function createMockChannels(): ChannelRegistry & { sent: Array<{ target: string;
   } as any;
 }
 
+describe("resolveModelFromRemainder", () => {
+  it("should resolve known aliases", () => {
+    expect(resolveModelFromRemainder("sonnet")).toEqual({
+      provider: "anthropic",
+      model: "claude-sonnet-4-5",
+      alias: "sonnet",
+    });
+    expect(resolveModelFromRemainder("opus")).toEqual({
+      provider: "anthropic",
+      model: "claude-opus-4-5",
+      alias: "opus",
+    });
+    expect(resolveModelFromRemainder("haiku")).toEqual({
+      provider: "anthropic",
+      model: "claude-3-5-haiku",
+      alias: "haiku",
+    });
+  });
+
+  it("should be case-insensitive for aliases", () => {
+    expect(resolveModelFromRemainder("SONNET")).toEqual({
+      provider: "anthropic",
+      model: "claude-sonnet-4-5",
+      alias: "sonnet",
+    });
+    expect(resolveModelFromRemainder("Opus")).toEqual({
+      provider: "anthropic",
+      model: "claude-opus-4-5",
+      alias: "opus",
+    });
+  });
+
+  it("should resolve provider/model format", () => {
+    expect(resolveModelFromRemainder("anthropic/claude-sonnet-4-5")).toEqual({
+      provider: "anthropic",
+      model: "claude-sonnet-4-5",
+    });
+    expect(resolveModelFromRemainder("openai/gpt-4o")).toEqual({
+      provider: "openai",
+      model: "gpt-4o",
+    });
+  });
+
+  it("should return null for unknown tokens", () => {
+    expect(resolveModelFromRemainder("unknown")).toBeNull();
+    expect(resolveModelFromRemainder("hello world")).toBeNull();
+    expect(resolveModelFromRemainder("")).toBeNull();
+  });
+});
+
 describe("tryHandleCommand", () => {
   let sessionStore: ReturnType<typeof createMockSessionStore>;
   let transcripts: ReturnType<typeof createMockTranscripts>;
@@ -121,6 +172,8 @@ describe("tryHandleCommand", () => {
     sessionStore = createMockSessionStore();
     transcripts = createMockTranscripts();
     channels = createMockChannels();
+    mockSummarize.mockClear();
+    mockSummarize.mockResolvedValue({ summarized: false });
   });
 
   function makeContext(ctx: MsgContext, overrides?: Partial<CommandContext>): CommandContext {
@@ -141,7 +194,7 @@ describe("tryHandleCommand", () => {
     expect(result.handled).toBe(true);
     expect(sessionStore._rotated).toHaveLength(1);
     expect(channels.sent).toHaveLength(1);
-    expect(channels.sent[0].text).toContain("新会话已开启");
+    expect(channels.sent[0].text).toContain("New session started");
   });
 
   it("should handle /reset command", async () => {
@@ -150,7 +203,7 @@ describe("tryHandleCommand", () => {
 
     expect(result.handled).toBe(true);
     expect(sessionStore._rotated).toHaveLength(1);
-    expect(channels.sent[0].text).toContain("新会话已开启");
+    expect(channels.sent[0].text).toContain("New session started");
   });
 
   it("should pass through non-command messages", async () => {
@@ -163,11 +216,11 @@ describe("tryHandleCommand", () => {
   });
 
   it("should handle /new with remainder text", async () => {
-    const ctx = createMockCtx({ body: "/new sonnet" });
+    const ctx = createMockCtx({ body: "/new hello there" });
     const result = await tryHandleCommand(makeContext(ctx));
 
     expect(result.handled).toBe(true);
-    expect(channels.sent[0].text).toContain("sonnet");
+    expect(channels.sent[0].text).toContain("hello there");
   });
 
   it("should not match partial triggers (e.g. /newbie)", async () => {
@@ -223,10 +276,123 @@ describe("tryHandleCommand", () => {
     const result = await tryHandleCommand(makeContext(ctx));
 
     expect(result.handled).toBe(true);
-    expect(channels.sent[0].text).toContain("新会话已开启");
+    expect(channels.sent[0].text).toContain("New session started");
   });
 
-  // --- Memory summarization integration tests ---
+  // --- Case-insensitive matching tests ---
+
+  it("should match triggers case-insensitively", async () => {
+    const ctx = createMockCtx({ body: "/NEW" });
+    const result = await tryHandleCommand(makeContext(ctx));
+
+    expect(result.handled).toBe(true);
+  });
+
+  it("should match mixed-case triggers", async () => {
+    const ctx = createMockCtx({ body: "/New sonnet" });
+    const result = await tryHandleCommand(makeContext(ctx));
+
+    expect(result.handled).toBe(true);
+  });
+
+  // --- Authorization tests ---
+
+  it("should allow reset when no authorizedSenders configured", async () => {
+    const ctx = createMockCtx({ body: "/new", from: "anyone" });
+    const result = await tryHandleCommand(makeContext(ctx));
+
+    expect(result.handled).toBe(true);
+  });
+
+  it("should allow reset for authorized sender", async () => {
+    const ctx = createMockCtx({ body: "/new", from: "admin123" });
+    const result = await tryHandleCommand(
+      makeContext(ctx, { authorizedSenders: ["admin123", "admin456"] })
+    );
+
+    expect(result.handled).toBe(true);
+  });
+
+  it("should block reset for unauthorized sender", async () => {
+    const ctx = createMockCtx({ body: "/new", from: "random-user" });
+    const result = await tryHandleCommand(
+      makeContext(ctx, { authorizedSenders: ["admin123"] })
+    );
+
+    expect(result.handled).toBe(false);
+    expect(sessionStore._rotated).toHaveLength(0);
+  });
+
+  // --- Model override tests ---
+
+  it("should parse model alias from remainder", async () => {
+    const ctx = createMockCtx({ body: "/new sonnet" });
+    const result = await tryHandleCommand(
+      makeContext(ctx, { defaultModelLabel: "anthropic/claude-opus-4-5" })
+    );
+
+    expect(result.handled).toBe(true);
+    expect(channels.sent[0].text).toContain("anthropic/claude-sonnet-4-5");
+    expect(channels.sent[0].text).toContain("(default: anthropic/claude-opus-4-5)");
+  });
+
+  it("should parse model alias case-insensitively", async () => {
+    const ctx = createMockCtx({ body: "/new HAIKU" });
+    const result = await tryHandleCommand(makeContext(ctx));
+
+    expect(result.handled).toBe(true);
+    expect(channels.sent[0].text).toContain("anthropic/claude-3-5-haiku");
+  });
+
+  it("should parse provider/model format", async () => {
+    const ctx = createMockCtx({ body: "/new openai/gpt-4o" });
+    const result = await tryHandleCommand(makeContext(ctx));
+
+    expect(result.handled).toBe(true);
+    expect(channels.sent[0].text).toContain("openai/gpt-4o");
+  });
+
+  it("should pass remaining text after model", async () => {
+    const ctx = createMockCtx({ body: "/new sonnet help me with X" });
+    const result = await tryHandleCommand(makeContext(ctx));
+
+    expect(result.handled).toBe(true);
+    expect(channels.sent[0].text).toContain("help me with X");
+  });
+
+  it("should not parse unknown token as model", async () => {
+    const ctx = createMockCtx({ body: "/new hello world" });
+    const result = await tryHandleCommand(makeContext(ctx));
+
+    expect(result.handled).toBe(true);
+    // "hello" is not a model, so full remainder should be in greeting
+    expect(channels.sent[0].text).toContain("hello world");
+    expect(channels.sent[0].text).not.toContain("provider");
+  });
+
+  // --- Greeting format tests ---
+
+  it("should show model info in greeting when defaultModelLabel provided", async () => {
+    const ctx = createMockCtx({ body: "/new" });
+    const result = await tryHandleCommand(
+      makeContext(ctx, { defaultModelLabel: "anthropic/claude-sonnet-4-5" })
+    );
+
+    expect(result.handled).toBe(true);
+    expect(channels.sent[0].text).toContain("model: anthropic/claude-sonnet-4-5");
+  });
+
+  it("should not show default label when model matches default", async () => {
+    const ctx = createMockCtx({ body: "/new sonnet" });
+    const result = await tryHandleCommand(
+      makeContext(ctx, { defaultModelLabel: "anthropic/claude-sonnet-4-5" })
+    );
+
+    expect(result.handled).toBe(true);
+    expect(channels.sent[0].text).not.toContain("(default:");
+  });
+
+  // --- Memory summarization tests ---
 
   it("should call summarizeAndSave when workspacePath is provided", async () => {
     await sessionStore.getOrCreate("discord:user123");
@@ -251,6 +417,18 @@ describe("tryHandleCommand", () => {
 
     const ctx = createMockCtx({ body: "/new" });
     await tryHandleCommand(makeContext(ctx));
+
+    expect(mockSummarize).not.toHaveBeenCalled();
+  });
+
+  it("should NOT call summarizeAndSave when summarizeOnReset is false", async () => {
+    await sessionStore.getOrCreate("discord:user123");
+    mockSummarize.mockClear();
+
+    const ctx = createMockCtx({ body: "/new" });
+    await tryHandleCommand(
+      makeContext(ctx, { workspacePath: "/tmp/workspace", summarizeOnReset: false })
+    );
 
     expect(mockSummarize).not.toHaveBeenCalled();
   });

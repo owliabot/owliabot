@@ -3,7 +3,12 @@
  * Slash-command interceptor for the gateway message pipeline.
  *
  * Handles commands like /new, /reset before they reach the LLM agent loop.
- * Modeled after OpenClaw's resetTriggers behavior.
+ * Modeled after OpenClaw's resetTriggers behavior:
+ * - Case-insensitive trigger matching
+ * - Authorization check (only allowed senders can reset)
+ * - Model override on reset (/new sonnet)
+ * - Greeting with model info
+ * - Optional memory summarization before clear
  */
 
 import { createLogger } from "../utils/logger.js";
@@ -19,6 +24,20 @@ const log = createLogger("commands");
 /** Default triggers that reset the session. */
 const DEFAULT_RESET_TRIGGERS = ["/new", "/reset"];
 
+/**
+ * Known model aliases for /new model switching.
+ * Maps alias → { provider, model } for quick resolution.
+ */
+const MODEL_ALIASES: Record<string, { provider: string; model: string }> = {
+  sonnet: { provider: "anthropic", model: "claude-sonnet-4-5" },
+  opus: { provider: "anthropic", model: "claude-opus-4-5" },
+  haiku: { provider: "anthropic", model: "claude-3-5-haiku" },
+  "gpt-4o": { provider: "openai", model: "gpt-4o" },
+  "gpt-4o-mini": { provider: "openai", model: "gpt-4o-mini" },
+  gemini: { provider: "google", model: "gemini-2.5-pro" },
+  "gemini-flash": { provider: "google", model: "gemini-2.5-flash" },
+};
+
 export interface CommandContext {
   ctx: MsgContext;
   sessionKey: string;
@@ -32,11 +51,52 @@ export interface CommandContext {
   summaryModel?: ModelConfig;
   /** Timezone for date formatting in memory files. */
   timezone?: string;
+  /**
+   * Authorization check: if provided, only these sender IDs can trigger reset.
+   * If undefined/empty, all senders are allowed (backward compat).
+   */
+  authorizedSenders?: string[];
+  /** Default model label for greeting (e.g. "anthropic/claude-sonnet-4-5"). */
+  defaultModelLabel?: string;
+  /** Whether to summarize transcript to memory before reset. Default: true. */
+  summarizeOnReset?: boolean;
 }
 
 export interface CommandResult {
   /** Whether the command was handled (true = skip LLM loop). */
   handled: boolean;
+}
+
+export interface ModelSelection {
+  provider: string;
+  model: string;
+  alias?: string;
+}
+
+/**
+ * Try to resolve a string as a model alias or provider/model pair.
+ * Returns null if not recognized.
+ */
+export function resolveModelFromRemainder(token: string): ModelSelection | null {
+  if (!token) return null;
+
+  const lower = token.toLowerCase();
+
+  // Check aliases first
+  const alias = MODEL_ALIASES[lower];
+  if (alias) {
+    return { provider: alias.provider, model: alias.model, alias: lower };
+  }
+
+  // Check provider/model format (e.g. "anthropic/claude-sonnet-4-5")
+  if (token.includes("/")) {
+    const [provider, model] = token.split("/", 2);
+    if (provider && model) {
+      return { provider, model };
+    }
+  }
+
+  return null;
 }
 
 /**
@@ -52,31 +112,59 @@ export async function tryHandleCommand(
   const {
     ctx, sessionKey, sessionStore, transcripts, channels,
     resetTriggers, workspacePath, summaryModel, timezone,
+    authorizedSenders, defaultModelLabel,
+    summarizeOnReset = true,
   } = options;
 
   const body = ctx.body.trim();
+  const bodyLower = body.toLowerCase();
   const triggers = resetTriggers ?? DEFAULT_RESET_TRIGGERS;
 
-  // Check if the message starts with a reset trigger
-  const matchedTrigger = triggers.find(
-    (t) => body === t || body.startsWith(t + " ")
-  );
+  // Case-insensitive trigger matching (aligned with OpenClaw)
+  const matchedTrigger = triggers.find((t) => {
+    const tLower = t.toLowerCase();
+    return bodyLower === tLower || bodyLower.startsWith(tLower + " ");
+  });
 
   if (!matchedTrigger) {
     return { handled: false };
   }
 
+  // Authorization check (aligned with OpenClaw)
+  if (authorizedSenders && authorizedSenders.length > 0) {
+    if (!authorizedSenders.includes(ctx.from)) {
+      log.info(`Ignoring reset from unauthorized sender: ${ctx.from}`);
+      return { handled: false };
+    }
+  }
+
   // Extract remainder after the trigger (e.g. "/new sonnet" → "sonnet")
+  // Use original body (not lowered) to preserve casing for non-model remainder
   const remainder = body.slice(matchedTrigger.length).trim();
 
   log.info(`Reset command "${matchedTrigger}" from ${sessionKey}${remainder ? ` (remainder: "${remainder}")` : ""}`);
+
+  // Try to parse remainder as model override
+  let modelSelection: ModelSelection | null = null;
+  let bodyAfterModel = remainder;
+
+  if (remainder) {
+    const tokens = remainder.split(/\s+/);
+    const firstToken = tokens[0];
+
+    // Try first token as model
+    modelSelection = resolveModelFromRemainder(firstToken);
+    if (modelSelection) {
+      bodyAfterModel = tokens.slice(1).join(" ").trim();
+    }
+  }
 
   // Rotate session (creates a new sessionId for this sessionKey)
   const oldEntry = await sessionStore.get(sessionKey);
 
   // Summarize transcript → memory before clearing (non-blocking on failure)
   let summaryResult: SummarizeResult = { summarized: false };
-  if (oldEntry?.sessionId && workspacePath) {
+  if (summarizeOnReset && oldEntry?.sessionId && workspacePath) {
     summaryResult = await summarizeAndSave({
       sessionId: oldEntry.sessionId,
       transcripts,
@@ -100,19 +188,33 @@ export async function tryHandleCommand(
 
   log.info(`Session rotated: ${oldEntry?.sessionId ?? "(none)"} → ${newEntry.sessionId}`);
 
-  // Send confirmation
+  // Send confirmation (aligned with OpenClaw greeting format)
   const channel = channels.get(ctx.channel);
   if (channel) {
     const target =
       ctx.chatType === "direct" ? ctx.from : ctx.groupId ?? ctx.from;
 
+    // Build model label for greeting
+    const activeModelLabel = modelSelection
+      ? `${modelSelection.provider}/${modelSelection.model}`
+      : defaultModelLabel;
+
+    const modelInfo = activeModelLabel
+      ? modelSelection && defaultModelLabel && activeModelLabel !== defaultModelLabel
+        ? ` · model: ${activeModelLabel} (default: ${defaultModelLabel})`
+        : ` · model: ${activeModelLabel}`
+      : "";
+
     const memorySuffix = summaryResult.summarized
       ? "\n📝 对话摘要已保存到记忆文件。"
       : "";
 
-    const greeting = remainder
-      ? `🆕 会话已重置。${memorySuffix ? memorySuffix + "\n" : ""}继续处理：${remainder}`
-      : `🆕 新会话已开启，之前的对话记录已清除。${memorySuffix}有什么可以帮你的？`;
+    let greeting: string;
+    if (bodyAfterModel) {
+      greeting = `✅ New session started${modelInfo}${memorySuffix}\n${bodyAfterModel}`;
+    } else {
+      greeting = `✅ New session started${modelInfo}${memorySuffix}`;
+    }
 
     await channel.send(target, {
       text: greeting,
