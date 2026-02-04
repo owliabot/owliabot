@@ -73,7 +73,8 @@ describe("cron integration", () => {
   afterEach(async () => {
     cronService.stop();
     vi.clearAllTimers();
-    await rm(testDir, { recursive: true, force: true });
+    // maxRetries handles race conditions where files are still being written
+    await rm(testDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
   });
 
   describe("main session jobs (systemEvent)", () => {
