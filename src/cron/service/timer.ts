@@ -225,7 +225,29 @@ export async function executeJob(
     }
 
     // isolated sessionTarget
-    await finish("skipped", "isolated cron jobs not implemented yet");
+    if (!state.deps.runIsolatedAgentJob) {
+      await finish("skipped", "isolated agent deps not configured");
+      return;
+    }
+
+    const isolatedResult = await state.deps.runIsolatedAgentJob({
+      job,
+      message: job.payload.kind === "agentTurn" ? job.payload.message : "",
+    });
+
+    // The isolated runner already posts summary to main; we just record the result.
+    if (isolatedResult.status === "ok") {
+      await finish("ok", undefined, isolatedResult.summary);
+    } else if (isolatedResult.status === "skipped") {
+      await finish("skipped", isolatedResult.error ?? isolatedResult.summary, isolatedResult.summary);
+    } else {
+      await finish("error", isolatedResult.error ?? "unknown error", isolatedResult.summary);
+    }
+
+    // If wakeMode is "now", request heartbeat after posting summary
+    if (job.wakeMode === "now") {
+      state.deps.requestHeartbeatNow({ reason: `cron:${job.id}:post` });
+    }
   } catch (err) {
     await finish("error", String(err));
   } finally {

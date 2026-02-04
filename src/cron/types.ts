@@ -135,7 +135,7 @@ export interface CronDeps {
   requestHeartbeatNow(opts: CronHeartbeatRequestOptions): void;
 
   runHeartbeatOnce?: (opts: CronHeartbeatRequestOptions) => Promise<CronRunHeartbeatResult>;
-  runIsolatedAgentJob: (opts: {
+  runIsolatedAgentJob?: (opts: {
     job: CronJob;
     message: string;
   }) => Promise<CronIsolatedAgentJobResult>;
