@@ -25,8 +25,8 @@ interface PendingWaiter {
 export class WriteGateReplyRouter {
   private readonly waiters = new Map<string, PendingWaiter>();
 
-  private static waiterKey(target: string, userId: string): string {
-    return `${target}:${userId}`;
+  private static waiterKey(channel: string, target: string, userId: string): string {
+    return `${channel}:${target}:${userId}`;
   }
 
   /**
@@ -36,7 +36,7 @@ export class WriteGateReplyRouter {
   tryRoute(ctx: MsgContext): boolean {
     const conversationId =
       ctx.chatType === "direct" ? ctx.from : ctx.groupId ?? ctx.from;
-    const key = WriteGateReplyRouter.waiterKey(conversationId, ctx.from);
+    const key = WriteGateReplyRouter.waiterKey(ctx.channel, conversationId, ctx.from);
     const waiter = this.waiters.get(key);
     if (!waiter) return false;
 
@@ -52,11 +52,12 @@ export class WriteGateReplyRouter {
    * Returns the reply body or null on timeout.
    */
   waitForReply(
+    channelId: string,
     target: string,
     fromUserId: string,
     timeoutMs: number,
   ): Promise<string | null> {
-    const key = WriteGateReplyRouter.waiterKey(target, fromUserId);
+    const key = WriteGateReplyRouter.waiterKey(channelId, target, fromUserId);
 
     // If there's already a waiter for this key, resolve it as null (superseded)
     const existing = this.waiters.get(key);
@@ -95,7 +96,8 @@ export function createWriteGateChannelAdapter(
     },
 
     async waitForReply(target, fromUserId, timeoutMs) {
-      return replyRouter.waitForReply(target, fromUserId, timeoutMs);
+      // Curry the channel ID to prevent cross-channel waiter collisions
+      return replyRouter.waitForReply(plugin.id, target, fromUserId, timeoutMs);
     },
   };
 }
