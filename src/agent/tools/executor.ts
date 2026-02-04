@@ -347,23 +347,28 @@ export async function executeToolCall(
       effectiveTier: decision.effectiveTier,
     });
 
-    // 2. Check allowedUsers
+    // 2. Check allowedUsers (fail-closed: deny if can't verify)
     if (policy.allowedUsers) {
       const userId = options.userId ?? context.sessionKey;
-      const allowed =
-        policy.allowedUsers === "assignee-only"
-          ? false // TODO: resolve assignee from config; for now deny non-explicit users
-          : Array.isArray(policy.allowedUsers) && policy.allowedUsers.includes(userId);
+      let allowed = false;
 
-      if (!allowed && policy.allowedUsers !== "assignee-only") {
-        log.warn(`User ${userId} not in allowedUsers for ${call.name}`);
+      if (policy.allowedUsers === "assignee-only") {
+        // Fail closed: deny until assignee lookup is implemented
+        // TODO: resolve assignee ID from config and compare with userId
+        log.warn(`Tool ${call.name} requires assignee-only but assignee resolution not yet implemented — denying`);
+        allowed = false;
+      } else if (Array.isArray(policy.allowedUsers)) {
+        allowed = policy.allowedUsers.includes(userId);
+      }
+
+      if (!allowed) {
+        log.warn(`User ${userId} not authorized for ${call.name} (policy: ${JSON.stringify(policy.allowedUsers)})`);
         await feedAnomaly("denied");
         return {
           success: false,
           error: `User not authorized for tool ${call.name}`,
         };
       }
-      // TODO: For "assignee-only", resolve assignee ID from config and compare
     }
 
     // 3. Check cooldown
