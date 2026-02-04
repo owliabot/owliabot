@@ -227,7 +227,7 @@ export class MCPClient {
 
   private async request<T>(
     method: string,
-    params?: Record<string, unknown>
+    params?: unknown
   ): Promise<T> {
     if (!this.transport?.isConnected()) {
       throw new MCPError(
@@ -243,7 +243,7 @@ export class MCPClient {
       jsonrpc: "2.0",
       id,
       method,
-      params,
+      params: params as Record<string, unknown> | undefined,
     };
 
     return new Promise<T>((resolve, reject) => {
