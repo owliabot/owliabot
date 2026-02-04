@@ -21,9 +21,10 @@ export type PersonaDocumentKind =
   | "base-boundary"
   | "overlay"
   | "notes"
-  | "mask";
+  | "mask"
+  | "memory";
 
-export type PersonaDocumentSource = "base" | "overlay";
+export type PersonaDocumentSource = "base" | "overlay" | "memory";
 
 export interface PersonaDocument {
   kind: PersonaDocumentKind;

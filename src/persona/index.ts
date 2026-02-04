@@ -5,3 +5,7 @@ export * from "./merger.js";
 export * from "./multi-agent.js";
 export * from "./prompt.js";
 export * from "./bootstrap/index.js";
+export * from "./memory/tags.js";
+export * from "./memory/types.js";
+export * from "./memory/filter.js";
+export * from "./memory/injector.js";

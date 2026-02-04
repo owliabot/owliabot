@@ -2,6 +2,8 @@ import { readFile } from "node:fs/promises";
 import { isAbsolute, join, resolve } from "node:path";
 import { createLogger } from "../utils/logger.js";
 import { parsePersonaFile } from "./frontmatter.js";
+import { MemoryFilter } from "./memory/filter.js";
+import { MemoryInjector } from "./memory/injector.js";
 import type {
   PersonaDocument,
   PersonaDocumentKind,
@@ -19,6 +21,7 @@ const BASE_FILES: Array<{ name: string; kind: PersonaDocumentKind }> = [
 export interface PersonaLoaderOptions {
   rootDir?: string;
   personaDir?: string;
+  enableMemoryInjection?: boolean;
 }
 
 export interface PersonaLoadRequest {
@@ -30,10 +33,12 @@ export interface PersonaLoadRequest {
 export class PersonaLoader {
   private rootDir: string;
   private personaDir: string;
+  private enableMemoryInjection: boolean;
 
   constructor(options: PersonaLoaderOptions = {}) {
     this.rootDir = options.rootDir ?? process.cwd();
     this.personaDir = options.personaDir ?? "persona";
+    this.enableMemoryInjection = options.enableMemoryInjection ?? true;
   }
 
   async load(request: PersonaLoadRequest): Promise<PersonaDocument[]> {
@@ -46,6 +51,24 @@ export class PersonaLoader {
     log.info(
       `Loaded ${documents.length} persona files for agent ${request.agentId}`
     );
+    return documents;
+  }
+
+  async loadWithMemory(
+    agentId: string,
+    memoryDir: string,
+    options: Omit<PersonaLoadRequest, "agentId"> = {}
+  ): Promise<PersonaDocument[]> {
+    const documents = await this.load({ agentId, ...options });
+    if (!this.enableMemoryInjection) {
+      return documents;
+    }
+
+    const memoryDoc = await this.buildMemoryDocument(memoryDir);
+    if (memoryDoc) {
+      documents.push(memoryDoc);
+    }
+
     return documents;
   }
 
@@ -140,6 +163,34 @@ export class PersonaLoader {
       }
       throw err;
     }
+  }
+
+  private async buildMemoryDocument(
+    memoryDir: string
+  ): Promise<PersonaDocument | undefined> {
+    const resolvedDir = isAbsolute(memoryDir)
+      ? memoryDir
+      : resolve(this.rootDir, memoryDir);
+
+    const filter = new MemoryFilter();
+    const entries = await filter.filterFromDirectory({
+      memoryDir: resolvedDir,
+      sourceRoot: this.rootDir,
+    });
+
+    const summary = new MemoryInjector().inject(entries);
+    if (!summary) {
+      return undefined;
+    }
+
+    return {
+      kind: "memory",
+      path: resolvedDir,
+      source: "memory",
+      readonly: true,
+      frontmatter: {},
+      body: summary,
+    };
   }
 }
 
