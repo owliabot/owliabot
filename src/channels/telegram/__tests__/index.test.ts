@@ -90,7 +90,7 @@ describe("telegram plugin", () => {
     expect(handler).not.toHaveBeenCalled();
   });
 
-  it("ignores group messages", async () => {
+  it("dispatches group messages with group metadata", async () => {
     const plugin = createTelegramPlugin({ token: "test-token" });
     const handler = vi.fn();
     plugin.onMessage(handler);
@@ -99,11 +99,17 @@ describe("telegram plugin", () => {
 
     const grammy = (await import("grammy")) as any;
     const bot = grammy.__getLastBot();
-    const ctx = makeCtx({ chat: { type: "group" } });
+    const ctx = makeCtx({ chat: { type: "group", id: -100999, title: "Test Group" } });
 
     await bot.handlers["message:text"](ctx);
 
-    expect(handler).not.toHaveBeenCalled();
+    expect(handler).toHaveBeenCalledWith(
+      expect.objectContaining({
+        chatType: "group",
+        groupId: "-100999",
+        groupName: "Test Group",
+      })
+    );
   });
 
   it("sends markdown as HTML and falls back to plain text", async () => {
