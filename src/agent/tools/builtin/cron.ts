@@ -216,10 +216,18 @@ function normalizeSchedule(raw: Record<string, unknown> | undefined): CronSchedu
   }
 
   if (kind === "every" || raw.everyMs !== undefined) {
+    const everyMs = Number(raw.everyMs);
+    if (!Number.isFinite(everyMs) || everyMs <= 0) {
+      throw new Error("Invalid every schedule: everyMs must be a positive number");
+    }
+    const anchorMs = raw.anchorMs !== undefined ? Number(raw.anchorMs) : undefined;
+    if (anchorMs !== undefined && !Number.isFinite(anchorMs)) {
+      throw new Error("Invalid every schedule: anchorMs must be a number");
+    }
     return {
       kind: "every",
-      everyMs: Number(raw.everyMs),
-      anchorMs: raw.anchorMs !== undefined ? Number(raw.anchorMs) : undefined,
+      everyMs,
+      anchorMs,
     };
   }
 
@@ -283,6 +291,52 @@ function normalizePayload(raw: Record<string, unknown> | undefined): CronPayload
   throw new Error("Invalid payload: kind must be systemEvent or agentTurn");
 }
 
+function normalizePayloadPatch(
+  raw: Record<string, unknown> | undefined,
+): CronJobPatch["payload"] | undefined {
+  if (raw === undefined) {
+    return undefined;
+  }
+
+  const kind = raw.kind as string | undefined;
+  if (!kind) {
+    throw new Error("Invalid payload patch: kind is required");
+  }
+
+  if (kind === "systemEvent") {
+    const patch: any = { kind: "systemEvent" };
+    if (raw.text !== undefined) {
+      const text = String(raw.text);
+      if (!text.trim()) {
+        throw new Error('Invalid payload patch: systemEvent requires non-empty text');
+      }
+      patch.text = text;
+    }
+    return patch;
+  }
+
+  if (kind === "agentTurn") {
+    const patch: any = { kind: "agentTurn" };
+    if (raw.message !== undefined) {
+      const message = String(raw.message);
+      if (!message.trim()) {
+        throw new Error('Invalid payload patch: agentTurn requires non-empty message');
+      }
+      patch.message = message;
+    }
+    if (raw.model !== undefined) patch.model = String(raw.model);
+    if (raw.thinking !== undefined) patch.thinking = String(raw.thinking);
+    if (raw.timeoutSeconds !== undefined) patch.timeoutSeconds = Number(raw.timeoutSeconds);
+    if (raw.deliver !== undefined) patch.deliver = Boolean(raw.deliver);
+    if (raw.channel !== undefined) patch.channel = String(raw.channel);
+    if (raw.to !== undefined) patch.to = String(raw.to);
+    if (raw.bestEffortDeliver !== undefined) patch.bestEffortDeliver = Boolean(raw.bestEffortDeliver);
+    return patch;
+  }
+
+  throw new Error("Invalid payload patch: kind must be systemEvent or agentTurn");
+}
+
 function normalizePatch(raw: Record<string, unknown>): CronJobPatch {
   const patch: CronJobPatch = {};
 
@@ -299,7 +353,10 @@ function normalizePatch(raw: Record<string, unknown>): CronJobPatch {
   }
 
   if (raw.payload !== undefined) {
-    patch.payload = normalizePayload(raw.payload as Record<string, unknown>);
+    const payloadPatch = normalizePayloadPatch(raw.payload as Record<string, unknown> | undefined);
+    if (payloadPatch !== undefined) {
+      patch.payload = payloadPatch;
+    }
   }
 
   if (raw.isolation !== undefined) {
