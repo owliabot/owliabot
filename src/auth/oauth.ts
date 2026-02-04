@@ -201,14 +201,28 @@ export async function saveOAuthCredentials(
 export async function clearOAuthCredentials(
   provider: SupportedOAuthProvider = "anthropic"
 ): Promise<void> {
+  const { unlink } = await import("node:fs/promises");
   const authFile = getAuthFile(provider);
+
+  // Delete provider-specific auth file
   try {
-    const { unlink } = await import("node:fs/promises");
     await unlink(authFile);
     log.info(`${provider} credentials cleared`);
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
       throw err;
+    }
+  }
+
+  // Also delete legacy auth.json for anthropic to ensure complete logout
+  if (provider === "anthropic") {
+    try {
+      await unlink(LEGACY_AUTH_FILE);
+      log.debug("Legacy auth.json also cleared");
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
+        throw err;
+      }
     }
   }
 }

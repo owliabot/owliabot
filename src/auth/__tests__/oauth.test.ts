@@ -231,20 +231,24 @@ describe("oauth", () => {
   });
 
   describe("clearOAuthCredentials", () => {
-    it("should delete credentials file for anthropic", async () => {
+    it("should delete credentials file and legacy file for anthropic", async () => {
       vi.mocked(unlink).mockResolvedValue(undefined);
 
       await clearOAuthCredentials("anthropic");
 
+      // Should delete both provider-specific and legacy auth file
       expect(unlink).toHaveBeenCalledWith(join(AUTH_DIR, "auth-anthropic.json"));
+      expect(unlink).toHaveBeenCalledWith(join(AUTH_DIR, "auth.json"));
+      expect(unlink).toHaveBeenCalledTimes(2);
     });
 
-    it("should delete credentials file for openai-codex", async () => {
+    it("should delete credentials file for openai-codex (no legacy file)", async () => {
       vi.mocked(unlink).mockResolvedValue(undefined);
 
       await clearOAuthCredentials("openai-codex");
 
       expect(unlink).toHaveBeenCalledWith(join(AUTH_DIR, "auth-openai-codex.json"));
+      expect(unlink).toHaveBeenCalledTimes(1); // No legacy file for openai-codex
     });
 
     it("should ignore ENOENT errors", async () => {
