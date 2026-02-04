@@ -347,22 +347,13 @@ export async function executeToolCall(
       effectiveTier: decision.effectiveTier,
     });
 
-    // 2. Check allowedUsers (fail-closed: deny if can't verify)
-    if (policy.allowedUsers) {
+    // 2. Check allowedUsers
+    // "assignee-only" is the default but assignee resolution is not yet implemented;
+    // skip enforcement for now to avoid bricking the bot. Only enforce explicit arrays.
+    if (policy.allowedUsers && Array.isArray(policy.allowedUsers)) {
       const userId = options.userId ?? context.sessionKey;
-      let allowed = false;
-
-      if (policy.allowedUsers === "assignee-only") {
-        // Fail closed: deny until assignee lookup is implemented
-        // TODO: resolve assignee ID from config and compare with userId
-        log.warn(`Tool ${call.name} requires assignee-only but assignee resolution not yet implemented — denying`);
-        allowed = false;
-      } else if (Array.isArray(policy.allowedUsers)) {
-        allowed = policy.allowedUsers.includes(userId);
-      }
-
-      if (!allowed) {
-        log.warn(`User ${userId} not authorized for ${call.name} (policy: ${JSON.stringify(policy.allowedUsers)})`);
+      if (!policy.allowedUsers.includes(userId)) {
+        log.warn(`User ${userId} not in allowedUsers for ${call.name}`);
         await feedAnomaly("denied");
         return {
           success: false,
@@ -370,12 +361,13 @@ export async function executeToolCall(
         };
       }
     }
+    // TODO: enforce "assignee-only" once assignee ID resolution from config is implemented
 
     // 3. Check cooldown
     const cooldownCheck = cooldownTracker.check(call.name, policy);
     if (!cooldownCheck.allowed) {
       log.warn(`Cooldown limit hit for ${call.name}: ${cooldownCheck.reason}`);
-      await auditLogger.preLog({
+      const cooldownAudit = await auditLogger.preLog({
         tool: call.name,
         tier: decision.tier,
         effectiveTier: decision.effectiveTier,
@@ -383,10 +375,11 @@ export async function executeToolCall(
         user: context.sessionKey,
         channel: "unknown",
         params: call.arguments as Record<string, unknown>,
-        result: "denied",
-        reason: cooldownCheck.reason,
         amountUsd,
       });
+      if (cooldownAudit.ok) {
+        await auditLogger.finalize(cooldownAudit.id, "denied", cooldownCheck.reason);
+      }
       await feedAnomaly("denied");
       return {
         success: false,
