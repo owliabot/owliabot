@@ -7,6 +7,7 @@ import { parse } from "yaml";
 import { resolve, dirname, join } from "node:path";
 import { configSchema, type Config } from "./schema.js";
 import { createLogger } from "../utils/logger.js";
+import { ZodError } from "zod";
 
 const log = createLogger("config");
 
@@ -24,7 +25,15 @@ export async function loadConfig(path: string): Promise<Config> {
 
   log.info(`Loading config from ${expandedPath}`);
 
-  const content = await readFile(expandedPath, "utf-8");
+  let content: string;
+  try {
+    content = await readFile(expandedPath, "utf-8");
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+      throw new Error(`Config file not found: ${expandedPath}`);
+    }
+    throw err;
+  }
   const raw = parse(content) as any;
 
   // Resolve workspace path relative to config file
@@ -57,7 +66,15 @@ export async function loadConfig(path: string): Promise<Config> {
   const expanded = expandEnvVars(raw);
 
   // Validate with Zod
-  const config = configSchema.parse(expanded);
+  let config: Config;
+  try {
+    config = configSchema.parse(expanded);
+  } catch (err) {
+    if (err instanceof ZodError) {
+      throw new Error(formatZodError(err));
+    }
+    throw err;
+  }
 
   config.workspace = resolve(configDir, config.workspace);
   log.debug(`Resolved workspace path: ${config.workspace}`);
@@ -81,4 +98,12 @@ function expandEnvVars(obj: unknown): unknown {
     return result;
   }
   return obj;
+}
+
+function formatZodError(error: ZodError): string {
+  const lines = error.errors.map((issue) => {
+    const path = issue.path.length > 0 ? issue.path.join(".") : "(root)";
+    return `- ${path}: ${issue.message}`;
+  });
+  return `Config validation failed:\n${lines.join("\n")}`;
 }

@@ -33,10 +33,10 @@ discord:
   # memberAllowList: # Discord user IDs allowed to talk to the bot
   #   - "123456789012345678"
 
-  # channelAllowList: # Guild channel IDs where bot can respond without being mentioned
+  # channelAllowList: # Guild channel IDs allowed ONLY when requireMentionInGuild is false
   #   - "1467915124764573736"  # #🦉｜oliwabot-core
 
-  # requireMentionInGuild: true  # default true: in guild, respond only when mentioned OR channel is allowlisted
+  # requireMentionInGuild: true  # default true: allowlist bypass works ONLY when set to false
 
 # Notifications - where to send proactive messages
 notifications:

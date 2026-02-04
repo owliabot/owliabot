@@ -19,6 +19,14 @@ import { DEV_APP_CONFIG_PATH } from "./onboarding/storage.js";
 
 const log = logger;
 
+const nodeMajor = Number.parseInt(process.versions.node.split(".")[0] ?? "0", 10);
+if (Number.isNaN(nodeMajor) || nodeMajor < 22) {
+  log.error(
+    `Node.js ${process.versions.node} is not supported. Please upgrade to >= 22.0.0.`
+  );
+  process.exit(1);
+}
+
 program
   .name("owliabot")
   .description("Crypto-native AI agent for Telegram and Discord")
