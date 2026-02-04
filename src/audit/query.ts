@@ -69,9 +69,9 @@ export class AuditQueryService {
         try {
           const parsed = JSON.parse(line);
 
-          if (parsed._finalize && parsed.id) {
-            // Store finalize record for merging
-            finalizeRecords.set(parsed.id, parsed);
+          if (parsed._finalize) {
+            // Finalize records store the entry id in _finalize field
+            finalizeRecords.set(parsed._finalize, parsed);
           } else if (parsed.id) {
             preLogEntries.set(parsed.id, parsed as AuditEntry);
           }
@@ -94,26 +94,21 @@ export class AuditQueryService {
       }
     }
 
-    // Filter and collect results
-    const results: AuditEntry[] = [];
-    let skipped = 0;
-
+    // Filter matching entries
+    const matched: AuditEntry[] = [];
     for (const entry of preLogEntries.values()) {
-      if (!this.matchesQuery(entry, query)) continue;
-
-      if (query.offset && skipped < query.offset) {
-        skipped++;
-        continue;
-      }
-
-      results.push(entry);
-
-      if (query.limit && results.length >= query.limit) {
-        return results;
+      if (this.matchesQuery(entry, query)) {
+        matched.push(entry);
       }
     }
 
-    return results;
+    // Sort by timestamp descending (newest first) for limit/offset
+    matched.sort((a, b) => new Date(b.ts).getTime() - new Date(a.ts).getTime());
+
+    // Apply offset and limit
+    const start = query.offset ?? 0;
+    const end = query.limit ? start + query.limit : matched.length;
+    return matched.slice(start, end);
   }
 
   /**
@@ -187,13 +182,11 @@ export class AuditQueryService {
           try {
             const parsed = JSON.parse(line);
             if (parsed.id === id) {
-              if (parsed._finalize) {
-                finalize = parsed;
-              } else {
-                entry = parsed as AuditEntry;
-              }
-              // Keep scanning — finalize record may come after pre-log
+              entry = parsed as AuditEntry;
+            } else if (parsed._finalize === id) {
+              finalize = parsed;
             }
+            // Keep scanning — finalize record may come after pre-log
           } catch {
             // skip malformed lines
           }
