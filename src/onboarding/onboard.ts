@@ -51,13 +51,14 @@ export async function runOnboarding(options: OnboardOptions = {}): Promise<void>
       rl,
       "\nSelect provider (anthropic/openai/openai-codex) [anthropic]: "
     );
-    const providerId = (providerAns || "anthropic") as LLMProviderId;
+    let providerId = (providerAns || "anthropic") as LLMProviderId;
 
     if (!["anthropic", "openai", "openai-codex"].includes(providerId)) {
       log.warn(`Unknown provider: ${providerId}, defaulting to anthropic`);
+      providerId = "anthropic";
     }
 
-    const defaultModel = DEFAULT_MODELS[providerId] ?? DEFAULT_MODELS.anthropic;
+    const defaultModel = DEFAULT_MODELS[providerId];
     const model =
       (await ask(rl, `Model [${defaultModel}]: `)) || defaultModel;
 
