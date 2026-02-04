@@ -104,6 +104,8 @@ export async function startGateway(
       memberAllowList: config.discord.memberAllowList,
       channelAllowList: config.discord.channelAllowList,
       requireMentionInGuild: config.discord.requireMentionInGuild,
+      // Let WriteGate confirmation replies bypass the mention gate
+      preFilter: (ctx) => replyRouter.hasPendingWaiter(ctx),
     });
 
     writeGateChannels.set("discord", createWriteGateChannelAdapter(discord, replyRouter));

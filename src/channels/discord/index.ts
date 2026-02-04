@@ -18,6 +18,13 @@ export interface DiscordConfig {
   channelAllowList?: string[];
   /** If true, only respond in guild when mentioned OR channel is allowlisted */
   requireMentionInGuild?: boolean;
+  /**
+   * Optional pre-filter called before guild mention/channel gating.
+   * If it returns true the message is forwarded to the handler immediately,
+   * bypassing mention and channel-allowlist checks (user allowlist still applies).
+   * Used by WriteGate to let confirmation replies ("yes"/"no") through.
+   */
+  preFilter?: (ctx: MsgContext) => boolean;
 }
 
 export function createDiscordPlugin(config: DiscordConfig): ChannelPlugin {
@@ -62,6 +69,33 @@ export function createDiscordPlugin(config: DiscordConfig): ChannelPlugin {
           }
         }
 
+        // Build MsgContext early so preFilter can inspect it
+        const body = message.content.replace(/<@!?\d+>\s*/g, "").trim();
+
+        const msgCtx: MsgContext = {
+          from: message.author.id,
+          senderName: message.author.displayName ?? message.author.username,
+          senderUsername: message.author.username,
+          body: body.length > 0 ? body : message.content,
+          messageId: message.id,
+          replyToId: message.reference?.messageId,
+          channel: "discord",
+          chatType: isDM ? "direct" : "group",
+          groupId: isDM ? undefined : message.channel.id,
+          groupName: isDM ? undefined : message.guild?.name,
+          timestamp: message.createdTimestamp,
+        };
+
+        // Pre-filter bypass (e.g. WriteGate confirmation replies)
+        if (config.preFilter && config.preFilter(msgCtx)) {
+          try {
+            await messageHandler(msgCtx);
+          } catch (err) {
+            log.error("Error handling pre-filtered message", err);
+          }
+          return;
+        }
+
         // Guild filtering rules
         if (!isDM) {
           const botUser = client.user;
@@ -84,23 +118,6 @@ export function createDiscordPlugin(config: DiscordConfig): ChannelPlugin {
             return;
           }
         }
-
-        // Strip bot mention prefix for cleaner prompts (best-effort)
-        const body = message.content.replace(/<@!?\d+>\s*/g, "").trim();
-
-        const msgCtx: MsgContext = {
-          from: message.author.id,
-          senderName: message.author.displayName ?? message.author.username,
-          senderUsername: message.author.username,
-          body: body.length > 0 ? body : message.content,
-          messageId: message.id,
-          replyToId: message.reference?.messageId,
-          channel: "discord",
-          chatType: isDM ? "direct" : "group",
-          groupId: isDM ? undefined : message.channel.id,
-          groupName: isDM ? undefined : message.guild?.name,
-          timestamp: message.createdTimestamp,
-        };
 
         try {
           await messageHandler(msgCtx);

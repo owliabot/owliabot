@@ -30,6 +30,18 @@ export class WriteGateReplyRouter {
   }
 
   /**
+   * Check if there is a pending confirmation waiter for this message context.
+   * Does NOT consume the message — use tryRoute() to consume.
+   * Useful as a pre-filter to bypass mention gating in guild channels.
+   */
+  hasPendingWaiter(ctx: MsgContext): boolean {
+    const conversationId =
+      ctx.chatType === "direct" ? ctx.from : ctx.groupId ?? ctx.from;
+    const key = WriteGateReplyRouter.waiterKey(ctx.channel, conversationId, ctx.from);
+    return this.waiters.has(key);
+  }
+
+  /**
    * Check if an incoming message is a reply to a pending confirmation.
    * Returns true if consumed (caller should skip normal handling).
    */
