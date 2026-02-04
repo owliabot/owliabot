@@ -123,7 +123,7 @@ describe("config loader", () => {
     expect(config.providers[0]?.apiKey).toBe("sk-env-openai-key");
   });
 
-  it("prefers secrets over env for provider API keys", async () => {
+  it("prefers secrets over env for provider API keys when apiKey is 'secrets'", async () => {
     process.env.ANTHROPIC_API_KEY = "env-anthropic-key";
 
     const appConfigPath = join(dir, "app.yaml");
@@ -146,5 +146,31 @@ describe("config loader", () => {
     const config = await loadConfig(appConfigPath);
 
     expect(config.providers[0]?.apiKey).toBe("secret-anthropic-key");
+  });
+
+  it("ignores secrets when apiKey is 'env' (user explicitly chose env-based auth)", async () => {
+    process.env.OPENAI_API_KEY = "sk-env-openai-key";
+
+    const appConfigPath = join(dir, "app.yaml");
+    const secretsPath = join(dir, "secrets.yaml");
+
+    const appConfig = {
+      providers: [
+        { id: "openai", model: "gpt-4o", apiKey: "env", priority: 1 },
+      ],
+      workspace: "./workspace",
+    };
+
+    // Even if secrets.yaml has an API key, it should be ignored when apiKey: "env"
+    const secrets = {
+      openai: { apiKey: "sk-secret-should-be-ignored" },
+    };
+
+    await writeFile(appConfigPath, stringify(appConfig, { indent: 2 }), "utf-8");
+    await writeFile(secretsPath, stringify(secrets, { indent: 2 }), "utf-8");
+
+    const config = await loadConfig(appConfigPath);
+
+    expect(config.providers[0]?.apiKey).toBe("sk-env-openai-key");
   });
 });
