@@ -65,7 +65,15 @@ export function createDiscordPlugin(config: DiscordConfig): ChannelPlugin {
         // Guild filtering rules
         if (!isDM) {
           const botUser = client.user;
-          const mentioned = botUser ? message.mentions.has(botUser) : false;
+          // Explicitly ignore @everyone/@here, role mentions, and reply-to
+          // mentions so only a direct @botUser mention triggers activation.
+          const mentioned = botUser
+            ? message.mentions.has(botUser, {
+                ignoreEveryone: true,
+                ignoreRoles: true,
+                ignoreRepliedUser: true,
+              })
+            : false;
           const inAllowedChannel =
             config.channelAllowList && config.channelAllowList.length > 0
               ? config.channelAllowList.includes(message.channel.id)
