@@ -243,7 +243,7 @@ export class MCPClient {
       jsonrpc: "2.0",
       id,
       method,
-      params: params as Record<string, unknown> | undefined,
+      params,
     };
 
     return new Promise<T>((resolve, reject) => {
@@ -273,7 +273,7 @@ export class MCPClient {
     });
   }
 
-  private notify(method: string, params?: Record<string, unknown>): void {
+  private notify(method: string, params?: unknown): void {
     if (!this.transport?.isConnected()) {
       log.warn(`Cannot send notification ${method}: not connected`);
       return;
@@ -318,7 +318,7 @@ export class MCPClient {
         )
       );
     } else {
-      pending.resolve(response.result ?? {});
+      pending.resolve((response.result ?? {}) as unknown);
     }
   }
 
