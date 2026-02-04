@@ -339,13 +339,18 @@ describe("WriteGate", () => {
   // ── Concurrent confirmations ──────────────────────────────────────────
 
   describe("concurrency", () => {
-    it("blocks concurrent confirmation on same session", async () => {
-      // First call will hold the lock via a slow waitForReply
+    it("queues concurrent confirmations on same session (both approved)", async () => {
+      // Both calls reply "yes" — the implementation queues them sequentially,
+      // so both should be approved (not one denied).
+      let callCount = 0;
       const ch: WriteGateChannel = {
         sendMessage: vi.fn(async () => {}),
         waitForReply: vi.fn(
           () =>
-            new Promise<string>((resolve) => setTimeout(() => resolve("yes"), 200)),
+            new Promise<string>((resolve) => {
+              callCount++;
+              setTimeout(() => resolve("yes"), 200);
+            }),
         ),
       };
       const gate = new WriteGate(makeConfig(), ch);
@@ -356,10 +361,35 @@ describe("WriteGate", () => {
         gate.check(makeCall({ id: "c2" }), makeCtx()),
       ]);
 
-      // One should succeed, the other should be denied (concurrent block)
-      const verdicts = [r1.reason, r2.reason].sort();
-      expect(verdicts).toContain("approved");
-      expect(verdicts).toContain("denied");
+      // Both should be approved sequentially (queued, not rejected)
+      expect(r1.reason).toBe("approved");
+      expect(r2.reason).toBe("approved");
+      // Confirmation was requested twice (once per queued call)
+      expect(ch.waitForReply).toHaveBeenCalledTimes(2);
+    });
+
+    it("queues concurrent confirmations — second denied when user says no", async () => {
+      // First call approved, second denied by user
+      let callCount = 0;
+      const ch: WriteGateChannel = {
+        sendMessage: vi.fn(async () => {}),
+        waitForReply: vi.fn(
+          () =>
+            new Promise<string>((resolve) => {
+              callCount++;
+              setTimeout(() => resolve(callCount === 1 ? "yes" : "no"), 100);
+            }),
+        ),
+      };
+      const gate = new WriteGate(makeConfig(), ch);
+
+      const [r1, r2] = await Promise.all([
+        gate.check(makeCall({ id: "c1" }), makeCtx()),
+        gate.check(makeCall({ id: "c2" }), makeCtx()),
+      ]);
+
+      expect(r1.reason).toBe("approved");
+      expect(r2.reason).toBe("denied");
     });
   });
 });
