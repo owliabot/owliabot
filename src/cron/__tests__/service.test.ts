@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { createCronService } from "../service.js";
-import type { CronJob } from "../service.js";
+import { createCronService } from "../legacy-service.js";
+import type { CronJob } from "../legacy-service.js";
 
 vi.mock("croner", () => {
   const created: any[] = [];

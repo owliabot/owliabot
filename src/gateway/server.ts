@@ -34,7 +34,7 @@ import {
 } from "../security/write-gate-adapter.js";
 import type { WriteGateChannel } from "../security/write-gate.js";
 import type { ToolResult } from "../agent/tools/interface.js";
-import { createCronService } from "../cron/service.js";
+import { createCronService } from "../cron/legacy-service.js";
 import { executeHeartbeat } from "../cron/heartbeat.js";
 import { createNotificationService } from "../notifications/service.js";
 import { initializeSkills } from "../skills/index.js";
