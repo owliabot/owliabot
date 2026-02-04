@@ -33,6 +33,8 @@ export interface AuditEntry {
     | "pending";
   reason?: string;
   error?: string;
+  amountUsd?: number;
+  finalizedAt?: string;
   txHash?: string;
   chainId?: number;
   blockNumber?: number;

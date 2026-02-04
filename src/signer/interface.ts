@@ -3,7 +3,7 @@
  * @see design.md Section 5.3
  */
 
-export type SignerTier = "app" | "session-key" | "contract";
+export type SignerTier = "app" | "session-key" | "contract" | "none";
 
 export interface SignerInterface {
   getAddress(): Promise<string>;

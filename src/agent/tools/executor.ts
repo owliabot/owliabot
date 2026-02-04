@@ -7,7 +7,7 @@
 import { createLogger } from "../../utils/logger.js";
 import { PolicyEngine } from "../../policy/engine.js";
 import { CooldownTracker } from "../../policy/cooldown.js";
-import { AuditLogger } from "../../audit/logger.js";
+import { AuditLogger, type AuditEntry } from "../../audit/logger.js";
 import { AuditQueryService } from "../../audit/query.js";
 import { SessionKeyLogger } from "../../audit/session-key-logger.js";
 import { AutoRevokeService } from "../../audit/auto-revoke.js";
@@ -309,7 +309,7 @@ export async function executeToolCall(
   };
 
   // Helper: feed entry into anomaly detection for all outcomes
-  const feedAnomaly = async (result: string) => {
+  const feedAnomaly = async (result: AuditEntry["result"]) => {
     try {
       await autoRevokeService.onAuditEntry({
         id: "pending",

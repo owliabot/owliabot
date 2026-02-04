@@ -86,7 +86,7 @@ export class AuditQueryService {
       const entry = preLogEntries.get(id);
       if (entry) {
         // Apply finalize fields (result, reason, duration, txHash, etc.)
-        if (finalize.result) entry.result = finalize.result as string;
+        if (finalize.result) entry.result = finalize.result as AuditEntry["result"];
         if (finalize.reason) entry.reason = finalize.reason as string;
         if (finalize.duration !== undefined) entry.duration = finalize.duration as number;
         if (finalize.txHash) entry.txHash = finalize.txHash as string;
@@ -198,7 +198,7 @@ export class AuditQueryService {
 
     // Merge finalize data if both found
     if (entry && finalize) {
-      if (finalize.result) entry.result = finalize.result as string;
+      if (finalize.result) entry.result = finalize.result as AuditEntry["result"];
       if (finalize.reason) entry.reason = finalize.reason as string;
       if (finalize.duration !== undefined) entry.duration = finalize.duration as number;
       if (finalize.txHash) entry.txHash = finalize.txHash as string;
