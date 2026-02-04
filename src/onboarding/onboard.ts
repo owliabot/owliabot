@@ -203,10 +203,8 @@ export async function runOnboarding(options: OnboardOptions = {}): Promise<void>
         secrets.telegram = { token: telegramToken };
       }
 
-      // Only write telegram section if token exists; otherwise omit to keep config valid.
-      if (telegramToken) {
-        config.telegram = {};
-      }
+      // Always include telegram section so token can be set later via env/secrets
+      config.telegram = {};
     }
 
     // Save app config (non-sensitive)
