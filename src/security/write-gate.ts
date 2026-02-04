@@ -119,9 +119,9 @@ async function writeAuditEntry(auditPath: string, entry: AuditEntry): Promise<vo
   }
 }
 
-// ── Pending confirmations tracker (prevents concurrent confirm storms) ────
+// ── Pending confirmations queue (serialize per-session to avoid storms) ────
 
-const pendingConfirmations = new Map<string, boolean>();
+const pendingConfirmations = new Map<string, Promise<void>>();
 
 // ── Core Gate ──────────────────────────────────────────────────────────────
 
@@ -193,17 +193,20 @@ export class WriteGate {
       return "confirmation_disabled_allow";
     }
 
-    // Prevent concurrent confirmations on the same session
-    if (pendingConfirmations.get(ctx.sessionKey)) {
-      log.warn(`Concurrent write confirmation blocked for ${ctx.sessionKey}`);
-      return "denied";
-    }
-
-    pendingConfirmations.set(ctx.sessionKey, true);
+    // Serialize concurrent confirmations on the same session (queue, not reject)
+    const prev = pendingConfirmations.get(ctx.sessionKey) ?? Promise.resolve();
+    let resolveGate: () => void;
+    const gate = new Promise<void>((r) => { resolveGate = r; });
+    pendingConfirmations.set(ctx.sessionKey, gate);
     try {
+      await prev; // wait for any earlier confirmation to finish
       return await this.requestConfirmation(call, ctx);
     } finally {
-      pendingConfirmations.delete(ctx.sessionKey);
+      resolveGate!();
+      // Clean up only if we're still the tail of the queue
+      if (pendingConfirmations.get(ctx.sessionKey) === gate) {
+        pendingConfirmations.delete(ctx.sessionKey);
+      }
     }
   }
 
