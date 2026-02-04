@@ -162,6 +162,16 @@ export async function createMCPTools(
     }
   }
 
+  // Check for duplicate tool names and warn
+  const toolNames = new Set<string>();
+  for (const tool of allTools) {
+    if (toolNames.has(tool.name)) {
+      log.warn(`Duplicate tool name detected: ${tool.name} — only the first will be used`);
+    } else {
+      toolNames.add(tool.name);
+    }
+  }
+
   log.info(
     `MCP initialization complete: ${allTools.length} tools loaded, ` +
       `${failed.length} servers failed`

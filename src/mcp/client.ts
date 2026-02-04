@@ -4,7 +4,7 @@
  */
 
 import { createLogger } from "../utils/logger.js";
-import { createTransport, type MCPTransport, StdioTransport, SSETransport } from "./transport.js";
+import { createTransport, type MCPTransport } from "./transport.js";
 import {
   MCPError,
   MCPErrorCode,
@@ -47,7 +47,7 @@ interface PendingRequest {
 export class MCPClient {
   private transport: MCPTransport | null = null;
   private pendingRequests = new Map<string | number, PendingRequest>();
-  private nextId = 1;
+  private idCounter = 0;
   private serverCapabilities: ServerCapabilities | null = null;
   private toolsCache: MCPToolDefinition[] | null = null;
   private connected = false;
@@ -84,11 +84,7 @@ export class MCPClient {
     this.transport.onClose((code) => this.handleClose(code));
 
     // Connect transport (spawns process for stdio)
-    if (this.transport instanceof StdioTransport) {
-      await this.transport.connect();
-    } else if (this.transport instanceof SSETransport) {
-      await this.transport.connect();
-    }
+    await this.transport.connect();
 
     // Perform MCP handshake
     await this.initialize();
@@ -107,9 +103,16 @@ export class MCPClient {
 
     const tools: MCPToolDefinition[] = [];
     let cursor: string | undefined;
+    const MAX_PAGES = 100;
+    let pageCount = 0;
 
-    // Handle pagination
+    // Handle pagination with safety guard
     do {
+      if (++pageCount > MAX_PAGES) {
+        log.warn(`Pagination limit reached (${MAX_PAGES} pages), stopping tools/list`);
+        break;
+      }
+
       const result = await this.request<ToolsListResult>("tools/list", {
         cursor,
       });
@@ -233,7 +236,7 @@ export class MCPClient {
       );
     }
 
-    const id = this.nextId++;
+    const id = `${Date.now()}-${this.idCounter++}`;
     const timeout = this.options.defaults?.timeout ?? 30000;
 
     const request: JSONRPCRequest = {

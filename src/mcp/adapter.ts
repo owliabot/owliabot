@@ -187,6 +187,7 @@ export class MCPToolAdapter {
       "write", "create", "delete", "remove", "update", "set",
       "click", "type", "fill", "submit", "navigate", "upload",
       "send", "post", "put", "patch",
+      "execute", "exec", "run", "eval", "drop", "truncate", "modify", "insert",
     ];
 
     for (const prefix of writePrefixes) {
@@ -244,6 +245,15 @@ function convertToolResult(mcpResult: ToolCallResult): ToolResult {
   // Extract text content
   const textParts: string[] = [];
   const data: Record<string, unknown> = {};
+
+  // Handle null/undefined content array
+  if (!mcpResult.content) {
+    return {
+      success: !mcpResult.isError,
+      data: undefined,
+      error: mcpResult.isError ? "Tool returned no content" : undefined,
+    };
+  }
 
   for (const content of mcpResult.content) {
     switch (content.type) {

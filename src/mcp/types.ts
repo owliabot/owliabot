@@ -180,7 +180,16 @@ export const mcpServerConfigSchema = z.object({
   url: z.string().url().optional(),
   transport: z.enum(["stdio", "sse"]).default("stdio"),
   cwd: z.string().optional(),
-});
+}).refine(
+  (data) => {
+    if (data.transport === "stdio") return !!data.command;
+    if (data.transport === "sse") return !!data.url;
+    return true;
+  },
+  {
+    message: "stdio transport requires 'command', sse transport requires 'url'",
+  }
+);
 
 export type MCPServerConfig = z.infer<typeof mcpServerConfigSchema>;
 
@@ -236,6 +245,7 @@ export class MCPError extends Error {
   ) {
     super(message);
     this.name = "MCPError";
+    Object.setPrototypeOf(this, MCPError.prototype);
   }
 }
 

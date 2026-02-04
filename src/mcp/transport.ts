@@ -19,6 +19,9 @@ export type ErrorCallback = (error: Error) => void;
 export type CloseCallback = (code?: number) => void;
 
 export interface MCPTransport {
+  /** Connect to the MCP server */
+  connect(): Promise<void>;
+
   /** Send a JSON-RPC message to the server */
   send(message: JSONRPCMessage): void;
 
@@ -62,6 +65,7 @@ export class StdioTransport implements MCPTransport {
   private closeCallback: CloseCallback | null = null;
   private connected = false;
   private closing = false;
+  private closingPromise: Promise<void> | null = null;
 
   constructor(private options: StdioTransportOptions) {}
 
@@ -179,7 +183,17 @@ export class StdioTransport implements MCPTransport {
 
     const json = JSON.stringify(message);
     log.debug(`>>> ${json}`);
-    this.process.stdin.write(json + "\n");
+    
+    const canWrite = this.process.stdin.write(json + "\n", (err) => {
+      if (err) {
+        log.error(`stdin write error: ${err.message}`);
+        this.errorCallback?.(err);
+      }
+    });
+    
+    if (!canWrite) {
+      log.warn("stdin backpressure detected, write buffer full");
+    }
   }
 
   onMessage(callback: MessageCallback): void {
@@ -199,35 +213,39 @@ export class StdioTransport implements MCPTransport {
   }
 
   async close(): Promise<void> {
-    if (this.closing) return;
+    if (this.closingPromise) return this.closingPromise;
     this.closing = true;
 
-    log.info("Closing stdio transport");
+    this.closingPromise = (async () => {
+      log.info("Closing stdio transport");
 
-    this.cleanup();
+      this.cleanup();
 
-    // Give the process time to exit gracefully
-    if (this.process && !this.process.killed) {
-      await new Promise<void>((resolve) => {
-        const timeout = setTimeout(() => {
-          log.warn("Process did not exit gracefully, sending SIGKILL");
-          this.process?.kill("SIGKILL");
-          resolve();
-        }, 5000);
+      // Give the process time to exit gracefully
+      if (this.process && !this.process.killed) {
+        await new Promise<void>((resolve) => {
+          const timeout = setTimeout(() => {
+            log.warn("Process did not exit gracefully, sending SIGKILL");
+            this.process?.kill("SIGKILL");
+            resolve();
+          }, 5000);
 
-        this.process!.once("exit", () => {
-          clearTimeout(timeout);
-          resolve();
+          this.process!.once("exit", () => {
+            clearTimeout(timeout);
+            resolve();
+          });
+
+          // Close stdin to signal shutdown
+          this.process!.stdin?.end();
+          this.process!.kill("SIGTERM");
         });
+      }
 
-        // Close stdin to signal shutdown
-        this.process!.stdin?.end();
-        this.process!.kill("SIGTERM");
-      });
-    }
+      this.process = null;
+      this.connected = false;
+    })();
 
-    this.process = null;
-    this.connected = false;
+    return this.closingPromise;
   }
 
   private handleLine(line: string): void {
