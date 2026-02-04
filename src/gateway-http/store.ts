@@ -6,6 +6,8 @@ export interface DeviceRecord {
   deviceId: string;
   tokenHash: string | null;
   revokedAt: number | null;
+  pairedAt: number | null;
+  lastSeenAt: number | null;
 }
 
 export interface IdempotencyRecord {
@@ -27,6 +29,8 @@ export interface EventRecord {
 
 export interface Store {
   getDevice(deviceId: string): DeviceRecord | null;
+  listDevices(): DeviceRecord[];
+  touchDeviceSeen(deviceId: string, now: number): void;
   addPending(deviceId: string, ip: string, userAgent: string): void;
   listPending(): Array<{
     deviceId: string;
@@ -63,6 +67,8 @@ interface DeviceRow {
   device_id: string;
   token_hash: string | null;
   revoked_at: number | null;
+  paired_at: number | null;
+  last_seen_at: number | null;
 }
 
 interface PendingRow {
@@ -153,7 +159,7 @@ export function createStore(path: string): Store {
     getDevice(deviceId) {
       const row = db
         .prepare<[string], DeviceRow>(
-          "SELECT device_id, token_hash, revoked_at FROM devices WHERE device_id=?"
+          "SELECT device_id, token_hash, revoked_at, paired_at, last_seen_at FROM devices WHERE device_id=?"
         )
         .get(deviceId);
       if (!row) return null;
@@ -161,7 +167,26 @@ export function createStore(path: string): Store {
         deviceId: row.device_id,
         tokenHash: row.token_hash,
         revokedAt: row.revoked_at,
+        pairedAt: row.paired_at,
+        lastSeenAt: row.last_seen_at,
       };
+    },
+    listDevices() {
+      const rows = db
+        .prepare<[], DeviceRow>(
+          "SELECT device_id, token_hash, revoked_at, paired_at, last_seen_at FROM devices ORDER BY paired_at DESC"
+        )
+        .all();
+      return rows.map((row) => ({
+        deviceId: row.device_id,
+        tokenHash: row.token_hash,
+        revokedAt: row.revoked_at,
+        pairedAt: row.paired_at,
+        lastSeenAt: row.last_seen_at,
+      }));
+    },
+    touchDeviceSeen(deviceId, now) {
+      db.prepare("UPDATE devices SET last_seen_at=? WHERE device_id=?").run(now, deviceId);
     },
     addPending(deviceId, ip, userAgent) {
       db.prepare(
@@ -184,9 +209,10 @@ export function createStore(path: string): Store {
     approveDevice(deviceId, token) {
       const issued = token ?? cryptoRandomToken();
       const tokenHash = hashToken(issued);
+      const now = Date.now();
       db.prepare(
         "INSERT OR REPLACE INTO devices(device_id, token_hash, revoked_at, paired_at, last_seen_at) VALUES(?,?,?,?,?)"
-      ).run(deviceId, tokenHash, null, Date.now(), Date.now());
+      ).run(deviceId, tokenHash, null, now, now);
       db.prepare("DELETE FROM pairing_pending WHERE device_id=?").run(deviceId);
       return issued;
     },

@@ -27,6 +27,11 @@ export async function startGatewayHttp(opts: {
   const server = http.createServer(async (req, res) => {
     const url = new URL(req.url ?? "/", "http://localhost");
     const remoteIp = getRemoteIp(req);
+
+    // Opportunistic cleanup to keep sqlite tables bounded.
+    // (Cheap: single DELETE on TTL tables.)
+    store.cleanup(Date.now());
+
     if (
       opts.config.allowlist.length > 0 &&
       !isIpAllowed(remoteIp, opts.config.allowlist)
@@ -46,6 +51,32 @@ export async function startGatewayHttp(opts: {
       return;
     }
 
+    if (url.pathname === "/status" && req.method === "GET") {
+      if (!requireGatewayAuth(req, opts.config.token)) {
+        sendJson(res, 401, {
+          ok: false,
+          error: { code: "ERR_UNAUTHORIZED", message: "Missing gateway token" },
+        });
+        return;
+      }
+      const pending = store.listPending();
+      const devices = store.listDevices().map((d) => ({
+        deviceId: d.deviceId,
+        revokedAt: d.revokedAt,
+        pairedAt: d.pairedAt,
+        lastSeenAt: d.lastSeenAt,
+        // never expose token hash via status
+      }));
+      sendJson(res, 200, {
+        ok: true,
+        data: {
+          devices,
+          pending,
+        },
+      });
+      return;
+    }
+
     if (url.pathname === "/pairing/pending" && req.method === "GET") {
       if (!requireGatewayAuth(req, opts.config.token)) {
         sendJson(res, 401, {
@@ -56,6 +87,21 @@ export async function startGatewayHttp(opts: {
       }
       const pending = store.listPending();
       sendJson(res, 200, { ok: true, data: { pending } });
+      return;
+    }
+
+    if (url.pathname === "/pairing/request" && req.method === "POST") {
+      const deviceId = getHeader(req, "x-device-id");
+      if (!deviceId) {
+        sendJson(res, 400, {
+          ok: false,
+          error: { code: "ERR_INVALID_REQUEST", message: "Missing X-Device-Id" },
+        });
+        return;
+      }
+      const userAgent = String(req.headers["user-agent"] ?? "");
+      store.addPending(deviceId, remoteIp, userAgent);
+      sendJson(res, 200, { ok: true, data: { deviceId, status: "pending" } });
       return;
     }
 
@@ -140,18 +186,35 @@ export async function startGatewayHttp(opts: {
     if (url.pathname === "/command/tool" && req.method === "POST") {
       const deviceId = getHeader(req, "x-device-id");
       const deviceToken = getHeader(req, "x-device-token");
-      if (!deviceId || !deviceToken) {
+
+      if (!deviceId) {
         sendJson(res, 401, {
           ok: false,
-          error: { code: "ERR_UNAUTHORIZED", message: "Missing device auth" },
+          error: { code: "ERR_UNAUTHORIZED", message: "Missing X-Device-Id" },
         });
         return;
       }
-      const device = store.getDevice(deviceId);
-      if (!device || device.revokedAt || !device.tokenHash) {
+
+      if (!deviceToken) {
+        // Auto-enroll into pairing pending to match the intended flow.
+        const userAgent = String(req.headers["user-agent"] ?? "");
+        store.addPending(deviceId, remoteIp, userAgent);
         sendJson(res, 401, {
           ok: false,
-          error: { code: "ERR_UNAUTHORIZED", message: "Device not paired" },
+          error: { code: "ERR_DEVICE_NOT_PAIRED", message: "Device not paired" },
+          data: { deviceId, pairing: "pending" },
+        });
+        return;
+      }
+
+      const device = store.getDevice(deviceId);
+      if (!device || device.revokedAt || !device.tokenHash) {
+        const userAgent = String(req.headers["user-agent"] ?? "");
+        store.addPending(deviceId, remoteIp, userAgent);
+        sendJson(res, 401, {
+          ok: false,
+          error: { code: "ERR_DEVICE_NOT_PAIRED", message: "Device not paired" },
+          data: { deviceId, pairing: "pending" },
         });
         return;
       }
@@ -162,6 +225,9 @@ export async function startGatewayHttp(opts: {
         });
         return;
       }
+
+      // Update last_seen_at for observability.
+      store.touchDeviceSeen(deviceId, Date.now());
 
       let rawBody = "";
       let body: any;
