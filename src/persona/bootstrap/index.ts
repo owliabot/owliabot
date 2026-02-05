@@ -5,6 +5,7 @@ import {
 } from "./questions.js";
 import {
   buildPersonaFrontmatter,
+  assertValidAgentId,
   generatePersonaOverlay,
   type PersonaOverlayStatus,
 } from "./generator.js";
@@ -39,6 +40,7 @@ export class BootstrapSession {
   private completed = false;
 
   constructor(options: BootstrapSessionOptions) {
+    assertValidAgentId(options.agentId);
     this.options = options;
     this.questions = options.questions ?? DEFAULT_BOOTSTRAP_QUESTIONS;
   }

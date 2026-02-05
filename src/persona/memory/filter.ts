@@ -1,8 +1,10 @@
 import { readFile, readdir, lstat } from "node:fs/promises";
 import path from "node:path";
 import { parse } from "yaml";
+import { createLogger } from "../../utils/logger.js";
 import {
   DEFAULT_MEMORY_TAG_ALLOWLIST,
+  containsSensitiveContent,
   isMemoryTag,
   isSensitiveTag,
   normalizeTag,
@@ -13,6 +15,9 @@ import type { MemoryEntry } from "./types.js";
 const FRONTMATTER_RE = /^---\s*\n([\s\S]*?)\n---\s*\n?/;
 const TAG_COMMENT_RE = /<!--\s*tag(s)?\s*:\s*([^>]+?)\s*-->/i;
 const CONF_COMMENT_RE = /<!--\s*(confidence|conf)\s*:\s*([^>]+?)\s*-->/i;
+const MAX_MEMORY_TEXT_LENGTH = 500;
+
+const log = createLogger("persona.memory.filter");
 
 interface MemoryFileInfo {
   absPath: string;
@@ -74,7 +79,15 @@ export class MemoryFilter {
         continue;
       }
 
-      const { frontmatter, body } = parseFrontmatter(content);
+      let parsed: { frontmatter: Record<string, unknown>; body: string };
+      try {
+        parsed = parseFrontmatter(content);
+      } catch (err) {
+        log.warn(`Skipping memory file with invalid YAML: ${file.absPath}`, err);
+        continue;
+      }
+
+      const { frontmatter, body } = parsed;
       const parsedFrontmatter = parseMemoryFrontmatter(frontmatter);
       const fileDate =
         parsedFrontmatter.date ??
@@ -85,6 +98,9 @@ export class MemoryFilter {
       const source = resolveSource(file, sourceRoot, memoryDir);
 
       for (const draft of drafts) {
+        if (isSensitiveEntry(draft)) {
+          continue;
+        }
         const confidence = clampConfidence(draft.confidence ?? parsedFrontmatter.confidence ?? 1);
         if (confidence < this.minConfidence) {
           continue;
@@ -222,15 +238,40 @@ function extractEntries(body: string, frontmatter: ParsedFrontmatter): EntryDraf
 }
 
 function normalizeBlock(lines: string[]): string {
-  const trimmed = lines
-    .map((line) => line.trim())
-    .filter((line) => line.length > 0);
-  if (trimmed.length === 0) return "";
+  const normalized: string[] = [];
+  let inCodeFence = false;
 
-  let text = trimmed.join(" ");
-  text = text.replace(/^[-*]\s+/, "");
-  text = text.replace(/^\d+\.\s+/, "");
-  return text.trim();
+  for (const line of lines) {
+    let current = line.trim();
+    if (!current) continue;
+
+    if (/^```/.test(current) || /^~~~/.test(current)) {
+      inCodeFence = !inCodeFence;
+      continue;
+    }
+
+    if (inCodeFence) {
+      continue;
+    }
+
+    current = current.replace(/^#{1,6}\s+/, "");
+
+    current = current.replace(/^>\s+/, "");
+    current = current.replace(/^[-*]\s+/, "");
+    current = current.replace(/^\d+\.\s+/, "");
+
+    if (current.length > 0) {
+      normalized.push(current);
+    }
+  }
+
+  if (normalized.length === 0) return "";
+
+  let text = normalized.join(" ").replace(/\s+/g, " ").trim();
+  if (text.length > MAX_MEMORY_TEXT_LENGTH) {
+    text = text.slice(0, MAX_MEMORY_TEXT_LENGTH).trimEnd();
+  }
+  return text;
 }
 
 function parseTagList(input: string): string[] {
@@ -403,4 +444,17 @@ function dedupeEntries(entries: MemoryEntry[]): MemoryEntry[] {
   }
 
   return result;
+}
+
+function isSensitiveEntry(draft: EntryDraft): boolean {
+  if (!draft.text) return false;
+  if (containsSensitiveContent(draft.text)) {
+    return true;
+  }
+  for (const tag of draft.tags) {
+    if (isSensitiveTag(tag)) {
+      return true;
+    }
+  }
+  return false;
 }

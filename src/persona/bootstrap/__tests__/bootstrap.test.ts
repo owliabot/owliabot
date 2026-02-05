@@ -63,6 +63,16 @@ describe("bootstrap session", () => {
     expect(parsed.frontmatter.boundaries).toEqual(["no secrets"]);
     expect(parsed.frontmatter.tools).toBeUndefined();
   });
+
+  it("rejects invalid agent ids", () => {
+    expect(
+      () =>
+        new BootstrapSession({
+          agentId: "../escape",
+          rootDir: dir,
+        })
+    ).toThrow(/agent id/i);
+  });
 });
 
 describe("overlay generation", () => {
@@ -99,6 +109,16 @@ describe("overlay generation", () => {
     expect(parsed.frontmatter.name).toBe("Owlia");
     expect(parsed.frontmatter.role).toBe("Guide");
     expect(parsed.frontmatter.boundaries).toEqual(["no secrets"]);
+  });
+
+  it("blocks path traversal in overlay generation", async () => {
+    await expect(
+      generatePersonaOverlay({
+        agentId: "..",
+        rootDir: dir,
+        answers: {},
+      })
+    ).rejects.toThrow(/agent id/i);
   });
 });
 

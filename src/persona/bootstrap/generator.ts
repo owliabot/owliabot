@@ -1,5 +1,5 @@
 import { mkdir, writeFile } from "node:fs/promises";
-import { join, resolve } from "node:path";
+import { isAbsolute, join, resolve } from "node:path";
 import { stringify } from "yaml";
 import { createLogger } from "../../utils/logger.js";
 import type { PersonaFrontmatter } from "../types.js";
@@ -31,6 +31,7 @@ export interface PersonaOverlayGenerationResult {
 export async function generatePersonaOverlay(
   options: PersonaOverlayGenerationOptions
 ): Promise<PersonaOverlayGenerationResult> {
+  assertValidAgentId(options.agentId);
   const frontmatter = buildPersonaFrontmatter(options);
   const now = options.now ?? new Date();
   const status = options.status ?? "draft";
@@ -56,6 +57,22 @@ export async function generatePersonaOverlay(
   log.info(`Generated persona overlay at ${path}`);
 
   return { path, frontmatter, rawFrontmatter, content };
+}
+
+export function assertValidAgentId(agentId: string): void {
+  const trimmed = agentId.trim();
+  if (!trimmed) {
+    throw new Error("Invalid agent id: empty value");
+  }
+  if (isAbsolute(agentId)) {
+    throw new Error(`Invalid agent id: absolute path not allowed (${agentId})`);
+  }
+  if (agentId.includes("..")) {
+    throw new Error(`Invalid agent id: path traversal not allowed (${agentId})`);
+  }
+  if (/[\\/]/.test(agentId)) {
+    throw new Error(`Invalid agent id: path separators not allowed (${agentId})`);
+  }
 }
 
 export interface PersonaFrontmatterBuildOptions

@@ -27,10 +27,10 @@ describe("memory injector", () => {
     const summary = injector.inject(entries);
 
     const expected = `## User Preferences (from memory)
-- Prefers concise responses [memory/2026-01-15.md]
+> 仅供参考：Prefers concise responses [memory/2026-01-15.md]
 
 ## Style Preferences (from memory)
-- Dislikes formal greetings [memory/2026-01-20.md]`;
+> 仅供参考：Dislikes formal greetings [memory/2026-01-20.md]`;
 
     expect(summary).toBe(expected);
   });

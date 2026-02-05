@@ -30,7 +30,7 @@ export class MemoryInjector {
 
       lines.push(`## ${TAG_TITLES[tag]} (from memory)`);
       for (const entry of sortByRecency(bucket)) {
-        lines.push(`- ${entry.text} [${entry.source}]`);
+        lines.push(`> 仅供参考：${entry.text} [${entry.source}]`);
       }
       lines.push("");
     }
