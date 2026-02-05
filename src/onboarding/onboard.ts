@@ -4,6 +4,7 @@ import type { AppConfig, ProviderConfig, LLMProviderId } from "./types.js";
 import { saveAppConfig, DEV_APP_CONFIG_PATH } from "./storage.js";
 import { startOAuthFlow, type SupportedOAuthProvider } from "../auth/oauth.js";
 import { saveSecrets, type SecretsConfig } from "./secrets.js";
+import { ensureWorkspaceInitialized } from "../workspace/init.js";
 
 const log = createLogger("onboard");
 
@@ -219,6 +220,13 @@ export async function runOnboarding(options: OnboardOptions = {}): Promise<void>
 
     if (hasSecrets) {
       await saveSecrets(appConfigPath, secrets);
+    }
+
+    const workspaceInit = await ensureWorkspaceInitialized({
+      workspacePath: workspace,
+    });
+    if (workspaceInit.wroteBootstrap) {
+      log.info("Created BOOTSTRAP.md for first-run setup.");
     }
 
     log.info(`Saved app config to: ${appConfigPath}`);

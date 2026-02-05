@@ -43,10 +43,11 @@ describe("onboarding", () => {
 
   it("writes config with anthropic oauth and separates secrets", async () => {
     const appConfigPath = join(dir, "app.yaml");
+    const workspacePath = join(dir, "workspace");
 
     answers = [
       "discord,telegram", // channels
-      "",                  // workspace (default)
+      workspacePath,       // workspace
       "anthropic",         // provider
       "",                  // model (default)
       "1",                 // auth method: OAuth
@@ -62,7 +63,7 @@ describe("onboarding", () => {
     const config = await loadAppConfig(appConfigPath);
     const secrets = await loadSecrets(appConfigPath);
 
-    expect(config?.workspace).toBe("./workspace");
+    expect(config?.workspace).toBe(workspacePath);
     expect(config?.providers?.[0]?.id).toBe("anthropic");
     expect(config?.providers?.[0]?.apiKey).toBe("oauth");
     expect(config?.providers?.[0]?.model).toBe("claude-sonnet-4-5");
@@ -77,10 +78,11 @@ describe("onboarding", () => {
 
   it("writes config with openai api key", async () => {
     const appConfigPath = join(dir, "app.yaml");
+    const workspacePath = join(dir, "workspace");
 
     answers = [
       "discord",           // channels
-      "",                  // workspace (default)
+      workspacePath,       // workspace
       "openai",            // provider
       "gpt-4o-mini",       // model
       "sk-test-key",       // OpenAI API key
@@ -103,10 +105,11 @@ describe("onboarding", () => {
 
   it("writes config with openai-codex oauth", async () => {
     const appConfigPath = join(dir, "app.yaml");
+    const workspacePath = join(dir, "workspace");
 
     answers = [
       "discord",           // channels
-      "",                  // workspace (default)
+      workspacePath,       // workspace
       "openai-codex",      // provider
       "",                  // model (default)
       "n",                 // skip OAuth for now
@@ -126,10 +129,11 @@ describe("onboarding", () => {
 
   it("writes config with anthropic api key", async () => {
     const appConfigPath = join(dir, "app.yaml");
+    const workspacePath = join(dir, "workspace");
 
     answers = [
       "discord",           // channels
-      "",                  // workspace (default)
+      workspacePath,       // workspace
       "anthropic",         // provider
       "",                  // model (default)
       "2",                 // auth method: API Key
@@ -152,10 +156,11 @@ describe("onboarding", () => {
 
   it("supports env-based api key for openai", async () => {
     const appConfigPath = join(dir, "app.yaml");
+    const workspacePath = join(dir, "workspace");
 
     answers = [
       "discord",           // channels
-      "",                  // workspace (default)
+      workspacePath,       // workspace
       "openai",            // provider
       "",                  // model (default)
       "",                  // OpenAI API key (empty = use env)

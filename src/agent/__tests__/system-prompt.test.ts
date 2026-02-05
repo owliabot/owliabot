@@ -39,6 +39,40 @@ describe("system-prompt", () => {
       expect(prompt).toContain("helpful assistant with a focus on privacy");
     });
 
+    it("should include agent guidelines when present", () => {
+      const ctx: PromptContext = {
+        workspace: {
+          agents: "Follow the workspace rules.",
+        },
+        channel: "discord",
+        timezone: "UTC",
+        model: "sonnet",
+        chatType: "direct",
+      };
+
+      const prompt = buildSystemPrompt(ctx);
+
+      expect(prompt).toContain("## Agent Guidelines");
+      expect(prompt).toContain("Follow the workspace rules.");
+    });
+
+    it("should include bootstrap instructions when present", () => {
+      const ctx: PromptContext = {
+        workspace: {
+          bootstrap: "Complete setup and delete BOOTSTRAP.md.",
+        },
+        channel: "discord",
+        timezone: "UTC",
+        model: "sonnet",
+        chatType: "direct",
+      };
+
+      const prompt = buildSystemPrompt(ctx);
+
+      expect(prompt).toContain("## Bootstrap");
+      expect(prompt).toContain("Complete setup and delete BOOTSTRAP.md.");
+    });
+
     it("should include identity section when present", () => {
       const ctx: PromptContext = {
         workspace: {
@@ -164,6 +198,8 @@ describe("system-prompt", () => {
     it("should include all sections when all are present", () => {
       const ctx: PromptContext = {
         workspace: {
+          agents: "Rules",
+          bootstrap: "Setup",
           soul: "Privacy focused",
           identity: "OwliaBot",
           user: "John Doe",
@@ -178,6 +214,8 @@ describe("system-prompt", () => {
 
       const prompt = buildSystemPrompt(ctx);
 
+      expect(prompt).toContain("## Agent Guidelines");
+      expect(prompt).toContain("## Bootstrap");
       expect(prompt).toContain("## Persona & Boundaries");
       expect(prompt).toContain("## Identity");
       expect(prompt).toContain("## User Profile");
