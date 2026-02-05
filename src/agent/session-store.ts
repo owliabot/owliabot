@@ -108,6 +108,9 @@ export function createSessionStore(options: SessionStoreOptions): SessionStore {
   async function withLock<T>(fn: () => Promise<T>): Promise<T> {
     const start = Date.now();
 
+    // Ensure directory exists before attempting lock
+    await ensureDir();
+
     while (true) {
       const now = Date.now();
       if (now - start > lockTimeoutMs) {
