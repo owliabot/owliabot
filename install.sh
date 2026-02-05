@@ -168,16 +168,30 @@ main() {
     OPENAI_COMPAT_MODEL=""
     DEFAULT_PROVIDER=""
     
+    ANTHROPIC_OAUTH_DONE=""
+    OPENAI_OAUTH_DONE=""
+    
     # Anthropic
     if [ $ai_choice -eq 0 ] || [ $ai_choice -eq 3 ]; then
         echo ""
-        info "Anthropic API Key 获取地址: https://console.anthropic.com/settings/keys"
-        info "提示：如果你有 Claude 订阅，可跳过此步，之后用 OAuth 认证"
-        prompt ANTHROPIC_API_KEY "请输入 Anthropic API Key（留空跳过）" "" true
-        if [ -z "$ANTHROPIC_API_KEY" ]; then
-            warn "未配置 Anthropic API Key"
+        select_option "Anthropic 认证方式：" \
+            "API Key（从 console.anthropic.com 获取）" \
+            "OAuth（使用 Claude Pro/Max 订阅）"
+        local anthropic_auth=$SELECT_RESULT
+        
+        if [ $anthropic_auth -eq 0 ]; then
+            info "API Key 获取地址: https://console.anthropic.com/settings/keys"
+            prompt ANTHROPIC_API_KEY "请输入 Anthropic API Key" "" true
+            if [ -z "$ANTHROPIC_API_KEY" ]; then
+                warn "未配置 Anthropic API Key"
+            else
+                success "Anthropic API Key 已配置"
+                DEFAULT_PROVIDER="anthropic"
+            fi
         else
-            success "Anthropic API Key 已配置"
+            info "将使用 OAuth 认证（需要 Claude Pro/Max 订阅）"
+            info "OAuth 认证将在配置完成后进行..."
+            ANTHROPIC_OAUTH_DONE="pending"
             DEFAULT_PROVIDER="anthropic"
         fi
     fi
@@ -185,13 +199,24 @@ main() {
     # OpenAI
     if [ $ai_choice -eq 1 ] || [ $ai_choice -eq 3 ]; then
         echo ""
-        info "OpenAI API Key 获取地址: https://platform.openai.com/api-keys"
-        info "提示：如果你有 ChatGPT Plus/Pro 订阅，可跳过此步，之后用 OAuth 认证"
-        prompt OPENAI_API_KEY "请输入 OpenAI API Key（留空跳过）" "" true
-        if [ -z "$OPENAI_API_KEY" ]; then
-            warn "未配置 OpenAI API Key"
+        select_option "OpenAI 认证方式：" \
+            "API Key（从 platform.openai.com 获取）" \
+            "OAuth（使用 ChatGPT Plus/Pro 订阅）"
+        local openai_auth=$SELECT_RESULT
+        
+        if [ $openai_auth -eq 0 ]; then
+            info "API Key 获取地址: https://platform.openai.com/api-keys"
+            prompt OPENAI_API_KEY "请输入 OpenAI API Key" "" true
+            if [ -z "$OPENAI_API_KEY" ]; then
+                warn "未配置 OpenAI API Key"
+            else
+                success "OpenAI API Key 已配置"
+                [ -z "$DEFAULT_PROVIDER" ] && DEFAULT_PROVIDER="openai"
+            fi
         else
-            success "OpenAI API Key 已配置"
+            info "将使用 OAuth 认证（需要 ChatGPT Plus/Pro 订阅）"
+            info "OAuth 认证将在配置完成后进行..."
+            OPENAI_OAUTH_DONE="pending"
             [ -z "$DEFAULT_PROVIDER" ] && DEFAULT_PROVIDER="openai"
         fi
     fi
@@ -217,8 +242,9 @@ main() {
         fi
     fi
     
-    # Validate at least one provider configured
-    if [ -z "$ANTHROPIC_API_KEY" ] && [ -z "$OPENAI_API_KEY" ] && [ -z "$OPENAI_COMPAT_BASE_URL" ]; then
+    # Validate at least one provider configured (API key or OAuth pending)
+    if [ -z "$ANTHROPIC_API_KEY" ] && [ -z "$OPENAI_API_KEY" ] && [ -z "$OPENAI_COMPAT_BASE_URL" ] && \
+       [ -z "$ANTHROPIC_OAUTH_DONE" ] && [ -z "$OPENAI_OAUTH_DONE" ]; then
         error "至少需要配置一个 AI 服务提供商"
         exit 1
     fi
@@ -287,6 +313,71 @@ main() {
     TZ="UTC"
     prompt TZ "时区" "Asia/Shanghai"
     success "时区设置为 $TZ"
+    
+    # =========================================================================
+    # OAuth Authentication (if pending)
+    # =========================================================================
+    if [ "$ANTHROPIC_OAUTH_DONE" = "pending" ] || [ "$OPENAI_OAUTH_DONE" = "pending" ]; then
+        header "OAuth 认证"
+        
+        info "需要先拉取 Docker 镜像以执行 OAuth 认证..."
+        info "正在拉取 ${OWLIABOT_IMAGE}..."
+        
+        if ! docker pull "${OWLIABOT_IMAGE}" 2>&1 | tail -5; then
+            error "镜像拉取失败"
+            exit 1
+        fi
+        success "镜像拉取完成"
+        echo ""
+        
+        # Ensure auth directory exists
+        mkdir -p "${HOME}/.owliabot"
+        
+        if [ "$ANTHROPIC_OAUTH_DONE" = "pending" ]; then
+            info "开始 Anthropic OAuth 认证..."
+            info "将打开浏览器，请登录你的 Claude 账户并授权"
+            echo ""
+            
+            if docker run -it --rm \
+                -v "${HOME}/.owliabot:/home/owliabot/.owliabot" \
+                "${OWLIABOT_IMAGE}" \
+                auth setup anthropic; then
+                success "Anthropic OAuth 认证成功"
+                ANTHROPIC_OAUTH_DONE="done"
+                ANTHROPIC_API_KEY="oauth"
+            else
+                warn "Anthropic OAuth 认证失败，可稍后重试"
+                ANTHROPIC_OAUTH_DONE=""
+            fi
+            echo ""
+        fi
+        
+        if [ "$OPENAI_OAUTH_DONE" = "pending" ]; then
+            info "开始 OpenAI OAuth 认证..."
+            info "将打开浏览器，请登录你的 ChatGPT 账户并授权"
+            echo ""
+            
+            if docker run -it --rm \
+                -v "${HOME}/.owliabot:/home/owliabot/.owliabot" \
+                "${OWLIABOT_IMAGE}" \
+                auth setup openai-codex; then
+                success "OpenAI OAuth 认证成功"
+                OPENAI_OAUTH_DONE="done"
+                OPENAI_API_KEY="oauth"
+            else
+                warn "OpenAI OAuth 认证失败，可稍后重试"
+                OPENAI_OAUTH_DONE=""
+            fi
+            echo ""
+        fi
+        
+        # Re-validate after OAuth attempts
+        if [ -z "$ANTHROPIC_API_KEY" ] && [ -z "$OPENAI_API_KEY" ] && [ -z "$OPENAI_COMPAT_BASE_URL" ]; then
+            error "没有成功配置任何 AI 服务提供商"
+            error "请重新运行安装脚本，或手动配置 API Key"
+            exit 1
+        fi
+    fi
     
     # =========================================================================
     # Generate secrets file (~/.owliabot/secrets.yaml)
@@ -509,13 +600,18 @@ EOF
     echo "Docker 和 CLI 共享同一份 secrets，切换启动方式无需重新配置。"
     echo ""
     
-    # Show OAuth hint if no API keys were configured
-    if [ -z "$ANTHROPIC_API_KEY" ] || [ -z "$OPENAI_API_KEY" ]; then
-        echo "OAuth 认证（如果你有订阅但跳过了 API Key）："
-        echo "  • Anthropic (Claude Pro/Max):  docker exec -it owliabot node dist/entry.js auth setup anthropic"
-        echo "  • OpenAI (ChatGPT Plus/Pro):   docker exec -it owliabot node dist/entry.js auth setup openai-codex"
+    # Show OAuth status
+    if [ "$ANTHROPIC_OAUTH_DONE" = "done" ] || [ "$OPENAI_OAUTH_DONE" = "done" ]; then
+        echo "已完成 OAuth 认证："
+        [ "$ANTHROPIC_OAUTH_DONE" = "done" ] && echo "  ✓ Anthropic (Claude Pro/Max)"
+        [ "$OPENAI_OAUTH_DONE" = "done" ] && echo "  ✓ OpenAI (ChatGPT Plus/Pro)"
         echo ""
     fi
+    
+    echo "添加其他 OAuth 提供商："
+    echo "  • Anthropic:  docker exec -it owliabot node dist/entry.js auth setup anthropic"
+    echo "  • OpenAI:     docker exec -it owliabot node dist/entry.js auth setup openai-codex"
+    echo ""
     
     echo "常用命令："
     echo "  • 启动:  docker start owliabot"
