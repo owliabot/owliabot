@@ -194,6 +194,7 @@ main() {
   # ===========================================================================
   OWLIABOT_HOME="${HOME}/.owliabot"
   EXISTING_SECRETS="${OWLIABOT_HOME}/secrets.yaml"
+  EXISTING_AUTH_DIR="${OWLIABOT_HOME}/auth"
   
   # Variables to store existing values
   EXISTING_ANTHROPIC_KEY=""
@@ -202,11 +203,13 @@ main() {
   EXISTING_TELEGRAM_TOKEN=""
   EXISTING_GATEWAY_TOKEN=""
   EXISTING_OPENAI_COMPAT_KEY=""
+  EXISTING_ANTHROPIC_OAUTH=0
+  EXISTING_OPENAI_OAUTH=0
+  
+  # Check for existing configuration
+  HAS_EXISTING_CONFIG=0
   
   if [ -f "$EXISTING_SECRETS" ]; then
-    header "Existing configuration found"
-    info "Found existing secrets at: ${EXISTING_SECRETS}"
-    
     # Parse existing values (simple grep-based extraction)
     EXISTING_ANTHROPIC_KEY=$(grep -A1 '^anthropic:' "$EXISTING_SECRETS" 2>/dev/null | grep 'apiKey:' | sed 's/.*apiKey:[[:space:]]*"\?\([^"]*\)"\?/\1/' | tr -d ' ' || true)
     EXISTING_OPENAI_KEY=$(grep -A1 '^openai:' "$EXISTING_SECRETS" 2>/dev/null | grep 'apiKey:' | sed 's/.*apiKey:[[:space:]]*"\?\([^"]*\)"\?/\1/' | tr -d ' ' || true)
@@ -214,17 +217,38 @@ main() {
     EXISTING_TELEGRAM_TOKEN=$(grep -A1 '^telegram:' "$EXISTING_SECRETS" 2>/dev/null | grep 'token:' | sed 's/.*token:[[:space:]]*"\?\([^"]*\)"\?/\1/' | tr -d ' ' || true)
     EXISTING_GATEWAY_TOKEN=$(grep -A1 '^gateway:' "$EXISTING_SECRETS" 2>/dev/null | grep 'token:' | sed 's/.*token:[[:space:]]*"\?\([^"]*\)"\?/\1/' | tr -d ' ' || true)
     EXISTING_OPENAI_COMPAT_KEY=$(grep -A1 '^openai-compatible:' "$EXISTING_SECRETS" 2>/dev/null | grep 'apiKey:' | sed 's/.*apiKey:[[:space:]]*"\?\([^"]*\)"\?/\1/' | tr -d ' ' || true)
+  fi
+  
+  # Check for OAuth tokens in auth directory
+  if [ -d "$EXISTING_AUTH_DIR" ]; then
+    [ -f "$EXISTING_AUTH_DIR/anthropic.json" ] && EXISTING_ANTHROPIC_OAUTH=1
+    [ -f "$EXISTING_AUTH_DIR/openai-codex.json" ] && EXISTING_OPENAI_OAUTH=1
+  fi
+  
+  # Check if we have any existing credentials worth showing
+  if [ -n "$EXISTING_ANTHROPIC_KEY" ] || [ -n "$EXISTING_OPENAI_KEY" ] || \
+     [ -n "$EXISTING_DISCORD_TOKEN" ] || [ -n "$EXISTING_TELEGRAM_TOKEN" ] || \
+     [ -n "$EXISTING_GATEWAY_TOKEN" ] || \
+     [ "$EXISTING_ANTHROPIC_OAUTH" -eq 1 ] || [ "$EXISTING_OPENAI_OAUTH" -eq 1 ]; then
+    HAS_EXISTING_CONFIG=1
+  fi
+  
+  if [ "$HAS_EXISTING_CONFIG" -eq 1 ]; then
+    header "Existing configuration found"
+    info "Found existing config at: ${OWLIABOT_HOME}"
     
-    # Show what was found
+    # Show what was found (only non-empty values)
     [ -n "$EXISTING_ANTHROPIC_KEY" ] && info "Found Anthropic API key: ${EXISTING_ANTHROPIC_KEY:0:10}..."
+    [ "$EXISTING_ANTHROPIC_OAUTH" -eq 1 ] && info "Found Anthropic OAuth token"
     [ -n "$EXISTING_OPENAI_KEY" ] && info "Found OpenAI API key: ${EXISTING_OPENAI_KEY:0:10}..."
+    [ "$EXISTING_OPENAI_OAUTH" -eq 1 ] && info "Found OpenAI OAuth token (openai-codex)"
     [ -n "$EXISTING_DISCORD_TOKEN" ] && info "Found Discord token: ${EXISTING_DISCORD_TOKEN:0:20}..."
     [ -n "$EXISTING_TELEGRAM_TOKEN" ] && info "Found Telegram token: ${EXISTING_TELEGRAM_TOKEN:0:10}..."
     [ -n "$EXISTING_GATEWAY_TOKEN" ] && info "Found Gateway token: ${EXISTING_GATEWAY_TOKEN:0:10}..."
     
-    if prompt_yn "Do you want to reuse existing credentials?" "y"; then
+    if prompt_yn "Do you want to reuse existing configuration?" "y"; then
       REUSE_EXISTING=1
-      success "Will reuse existing credentials where applicable"
+      success "Will reuse existing configuration"
     else
       REUSE_EXISTING=0
       info "Will configure new credentials"
@@ -236,16 +260,7 @@ main() {
   # ===========================================================================
   # AI Providers
   # ===========================================================================
-  header "AI provider setup"
-
-  select_option "Choose your AI provider(s):" \
-    "Anthropic (Claude)" \
-    "OpenAI (API key)" \
-    "OpenAI (OAuth via ChatGPT Plus/Pro - openai-codex)" \
-    "OpenAI-compatible (Ollama / vLLM / LM Studio / etc.)" \
-    "Multiple providers (fallback)"
-  local ai_choice=$SELECT_RESULT
-
+  
   ANTHROPIC_API_KEY=""
   OPENAI_API_KEY=""
   OPENAI_COMPAT_BASE_URL=""
@@ -257,48 +272,81 @@ main() {
   USE_OPENAI_CODEX=0
   USE_OPENAI_COMPAT=0
 
-  # Anthropic
-  if [ $ai_choice -eq 0 ] || [ $ai_choice -eq 4 ]; then
-    USE_ANTHROPIC=1
-    echo ""
-    info "Anthropic: https://console.anthropic.com/settings/keys"
-    
-    # Check for existing key
-    if [ "$REUSE_EXISTING" -eq 1 ] && [ -n "$EXISTING_ANTHROPIC_KEY" ]; then
-      ANTHROPIC_API_KEY="$EXISTING_ANTHROPIC_KEY"
-      success "Reusing existing Anthropic API key"
-    elif prompt_yn "Do you want to use OAuth instead of an API key? (Claude Pro/Max subscription)" "y"; then
-      # OAuth will be run later (inside the container)
-      ANTHROPIC_API_KEY=""
-      success "Anthropic OAuth will be configured after the container starts"
-    else
-      prompt ANTHROPIC_API_KEY "Enter Anthropic API key" "" true
-      [ -n "$ANTHROPIC_API_KEY" ] && success "Anthropic API key set" || warn "Anthropic API key not provided"
+  # Check if we can skip AI provider setup (reusing existing config)
+  HAS_EXISTING_AI_PROVIDER=0
+  if [ "$REUSE_EXISTING" -eq 1 ]; then
+    if [ -n "$EXISTING_ANTHROPIC_KEY" ] || [ "$EXISTING_ANTHROPIC_OAUTH" -eq 1 ]; then
+      HAS_EXISTING_AI_PROVIDER=1
+      if [ -n "$EXISTING_ANTHROPIC_KEY" ]; then
+        USE_ANTHROPIC=1
+        ANTHROPIC_API_KEY="$EXISTING_ANTHROPIC_KEY"
+      elif [ "$EXISTING_ANTHROPIC_OAUTH" -eq 1 ]; then
+        USE_ANTHROPIC=1
+        # OAuth token exists, will be loaded from auth dir
+      fi
+    fi
+    if [ -n "$EXISTING_OPENAI_KEY" ]; then
+      HAS_EXISTING_AI_PROVIDER=1
+      USE_OPENAI=1
+      OPENAI_API_KEY="$EXISTING_OPENAI_KEY"
+    fi
+    if [ "$EXISTING_OPENAI_OAUTH" -eq 1 ]; then
+      HAS_EXISTING_AI_PROVIDER=1
+      USE_OPENAI_CODEX=1
     fi
   fi
 
-  # OpenAI (API key)
-  if [ $ai_choice -eq 1 ] || [ $ai_choice -eq 4 ]; then
-    USE_OPENAI=1
-    echo ""
-    info "OpenAI API keys: https://platform.openai.com/api-keys"
-    
-    # Check for existing key
-    if [ "$REUSE_EXISTING" -eq 1 ] && [ -n "$EXISTING_OPENAI_KEY" ]; then
-      OPENAI_API_KEY="$EXISTING_OPENAI_KEY"
-      success "Reusing existing OpenAI API key"
-    else
+  if [ "$HAS_EXISTING_AI_PROVIDER" -eq 1 ]; then
+    header "AI provider setup"
+    success "Reusing existing AI provider configuration:"
+    [ "$USE_ANTHROPIC" -eq 1 ] && [ -n "$ANTHROPIC_API_KEY" ] && info "  - Anthropic (API key)"
+    [ "$USE_ANTHROPIC" -eq 1 ] && [ -z "$ANTHROPIC_API_KEY" ] && [ "$EXISTING_ANTHROPIC_OAUTH" -eq 1 ] && info "  - Anthropic (OAuth)"
+    [ "$USE_OPENAI" -eq 1 ] && info "  - OpenAI (API key)"
+    [ "$USE_OPENAI_CODEX" -eq 1 ] && info "  - OpenAI OAuth (openai-codex)"
+  else
+    header "AI provider setup"
+
+    select_option "Choose your AI provider(s):" \
+      "Anthropic (Claude)" \
+      "OpenAI (API key)" \
+      "OpenAI (OAuth via ChatGPT Plus/Pro - openai-codex)" \
+      "OpenAI-compatible (Ollama / vLLM / LM Studio / etc.)" \
+      "Multiple providers (fallback)"
+    local ai_choice=$SELECT_RESULT
+
+    # Anthropic
+    if [ $ai_choice -eq 0 ] || [ $ai_choice -eq 4 ]; then
+      USE_ANTHROPIC=1
+      echo ""
+      info "Anthropic: https://console.anthropic.com/settings/keys"
+      
+      if prompt_yn "Do you want to use OAuth instead of an API key? (Claude Pro/Max subscription)" "y"; then
+        # OAuth will be run later (inside the container)
+        ANTHROPIC_API_KEY=""
+        success "Anthropic OAuth will be configured after the container starts"
+      else
+        prompt ANTHROPIC_API_KEY "Enter Anthropic API key" "" true
+        [ -n "$ANTHROPIC_API_KEY" ] && success "Anthropic API key set" || warn "Anthropic API key not provided"
+      fi
+    fi
+
+    # OpenAI (API key)
+    if [ $ai_choice -eq 1 ] || [ $ai_choice -eq 4 ]; then
+      USE_OPENAI=1
+      echo ""
+      info "OpenAI API keys: https://platform.openai.com/api-keys"
+      
       prompt OPENAI_API_KEY "Enter OpenAI API key" "" true
       [ -n "$OPENAI_API_KEY" ] && success "OpenAI API key set" || warn "OpenAI API key not provided"
     fi
-  fi
 
-  # OpenAI (OAuth - openai-codex)
-  if [ $ai_choice -eq 2 ] || [ $ai_choice -eq 4 ]; then
-    USE_OPENAI_CODEX=1
-    echo ""
-    info "OpenAI OAuth (openai-codex) uses your ChatGPT Plus/Pro subscription."
-    success "OpenAI OAuth will be configured after the container starts"
+    # OpenAI (OAuth - openai-codex)
+    if [ $ai_choice -eq 2 ] || [ $ai_choice -eq 4 ]; then
+      USE_OPENAI_CODEX=1
+      echo ""
+      info "OpenAI OAuth (openai-codex) uses your ChatGPT Plus/Pro subscription."
+      success "OpenAI OAuth will be configured after the container starts"
+    fi
   fi
 
   # OpenAI-compatible
@@ -340,37 +388,43 @@ main() {
   # ===========================================================================
   # Chat platform
   # ===========================================================================
-  header "Chat platform setup"
-
-  select_option "Choose platform(s):" "Discord" "Telegram" "Both"
-  local chat_choice=$SELECT_RESULT
-
+  
   DISCORD_BOT_TOKEN=""
   TELEGRAM_BOT_TOKEN=""
-
-  if [ $chat_choice -eq 0 ] || [ $chat_choice -eq 2 ]; then
-    echo ""
-    info "Discord developer portal: https://discord.com/developers/applications"
-    
-    # Check for existing token
-    if [ "$REUSE_EXISTING" -eq 1 ] && [ -n "$EXISTING_DISCORD_TOKEN" ]; then
+  
+  # Check if we can skip chat platform setup (reusing existing config)
+  HAS_EXISTING_CHAT_PLATFORM=0
+  if [ "$REUSE_EXISTING" -eq 1 ]; then
+    if [ -n "$EXISTING_DISCORD_TOKEN" ] || [ -n "$EXISTING_TELEGRAM_TOKEN" ]; then
+      HAS_EXISTING_CHAT_PLATFORM=1
       DISCORD_BOT_TOKEN="$EXISTING_DISCORD_TOKEN"
-      success "Reusing existing Discord token"
-    else
-      prompt DISCORD_BOT_TOKEN "Enter Discord bot token" "" true
-      [ -n "$DISCORD_BOT_TOKEN" ] && success "Discord token set" || warn "Discord token not provided"
+      TELEGRAM_BOT_TOKEN="$EXISTING_TELEGRAM_TOKEN"
     fi
   fi
 
-  if [ $chat_choice -eq 1 ] || [ $chat_choice -eq 2 ]; then
-    echo ""
-    info "Telegram BotFather: https://t.me/BotFather"
-    
-    # Check for existing token
-    if [ "$REUSE_EXISTING" -eq 1 ] && [ -n "$EXISTING_TELEGRAM_TOKEN" ]; then
-      TELEGRAM_BOT_TOKEN="$EXISTING_TELEGRAM_TOKEN"
-      success "Reusing existing Telegram token"
-    else
+  if [ "$HAS_EXISTING_CHAT_PLATFORM" -eq 1 ]; then
+    header "Chat platform setup"
+    success "Reusing existing chat platform configuration:"
+    [ -n "$DISCORD_BOT_TOKEN" ] && info "  - Discord"
+    [ -n "$TELEGRAM_BOT_TOKEN" ] && info "  - Telegram"
+  else
+    header "Chat platform setup"
+
+    select_option "Choose platform(s):" "Discord" "Telegram" "Both"
+    local chat_choice=$SELECT_RESULT
+
+    if [ $chat_choice -eq 0 ] || [ $chat_choice -eq 2 ]; then
+      echo ""
+      info "Discord developer portal: https://discord.com/developers/applications"
+      
+      prompt DISCORD_BOT_TOKEN "Enter Discord bot token" "" true
+      [ -n "$DISCORD_BOT_TOKEN" ] && success "Discord token set" || warn "Discord token not provided"
+    fi
+
+    if [ $chat_choice -eq 1 ] || [ $chat_choice -eq 2 ]; then
+      echo ""
+      info "Telegram BotFather: https://t.me/BotFather"
+      
       prompt TELEGRAM_BOT_TOKEN "Enter Telegram bot token" "" true
       [ -n "$TELEGRAM_BOT_TOKEN" ] && success "Telegram token set" || warn "Telegram token not provided"
     fi
