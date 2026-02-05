@@ -24,16 +24,14 @@ export type SupportedOAuthProvider = "anthropic" | "openai-codex";
 
 const AUTH_DIR = join(
   process.env.HOME ?? process.env.USERPROFILE ?? ".",
-  ".owliabot"
+  ".owliabot",
+  "auth"  // Save auth files in auth/ subdirectory for proper Docker volume mounting
 );
 
 /** Get auth file path for a specific provider */
 function getAuthFile(provider: SupportedOAuthProvider): string {
   return join(AUTH_DIR, `auth-${provider}.json`);
 }
-
-/** Legacy auth file path (for backward compatibility with existing anthropic auth) */
-const LEGACY_AUTH_FILE = join(AUTH_DIR, "auth.json");
 
 /**
  * Start OAuth flow for a provider
@@ -141,45 +139,29 @@ export async function loadOAuthCredentials(
 ): Promise<OAuthCredentials | null> {
   const authFile = getAuthFile(provider);
 
-  // Try provider-specific file first, then legacy file for anthropic
-  const filesToTry = [authFile];
-  if (provider === "anthropic") {
-    filesToTry.push(LEGACY_AUTH_FILE);
-  }
+  try {
+    const content = await readFile(authFile, "utf-8");
+    const data = JSON.parse(content) as OAuthCredentials;
 
-  for (const file of filesToTry) {
-    try {
-      const content = await readFile(file, "utf-8");
-      const data = JSON.parse(content) as OAuthCredentials;
-
-      // Check if expired
-      if (Date.now() >= data.expires) {
-        log.debug(`${provider} OAuth token expired, needs refresh`);
-        // Auto-refresh
-        try {
-          return await refreshOAuthCredentials(data, provider);
-        } catch (err) {
-          log.warn(`${provider} token refresh failed, need re-authentication`);
-          return null;
-        }
+    // Check if expired
+    if (Date.now() >= data.expires) {
+      log.debug(`${provider} OAuth token expired, needs refresh`);
+      // Auto-refresh
+      try {
+        return await refreshOAuthCredentials(data, provider);
+      } catch (err) {
+        log.warn(`${provider} token refresh failed, need re-authentication`);
+        return null;
       }
-
-      // If loaded from legacy file, migrate to new location
-      if (file === LEGACY_AUTH_FILE && provider === "anthropic") {
-        log.debug("Migrating legacy auth file to provider-specific location");
-        await saveOAuthCredentials(data, provider);
-      }
-
-      return data;
-    } catch (err) {
-      if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
-        throw err;
-      }
-      // File not found, try next
     }
-  }
 
-  return null;
+    return data;
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
+      throw err;
+    }
+    return null;
+  }
 }
 
 /**
@@ -204,25 +186,13 @@ export async function clearOAuthCredentials(
   const { unlink } = await import("node:fs/promises");
   const authFile = getAuthFile(provider);
 
-  // Delete provider-specific auth file
+  // Delete auth file
   try {
     await unlink(authFile);
     log.info(`${provider} credentials cleared`);
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
       throw err;
-    }
-  }
-
-  // Also delete legacy auth.json for anthropic to ensure complete logout
-  if (provider === "anthropic") {
-    try {
-      await unlink(LEGACY_AUTH_FILE);
-      log.debug("Legacy auth.json also cleared");
-    } catch (err) {
-      if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
-        throw err;
-      }
     }
   }
 }
