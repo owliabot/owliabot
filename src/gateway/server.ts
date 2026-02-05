@@ -24,6 +24,9 @@ import { executeToolCalls } from "../agent/tools/executor.js";
 import {
   createBuiltinTools,
   createHelpTool,
+  createExecTool,
+  createWebFetchTool,
+  createWebSearchTool,
 } from "../agent/tools/builtin/index.js";
 import {
   WriteGateReplyRouter,
@@ -150,6 +153,35 @@ export async function startGateway(
     tools.register(tool);
   }
   tools.register(createHelpTool(tools)); // Last - needs registry reference
+
+  // System action tools (exec, web_fetch, web_search)
+  // Conditionally registered based on config.system presence
+  if (config.system?.exec) {
+    tools.register(
+      createExecTool({
+        workspacePath: config.workspace,
+        config: config.system.exec,
+      })
+    );
+  }
+  if (config.system?.web) {
+    tools.register(
+      createWebFetchTool({
+        config: config.system.web,
+      })
+    );
+  }
+  // web_search requires explicit webSearch config (web config alone is not sufficient)
+  if (config.system?.webSearch) {
+    tools.register(
+      createWebSearchTool({
+        config: {
+          web: config.system?.web,
+          webSearch: config.system.webSearch,
+        },
+      })
+    );
+  }
 
   // Load skills if enabled
   // Multi-directory loading: builtin → user home → workspace (later overrides earlier)
