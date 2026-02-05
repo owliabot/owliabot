@@ -31,7 +31,8 @@ vi.mock("../../utils/logger.js", () => ({
 
 const AUTH_DIR = join(
   process.env.HOME ?? process.env.USERPROFILE ?? ".",
-  ".owliabot"
+  ".owliabot",
+  "auth"
 );
 
 describe("oauth", () => {
@@ -104,7 +105,9 @@ describe("oauth", () => {
       };
 
       vi.mocked(readFile).mockResolvedValue(JSON.stringify(expiredCredentials));
-      vi.mocked(piAi.refreshAnthropicToken).mockResolvedValue(newCredentials as any);
+      vi.mocked(piAi.refreshAnthropicToken).mockResolvedValue(
+        newCredentials as any
+      );
       vi.mocked(mkdir).mockResolvedValue(undefined);
       vi.mocked(writeFile).mockResolvedValue();
 
@@ -130,7 +133,9 @@ describe("oauth", () => {
       };
 
       vi.mocked(readFile).mockResolvedValue(JSON.stringify(expiredCredentials));
-      vi.mocked(piAi.refreshOpenAICodexToken).mockResolvedValue(newCredentials as any);
+      vi.mocked(piAi.refreshOpenAICodexToken).mockResolvedValue(
+        newCredentials as any
+      );
       vi.mocked(mkdir).mockResolvedValue(undefined);
       vi.mocked(writeFile).mockResolvedValue();
 
@@ -149,43 +154,13 @@ describe("oauth", () => {
       };
 
       vi.mocked(readFile).mockResolvedValue(JSON.stringify(expiredCredentials));
-      vi.mocked(piAi.refreshAnthropicToken).mockRejectedValue(new Error("Refresh failed"));
+      vi.mocked(piAi.refreshAnthropicToken).mockRejectedValue(
+        new Error("Refresh failed")
+      );
 
       const result = await loadOAuthCredentials("anthropic");
 
       expect(result).toBeNull();
-    });
-
-    it("should fallback to legacy auth file for anthropic", async () => {
-      const mockCredentials = {
-        access: "access_token",
-        refresh: "refresh_token",
-        expires: Date.now() + 3600000,
-        email: "test@example.com",
-      };
-
-      // First call (new path) returns ENOENT
-      const error: any = new Error("ENOENT");
-      error.code = "ENOENT";
-      vi.mocked(readFile)
-        .mockRejectedValueOnce(error)
-        .mockResolvedValueOnce(JSON.stringify(mockCredentials));
-
-      vi.mocked(mkdir).mockResolvedValue(undefined);
-      vi.mocked(writeFile).mockResolvedValue();
-
-      const result = await loadOAuthCredentials("anthropic");
-
-      expect(result).toEqual(mockCredentials);
-      // Should have tried the legacy file
-      expect(readFile).toHaveBeenCalledTimes(2);
-      expect(readFile).toHaveBeenNthCalledWith(
-        2,
-        join(AUTH_DIR, "auth.json"),
-        "utf-8"
-      );
-      // Should migrate to new location
-      expect(writeFile).toHaveBeenCalled();
     });
   });
 
@@ -231,24 +206,24 @@ describe("oauth", () => {
   });
 
   describe("clearOAuthCredentials", () => {
-    it("should delete credentials file and legacy file for anthropic", async () => {
+    it("should delete credentials file for anthropic", async () => {
       vi.mocked(unlink).mockResolvedValue(undefined);
 
       await clearOAuthCredentials("anthropic");
 
-      // Should delete both provider-specific and legacy auth file
       expect(unlink).toHaveBeenCalledWith(join(AUTH_DIR, "auth-anthropic.json"));
-      expect(unlink).toHaveBeenCalledWith(join(AUTH_DIR, "auth.json"));
-      expect(unlink).toHaveBeenCalledTimes(2);
+      expect(unlink).toHaveBeenCalledTimes(1);
     });
 
-    it("should delete credentials file for openai-codex (no legacy file)", async () => {
+    it("should delete credentials file for openai-codex", async () => {
       vi.mocked(unlink).mockResolvedValue(undefined);
 
       await clearOAuthCredentials("openai-codex");
 
-      expect(unlink).toHaveBeenCalledWith(join(AUTH_DIR, "auth-openai-codex.json"));
-      expect(unlink).toHaveBeenCalledTimes(1); // No legacy file for openai-codex
+      expect(unlink).toHaveBeenCalledWith(
+        join(AUTH_DIR, "auth-openai-codex.json")
+      );
+      expect(unlink).toHaveBeenCalledTimes(1);
     });
 
     it("should ignore ENOENT errors", async () => {
@@ -352,7 +327,9 @@ describe("oauth", () => {
         email: "test@example.com",
       };
 
-      vi.mocked(piAi.refreshOpenAICodexToken).mockResolvedValue(newCredentials as any);
+      vi.mocked(piAi.refreshOpenAICodexToken).mockResolvedValue(
+        newCredentials as any
+      );
       vi.mocked(mkdir).mockResolvedValue(undefined);
       vi.mocked(writeFile).mockResolvedValue();
 
