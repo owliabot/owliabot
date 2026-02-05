@@ -78,6 +78,16 @@ export function createDiscordPlugin(config: DiscordConfig): ChannelPlugin {
         // Build MsgContext early so preFilter can inspect it
         const body = message.content.replace(/<@!?\d+>\s*/g, "").trim();
 
+        // Calculate mentioned status early (needed for msgCtx)
+        const botUser = client.user;
+        const mentioned = !isDM && botUser
+          ? message.mentions.has(botUser, {
+              ignoreEveryone: true,
+              ignoreRoles: true,
+              ignoreRepliedUser: true,
+            })
+          : false;
+
         const msgCtx: MsgContext = {
           from: message.author.id,
           senderName: message.author.displayName ?? message.author.username,
@@ -90,6 +100,7 @@ export function createDiscordPlugin(config: DiscordConfig): ChannelPlugin {
           groupId: isDM ? undefined : message.channel.id,
           groupName: isDM ? undefined : message.guild?.name,
           timestamp: message.createdTimestamp,
+          mentioned,  // Pass mention status to gateway
         };
 
         // Pre-filter bypass (e.g. WriteGate confirmation replies)
@@ -104,16 +115,6 @@ export function createDiscordPlugin(config: DiscordConfig): ChannelPlugin {
 
         // Guild filtering rules
         if (!isDM) {
-          const botUser = client.user;
-          // Explicitly ignore @everyone/@here, role mentions, and reply-to
-          // mentions so only a direct @botUser mention triggers activation.
-          const mentioned = botUser
-            ? message.mentions.has(botUser, {
-                ignoreEveryone: true,
-                ignoreRoles: true,
-                ignoreRepliedUser: true,
-              })
-            : false;
           const inAllowedChannel =
             config.channelAllowList && config.channelAllowList.length > 0
               ? config.channelAllowList.includes(message.channel.id)
