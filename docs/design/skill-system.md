@@ -1,379 +1,345 @@
 # Skill 系统设计
 
-> 状态：草案 (Draft)  
+> 状态：已实现 (Implemented)  
 > 作者：Lay2  
-> 日期：2026-02-05
+> 日期：2026-02-05  
+> 更新：2026-02-05 (Markdown-based 重构)
 
 ## 1. 概述
 
-Skill 是 OwliaBot 的可扩展能力单元，允许用户通过 JavaScript/TypeScript 脚本扩展 bot 的功能。本文档定义 skill 的执行模型及其与安全层（WriteGate、TierPolicy）的集成方式。
+Skill 是 OwliaBot 的可扩展能力单元。**新设计采用纯 Markdown 方案**：每个 Skill 是一个 `SKILL.md` 文件，包含 YAML frontmatter 元数据和 Markdown 说明。LLM 按需读取这些文件来获取执行指引。
 
-### 设计决策记录 (Brainstorming 2026-02-05)
+### 1.1 设计原则
 
-**问题：Skills 调用工具需要经过 gateway 的 WriteGate 吗？**
+| 原则 | 说明 |
+|------|------|
+| **Markdown > JS** | 无运行时代码执行，减少攻击面 |
+| **Prompt 即能力** | Skill 内容直接指导 LLM 行为 |
+| **多目录覆盖** | builtin → user → workspace，支持自定义 |
+| **安全在工具层** | WriteGate/TierPolicy 在工具执行层，Skill 无法绕过 |
 
-**结论：分层处理，不是所有 skill 调用都过 WriteGate。**
+### 1.2 与旧设计的对比
 
-| 场景 | 处理方式 |
-|------|---------|
-| Skill 调用 read-only 工具（read-file, list-dir, web.fetch） | 直接执行，不过 WriteGate |
-| Skill 调用 write 工具（edit-file, write-file） | **过 WriteGate**，因为底层还是写文件 |
-| Skill 调用外部 API / 发交易 | 不归 WriteGate，归 **Tier 1/2/3 策略** |
+| 方面 | 旧设计 (JS) | 新设计 (Markdown) |
+|------|------------|-------------------|
+| 定义格式 | `package.json` + JS 模块 | `SKILL.md` (YAML + Markdown) |
+| 执行方式 | 运行时加载执行 JS | LLM 读取后自行决策 |
+| 安全模型 | 需要沙箱隔离 | 无代码执行风险 |
+| 扩展方式 | 需要编程能力 | 只需写 Markdown |
+| 工具调用 | `ctx.callTool()` 封装 | LLM 直接调用内置工具 |
 
-**设计理由：**
-- WriteGate 是工具级别的门，不是 skill 级别的
-- Skill 只是「调用工具的脚本」，真正的安全边界在工具层
-- 这样 skill 作者不用重新实现安全逻辑，用户对敏感操作有一致的确认体验
-- 未来加新工具，安全策略自动继承
+## 2. SKILL.md 格式
 
-### 设计原则
+```markdown
+---
+name: weather
+description: Get current weather and forecasts using wttr.in.
+version: 1.0.0
+---
 
-1. **安全边界在工具层，不在 skill 层** — Skill 是透明的"调用者"，不绕过任何门控
-2. **Skill 作者无需重新实现安全逻辑** — 底层工具自带安全检查
-3. **用户体验一致** — 无论直接调用还是通过 skill 调用，敏感操作的确认流程相同
-4. **可审计** — 所有 skill 触发的工具调用都记录到 audit log
+# Weather
 
-## 2. 架构总览
+Use wttr.in for weather queries. No API key needed.
+
+## Quick Check
+
+\`\`\`bash
+curl -s "wttr.in/London?format=3"
+\`\`\`
+
+...
+```
+
+### 2.1 Frontmatter 字段
+
+| 字段 | 必需 | 说明 |
+|------|------|------|
+| `name` | ✅ | Skill 显示名称 |
+| `description` | ✅ | 简短描述（用于 LLM 选择） |
+| `version` | ❌ | 语义化版本 |
+
+### 2.2 Markdown Body
+
+包含 LLM 执行该 Skill 所需的所有指引：
+- 命令示例
+- API 用法
+- 最佳实践
+- 注意事项
+
+## 3. 目录结构与加载顺序
+
+Skills 从三个目录加载，**后者覆盖前者**（按目录名/Skill ID）：
 
 ```
+1. builtin:   <owliabot-core>/skills/          # 内置 skills
+2. user:      ~/.owliabot/skills/              # 用户自定义
+3. workspace: <workspace>/skills/              # 项目特定
+```
+
+### 3.1 覆盖规则
+
+```
+builtin/
+  └── weather/SKILL.md    # 基础天气
+  
+~/.owliabot/skills/
+  └── weather/SKILL.md    # 用户自定义，覆盖 builtin
+  
+workspace/skills/
+  └── weather/SKILL.md    # 项目特定，最终生效
+```
+
+### 3.2 加载流程
+
+```typescript
+// src/skills/loader.ts
+export async function loadSkills(dirs: string[]): Promise<Skill[]> {
+  const skillsMap = new Map<string, Skill>();
+  
+  for (const dir of dirs) {
+    const skills = await loadSkillsFromDir(dir);
+    for (const skill of skills) {
+      skillsMap.set(skill.id, skill); // 后者覆盖前者
+    }
+  }
+  
+  return Array.from(skillsMap.values());
+}
+```
+
+## 4. System Prompt 注入
+
+加载的 Skills 以 XML 格式注入 System Prompt：
+
+```xml
+<available_skills>
+  <skill>
+    <name>weather</name>
+    <description>Get current weather and forecasts using wttr.in.</description>
+    <location>/home/user/owliabot-core/skills/weather/SKILL.md</location>
+  </skill>
+  <skill>
+    <name>github</name>
+    <description>Interact with GitHub using the gh CLI.</description>
+    <location>/home/user/.owliabot/skills/github/SKILL.md</location>
+  </skill>
+</available_skills>
+```
+
+### 4.1 Skills 使用指引
+
+System Prompt 还包含使用指引：
+
+```
+## Skills (mandatory)
+
+Before replying: scan <available_skills> <description> entries.
+- If exactly one skill clearly applies: read its SKILL.md at <location> with `read`, then follow it.
+- If multiple could apply: choose the most specific one, then read/follow it.
+- If none clearly apply: do not read any SKILL.md.
+
+Constraints: never read more than one skill up front; only read after selecting.
+```
+
+## 5. 运行时流程
+
+```
+用户: "What's the weather in Tokyo?"
+         │
+         ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│                         Agent Loop                               │
-│                   (LLM 决定调用哪个 skill)                        │
+│                      System Prompt                               │
+│  包含 <available_skills>:                                       │
+│    - weather: "Get current weather..."                          │
+│    - github: "Interact with GitHub..."                          │
 └─────────────────────────┬───────────────────────────────────────┘
                           │
                           ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│                      Skill Executor                              │
-│                   skill.execute(params)                          │
+│                        LLM 决策                                  │
+│  1. 扫描 skills 描述                                            │
+│  2. 匹配到 weather skill                                        │
+│  3. 调用 read 工具读取 SKILL.md                                 │
 └─────────────────────────┬───────────────────────────────────────┘
                           │
                           ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│                       Tool Router                                │
-│                  识别 skill 要调用哪个工具                         │
+│               read("/path/to/weather/SKILL.md")                  │
+│  返回完整的 SKILL.md 内容                                       │
 └─────────────────────────┬───────────────────────────────────────┘
                           │
-          ┌───────────────┼───────────────┬───────────────┐
-          ▼               ▼               ▼               ▼
-     ┌─────────┐    ┌──────────┐    ┌──────────┐    ┌───────────┐
-     │  Read   │    │  Write   │    │ System   │    │  Signer   │
-     │  Tools  │    │  Tools   │    │Capability│    │  链上操作  │
-     └────┬────┘    └────┬─────┘    └────┬─────┘    └─────┬─────┘
-          │              │               │                │
-          ▼              ▼               ▼                ▼
-     ┌─────────┐    ┌──────────┐    ┌──────────┐    ┌───────────┐
-     │  直接   │    │WriteGate │    │ Allowlist│    │TierPolicy │
-     │  执行   │    │ .check() │    │ + Audit  │    │.evaluate()│
-     └────┬────┘    └────┬─────┘    └────┬─────┘    └─────┬─────┘
-          │              │               │                │
-          │         ┌────┴────┐          │          ┌─────┴─────┐
-          │         ▼         ▼          │          ▼           ▼
-          │    Allowlist  Confirm?       │     Tier 2/3    Tier 1
-          │    Check      (如需)         │     自动/inline  Companion
-          │         │         │          │          │       App
-          │         ▼         ▼          │          │         │
-          └─────────┴─────────┴──────────┴──────────┴─────────┘
-                              │
-                              ▼
-                    ┌─────────────────┐
-                    │   Audit Log     │
-                    │ (JSONL, ULID)   │
-                    └─────────────────┘
+                          ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                    LLM 根据指引执行                              │
+│  1. 阅读 SKILL.md 中的 curl 命令                                │
+│  2. 调用 exec 工具执行: curl -s "wttr.in/Tokyo?format=3"        │
+│  3. 解析结果并回复用户                                          │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
-## 3. 工具分类与安全层映射
+## 6. 安全模型
 
-| 工具类型 | 示例 | 安全层 | 检查内容 |
-|---------|------|--------|---------|
-| **Read Tools** | read-file, list-dir, read-url | 无 | 直接执行 |
-| **Write Tools** | edit-file, write-file, delete-file | WriteGate | allowlist + 可选确认 |
-| **System Capability (网络)** | web.fetch, web.search | SystemCapability | 域名白名单 + 私网拦截 |
-| **System Capability (exec)** | exec | TierPolicy (Tier 2) | 命令白名单 + inline 确认 |
-| **Signer/链上** | transfer, approve, sign | TierPolicy | Tier 1/2/3 分级确认 |
+### 6.1 安全边界在工具层
 
-> **注意**：`exec` 因为可执行任意命令，安全级别为 `write`，需要 Tier 2 inline 确认，与 `tier-policy.md` 保持一致。
+Skill 只是「给 LLM 的指引」，真正的安全检查在工具层：
 
-### 3.1 WriteGate 集成
+| 工具类型 | 安全层 | 说明 |
+|---------|--------|------|
+| Read Tools | 无 | read-file, list-dir 直接执行 |
+| Write Tools | WriteGate | 需要 allowlist + 可选确认 |
+| Exec | TierPolicy | 命令白名单 + inline 确认 |
+| Signer | TierPolicy | Tier 1/2/3 分级确认 |
 
-当 skill 调用写工具时：
+### 6.2 Skill 无法绕过门控
+
+```
+SKILL.md: "执行 rm -rf /" 
+           │
+           ▼
+      LLM 调用 exec 工具
+           │
+           ▼
+      WriteGate 检查
+           │
+           ▼
+      ❌ 命令不在白名单，拒绝执行
+```
+
+### 6.3 无代码执行风险
+
+- Markdown 文件是纯文本，不会被执行
+- LLM 必须通过内置工具才能执行任何操作
+- 所有操作都经过 Gateway 的安全层
+
+## 7. 实现细节
+
+### 7.1 类型定义
 
 ```typescript
-// src/skills/executor.ts
-async function executeSkillToolCall(skill: Skill, toolCall: ToolCall, context: Context) {
-  const tool = resolveTool(toolCall.name);
-  
-  if (tool.category === 'write') {
-    // 走 WriteGate 检查
-    const gateResult = await writeGate.check({
-      tool: toolCall,
-      userId: context.userId,
-      sessionId: context.sessionId,
-      channel: context.channel,  // 用于发确认消息
-    });
-    
-    if (gateResult.action === 'deny') {
-      return { success: false, error: gateResult.reason };
-    }
-    
-    if (gateResult.action === 'confirm') {
-      const confirmed = await gateResult.awaitConfirmation();
-      if (!confirmed) {
-        return { success: false, error: 'User rejected' };
-      }
-    }
-  }
-  
-  // 执行工具
-  return tool.execute(toolCall.arguments, context);
+// src/skills/types.ts
+export interface SkillMeta {
+  name: string;
+  description: string;
+  version?: string;
+}
+
+export interface Skill {
+  id: string;           // 目录名
+  meta: SkillMeta;      // frontmatter 解析结果
+  location: string;     // SKILL.md 绝对路径
+  body: string;         // markdown 内容（可选缓存）
+}
+
+export interface SkillsInitResult {
+  skills: Skill[];
+  promptBlock: string;  // <available_skills> XML
+  instruction: string;  // 使用指引
 }
 ```
 
-### 3.2 TierPolicy 集成
-
-当 skill 调用链上操作时：
+### 7.2 Frontmatter 解析
 
 ```typescript
-// src/skills/executor.ts
-async function executeSkillSignerCall(skill: Skill, call: SignerCall, context: Context) {
-  // 评估策略
-  const decision = tierPolicy.evaluate({
-    tool: call.operation,
-    params: call.params,
-    amountUsd: call.estimatedValueUsd,
-    userId: context.userId,
-  });
+// src/skills/loader.ts
+const FRONTMATTER_REGEX = /^---\s*\n([\s\S]*?)\n---\s*\n?([\s\S]*)$/;
+
+export function parseFrontmatter(content: string): { meta: SkillMeta; body: string } | null {
+  const match = content.match(FRONTMATTER_REGEX);
+  if (!match) return null;
   
-  switch (decision.action) {
-    case 'allow':
-      // Tier 3: 自动执行
-      return executeSigner(call, decision.signerTier, context);
-      
-    case 'confirm':
-      // Tier 2: inline 确认
-      const confirmed = await requestInlineConfirmation(call, context);
-      if (!confirmed) return { success: false, error: 'User rejected' };
-      return executeSigner(call, decision.signerTier, context);
-      
-    case 'escalate':
-      // Tier 1: Companion App
-      return requestCompanionAppApproval(call, context);
-      
-    case 'deny':
-      return { success: false, error: decision.reason };
-  }
+  const meta = yaml.parse(match[1]) as SkillMeta;
+  const body = match[2];
+  
+  if (!meta.name || !meta.description) return null;
+  
+  return { meta, body };
 }
 ```
 
-## 4. Skill 定义格式
+### 7.3 Prompt 生成
 
 ```typescript
-// types/skill.ts
-interface SkillDefinition {
-  id: string;                    // 唯一标识，如 "weather"
-  name: string;                  // 显示名称
-  description: string;           // 描述（给 LLM 看）
-  version: string;               // 语义化版本
+// src/skills/prompt.ts
+export function formatSkillsForPrompt(skills: Skill[]): string {
+  if (skills.length === 0) return '';
   
-  // 权限声明（用于 UI 展示和审计）
-  permissions: {
-    tools?: string[];            // 需要的工具，如 ["web.fetch", "read-file"]
-    signer?: boolean;            // 是否需要签名能力
-    network?: boolean;           // 是否需要网络访问
-  };
+  const items = skills.map(skill => `  <skill>
+    <name>${escapeXml(skill.meta.name)}</name>
+    <description>${escapeXml(skill.meta.description)}</description>
+    <location>${escapeXml(skill.location)}</location>
+  </skill>`);
   
-  // 入口函数
-  execute: (params: unknown, context: SkillContext) => Promise<SkillResult>;
-}
-
-interface SkillContext {
-  // 工具调用（自动走安全检查）
-  callTool: (name: string, args: unknown) => Promise<ToolResult>;
-  
-  // 链上操作（自动走 TierPolicy）
-  callSigner: (operation: string, params: unknown) => Promise<SignerResult>;
-  
-  // 用户交互
-  sendMessage: (text: string) => Promise<void>;
-  askConfirmation: (prompt: string) => Promise<boolean>;
-  
-  // 上下文
-  userId: string;
-  sessionId: string;
-  workspace: string;
+  return `<available_skills>\n${items.join('\n')}\n</available_skills>`;
 }
 ```
 
-## 5. Skill 示例
+## 8. 测试覆盖
 
-### 5.1 天气查询（只读）
+### 8.1 单元测试
 
-```typescript
-// skills/weather/index.ts
-export const weatherSkill: SkillDefinition = {
-  id: 'weather',
-  name: '天气查询',
-  description: '获取指定城市的天气信息',
-  version: '1.0.0',
-  permissions: {
-    tools: ['web.fetch'],
-    network: true,
-  },
-  
-  async execute(params: { city: string }, ctx) {
-    const url = `https://wttr.in/${encodeURIComponent(params.city)}?format=j1`;
-    const result = await ctx.callTool('web.fetch', { url });
-    
-    if (!result.success) {
-      return { success: false, error: result.error };
-    }
-    
-    const data = JSON.parse(result.data.content);
-    return {
-      success: true,
-      data: {
-        city: params.city,
-        temperature: data.current_condition[0].temp_C,
-        description: data.current_condition[0].weatherDesc[0].value,
-      },
-    };
-  },
-};
+| 文件 | 测试数 | 覆盖内容 |
+|------|--------|---------|
+| `loader.test.ts` | 11 | frontmatter 解析、目录加载、错误处理 |
+| `prompt.test.ts` | 4 | XML 生成、特殊字符转义 |
+
+### 8.2 E2E 测试
+
+| 测试类别 | 测试数 | 覆盖内容 |
+|---------|--------|---------|
+| Skills 加载 | 4 | 多目录加载、工具命名空间、错误处理 |
+| Tool 调用流程 | 2 | read-level 执行、SkillContext 传递 |
+| WriteGate 集成 | 6 | allowlist、确认流程、安全边界验证 |
+
+**总计**: 763 tests, 100% passing ✅
+
+## 9. 内置 Skills
+
+### 9.1 weather
+
+天气查询，使用 wttr.in API。
+
+```bash
+curl -s "wttr.in/Tokyo?format=3"
+# Tokyo: ☀️ +15°C
 ```
 
-### 5.2 文件编辑（需要 WriteGate）
+### 9.2 github
 
-```typescript
-// skills/todo/index.ts
-export const todoSkill: SkillDefinition = {
-  id: 'todo',
-  name: 'Todo 管理',
-  description: '管理 workspace 中的 todo.md 文件',
-  version: '1.0.0',
-  permissions: {
-    tools: ['read-file', 'edit-file'],  // 声明需要写权限
-  },
-  
-  async execute(params: { action: 'add' | 'list'; item?: string }, ctx) {
-    const todoPath = `${ctx.workspace}/todo.md`;
-    
-    if (params.action === 'list') {
-      const result = await ctx.callTool('read-file', { path: todoPath });
-      return result;
-    }
-    
-    if (params.action === 'add' && params.item) {
-      // 这里会自动触发 WriteGate 检查
-      // 用户会看到确认消息："要编辑 todo.md 吗？"
-      const result = await ctx.callTool('edit-file', {
-        path: todoPath,
-        operation: 'append',
-        content: `- [ ] ${params.item}\n`,
-      });
-      return result;
-    }
-    
-    return { success: false, error: 'Invalid action' };
-  },
-};
+GitHub CLI 操作指南。
+
+```bash
+gh issue list
+gh pr create --title "..." --body "..."
 ```
 
-### 5.3 链上转账（需要 TierPolicy）
+### 9.3 web-search
 
-```typescript
-// skills/transfer/index.ts
-export const transferSkill: SkillDefinition = {
-  id: 'transfer',
-  name: 'Token 转账',
-  description: '发送 ERC20 代币',
-  version: '1.0.0',
-  permissions: {
-    signer: true,  // 声明需要签名能力
-    network: true,
-  },
-  
-  async execute(params: { token: string; to: string; amount: string }, ctx) {
-    // 这里会自动触发 TierPolicy 评估
-    // 根据金额决定 Tier 2 (inline 确认) 或 Tier 1 (Companion App)
-    const result = await ctx.callSigner('transfer', {
-      token: params.token,
-      to: params.to,
-      amount: params.amount,
-    });
-    
-    return result;
-  },
-};
+内置 web_search/web_fetch 工具使用指南。
+
+## 10. 创建自定义 Skill
+
+1. 在 `~/.owliabot/skills/` 下创建目录
+2. 创建 `SKILL.md` 文件
+3. 填写 frontmatter 和说明
+
+```bash
+mkdir -p ~/.owliabot/skills/my-skill
+cat > ~/.owliabot/skills/my-skill/SKILL.md << 'EOF'
+---
+name: my-skill
+description: 这是我的自定义 skill
+version: 1.0.0
+---
+
+# My Skill
+
+这里写 skill 的使用说明...
+EOF
 ```
 
-## 6. 审计日志
+重启 owliabot 后自动加载。
 
-所有 skill 触发的工具调用都记录到 `workspace/audit.jsonl`：
-
-```jsonc
-{
-  // 基础字段
-  "id": "audit_01HQ3KXYZ123456",           // ULID
-  "ts": "2026-02-05T04:05:12.345Z",        // ISO 8601
-  "version": 1,                             // schema 版本
-
-  // 操作信息
-  "tool": "todo__edit-file",               // skill__tool 格式
-  "tier": "none",                           // WriteGate 管理，非 TierPolicy
-  "securityLevel": "write",                 // read|write|sign
-
-  // 身份信息
-  "user": "discord:123456789",              // 发起者
-  "channel": "discord",                     // 渠道
-  "sessionId": "session-abc",
-
-  // 参数（脱敏）
-  "params": {
-    "path": "todo.md",
-    "operation": "append"
-    // content 已脱敏，不记录具体内容
-  },
-
-  // 执行结果
-  "result": "success",                      // success|denied|timeout|error
-  "gate": "WriteGate",                      // 经过的安全门
-  "gateDecision": "approved"                // approved|denied|timeout
-}
-```
-
-> 格式与 `audit-strategy.md` 对齐，详见该文档的完整 schema 定义。
-
-## 7. 安全考量
-
-### 7.1 Skill 不能绕过安全层
-
-- Skill 只能通过 `ctx.callTool()` 和 `ctx.callSigner()` 调用工具
-- 这些方法内部强制走 WriteGate / TierPolicy
-- Skill 代码无法直接访问底层 API
-
-### 7.2 权限声明是提示，不是强制
-
-- `permissions` 字段用于 UI 展示和用户信任判断
-- 实际权限检查在工具层，不依赖 skill 的自我声明
-- 即使 skill 声明了 `tools: ['read-file']`，它仍可调用 `edit-file`，但会被 WriteGate 拦截
-
-### 7.3 Skill 沙箱（未来）
-
-未来可考虑：
-- V8 Isolate 隔离
-- 资源限制（CPU、内存、执行时间）
-- 网络白名单
-
-## 8. 实现计划
-
-| 阶段 | 内容 | 状态 |
-|-----|------|------|
-| Phase 1 | Skill 定义格式 + loader | 🔜 |
-| Phase 2 | Tool Router + WriteGate 集成 | 🔜 |
-| Phase 3 | TierPolicy 集成 | 🔜 |
-| Phase 4 | 内置 skill（weather、todo） | 🔜 |
-| Phase 5 | 用户自定义 skill 加载 | 🔜 |
-
-## 9. 参考
+## 11. 参考
 
 - [WriteGate 设计](./write-gate.md)
 - [Tier Policy 设计](./tier-policy.md)

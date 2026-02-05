@@ -1,4 +1,5 @@
 import type { WorkspaceFiles } from "../workspace/types.js";
+import type { SkillsInitResult } from "../skills/types.js";
 
 export interface PromptContext {
   workspace: WorkspaceFiles;
@@ -8,6 +9,8 @@ export interface PromptContext {
   /** Security boundary relies on this being provided by the caller. */
   chatType: "direct" | "group" | "channel";
   isHeartbeat?: boolean;
+  /** Skills system result for prompt injection */
+  skills?: SkillsInitResult;
 }
 
 export function buildSystemPrompt(ctx: PromptContext): string {
@@ -54,7 +57,13 @@ export function buildSystemPrompt(ctx: PromptContext): string {
     sections.push(`## Memory\n${ctx.workspace.memory}`);
   }
 
-  // 9. Runtime info
+  // 9. Skills
+  if (ctx.skills && ctx.skills.skills.length > 0) {
+    sections.push(ctx.skills.instruction);
+    sections.push(ctx.skills.promptBlock);
+  }
+
+  // 10. Runtime info
   sections.push(`## Runtime
 - Time: ${new Date().toISOString()}
 - Timezone: ${ctx.timezone}
@@ -62,7 +71,7 @@ export function buildSystemPrompt(ctx: PromptContext): string {
 - Model: ${ctx.model}
 `);
 
-  // 10. Heartbeat mode
+  // 11. Heartbeat mode
   if (ctx.isHeartbeat && ctx.workspace.heartbeat) {
     sections.push(`## Heartbeat
 Read the following checklist and execute it:

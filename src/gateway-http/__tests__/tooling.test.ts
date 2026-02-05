@@ -15,9 +15,8 @@ vi.mock("../../agent/tools/builtin/index.js", async () => {
   return actual;
 });
 
-vi.mock("../../skills/index.js", () => ({
-  initializeSkills: vi.fn(async () => {}),
-}));
+// Note: Markdown-based skills don't register tools with the registry.
+// Skills initialization now happens at the gateway level for system prompt injection.
 
 vi.mock("../../utils/logger.js", () => ({
   createLogger: () => ({
@@ -62,15 +61,7 @@ describe("gateway-http tooling", () => {
       expect(registry2).toBeDefined();
     });
 
-    it("should initialize skills from workspace", async () => {
-      const { initializeSkills } = await import("../../skills/index.js");
-
-      await createGatewayToolRegistry("/test/workspace");
-
-      expect(initializeSkills).toHaveBeenCalledWith(
-        expect.stringContaining("skills"),
-        expect.anything()
-      );
-    });
+    // Note: "should initialize skills from workspace" test removed
+    // Markdown-based skills are now injected into system prompts, not tool registries
   });
 });

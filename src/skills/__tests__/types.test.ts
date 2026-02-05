@@ -1,58 +1,93 @@
 // src/skills/__tests__/types.test.ts
 import { describe, it, expect } from "vitest";
-import { skillManifestSchema } from "../types.js";
+import type { Skill, SkillMeta, SkillsInitResult, LoadSkillsResult, ParsedFrontmatter } from "../types.js";
 
-describe("skillManifestSchema", () => {
-  it("should validate a valid manifest", () => {
-    const manifest = {
-      name: "crypto-price",
-      version: "0.1.0",
-      main: "index.js",
-      owliabot: {
-        tools: [
-          {
-            name: "get_price",
-            description: "Get crypto price",
-            parameters: {
-              type: "object",
-              properties: {
-                coin: { type: "string", description: "Coin ID" },
-              },
-              required: ["coin"],
-            },
-            security: { level: "read" },
-          },
-        ],
+describe("Skill types", () => {
+  it("should allow valid Skill structure", () => {
+    const skill: Skill = {
+      id: "test-skill",
+      meta: {
+        name: "Test Skill",
+        description: "A test skill",
+        version: "1.0.0",
       },
+      location: "/path/to/SKILL.md",
     };
 
-    const result = skillManifestSchema.safeParse(manifest);
-    expect(result.success).toBe(true);
+    expect(skill.id).toBe("test-skill");
+    expect(skill.meta.name).toBe("Test Skill");
+    expect(skill.location).toContain("SKILL.md");
   });
 
-  it("should reject manifest without owliabot field", () => {
-    const manifest = {
-      name: "crypto-price",
-      version: "0.1.0",
+  it("should allow SkillMeta without optional fields", () => {
+    const meta: SkillMeta = {
+      name: "Minimal Skill",
+      description: "Just required fields",
     };
 
-    const result = skillManifestSchema.safeParse(manifest);
-    expect(result.success).toBe(false);
+    expect(meta.version).toBeUndefined();
+    expect(meta.metadata).toBeUndefined();
   });
 
-  it("should accept optional requires.env", () => {
-    const manifest = {
-      name: "crypto-balance",
-      version: "0.1.0",
-      owliabot: {
-        requires: {
-          env: ["ALCHEMY_API_KEY"],
+  it("should allow SkillMeta with metadata", () => {
+    const meta: SkillMeta = {
+      name: "Rich Skill",
+      description: "Has metadata",
+      version: "1.0.0",
+      metadata: {
+        openclaw: {
+          emoji: "🚀",
+          requires: { config: ["channels.discord"] },
         },
-        tools: [],
       },
     };
 
-    const result = skillManifestSchema.safeParse(manifest);
-    expect(result.success).toBe(true);
+    expect(meta.metadata).toBeDefined();
+    expect((meta.metadata as any).openclaw.emoji).toBe("🚀");
+  });
+
+  it("should allow valid SkillsInitResult structure", () => {
+    const result: SkillsInitResult = {
+      skills: [],
+      promptBlock: "<available_skills />",
+      instruction: "## Skills\nInstructions here.",
+    };
+
+    expect(result.skills).toHaveLength(0);
+    expect(result.promptBlock).toContain("available_skills");
+    expect(result.instruction).toContain("Skills");
+  });
+
+  it("should allow valid LoadSkillsResult structure", () => {
+    const result: LoadSkillsResult = {
+      loaded: [
+        {
+          id: "skill-1",
+          meta: { name: "Skill 1", description: "First" },
+          location: "/path/1/SKILL.md",
+        },
+      ],
+      failed: [
+        { id: "skill-2", error: "Missing description" },
+      ],
+    };
+
+    expect(result.loaded).toHaveLength(1);
+    expect(result.failed).toHaveLength(1);
+    expect(result.failed[0].error).toContain("description");
+  });
+
+  it("should allow valid ParsedFrontmatter structure", () => {
+    const parsed: ParsedFrontmatter = {
+      data: {
+        name: "Test",
+        description: "A test",
+        custom: { nested: true },
+      },
+      content: "# Content\n\nBody here.",
+    };
+
+    expect(parsed.data.name).toBe("Test");
+    expect(parsed.content).toContain("# Content");
   });
 });

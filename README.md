@@ -9,7 +9,7 @@ Self-hosted, crypto-native AI agent with a security-first design.
 
 - **Security first**: private keys never enter the bot process
 - **Self-hosted**: run fully on your own machine or server
-- **Extensible**: add capabilities through JavaScript Skills
+- **Extensible**: add capabilities through Markdown-based Skills
 - **Familiar interfaces**: chat via Telegram or Discord
 
 OwliaBot uses a 3-tier security model:
@@ -147,14 +147,46 @@ gateway:
 - `POST /command/tool` — Tool invocation
 - `POST /pair/*` — Device pairing flow
 
-## Built-in Skills
+## Skills System
 
-- `crypto-price`: Query prices from CoinGecko (no API key required)
-- `crypto-balance`: Query wallet balances (requires `ALCHEMY_API_KEY`)
+OwliaBot uses a Markdown-based Skills system. Each skill is a `SKILL.md` file with YAML frontmatter containing instructions for the LLM.
 
-Example prompts:
-- "What's the current price of bitcoin?"
-- "Check balance of 0x... on ethereum"
+### Built-in Skills
+
+| Skill | Description |
+|-------|-------------|
+| `weather` | Weather queries via wttr.in |
+| `github` | GitHub CLI operations |
+| `web-search` | Web search and fetch guidance |
+
+### Creating Custom Skills
+
+1. Create a directory in `~/.owliabot/skills/`:
+
+```bash
+mkdir -p ~/.owliabot/skills/my-skill
+```
+
+2. Create `SKILL.md` with frontmatter:
+
+```markdown
+---
+name: my-skill
+description: What this skill does
+version: 1.0.0
+---
+
+# My Skill
+
+Instructions for the LLM...
+```
+
+Skills are loaded from three directories (later overrides earlier):
+- `<owliabot>/skills/` (builtin)
+- `~/.owliabot/skills/` (user)
+- `<workspace>/skills/` (project)
+
+See [Skill System Design](docs/design/skill-system.md) for details.
 
 ## Configuration Reference
 
@@ -217,6 +249,7 @@ src/
 - [Setup & Verification Guide](docs/setup-verify.md)
 - [Gateway HTTP Design](docs/architecture/gateway-design.md)
 - [System Capabilities](docs/architecture/system-capability.md)
+- [Skill System Design](docs/design/skill-system.md)
 - [Tier Policy & Security](docs/design/tier-policy.md)
 - [Audit Strategy](docs/design/audit-strategy.md)
 

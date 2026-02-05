@@ -40,7 +40,7 @@ import { executeHeartbeat } from "../cron/heartbeat.js";
 import { createCronIntegration } from "./cron-integration.js";
 import { createCronTool } from "../agent/tools/builtin/cron.js";
 import { createNotificationService } from "../notifications/service.js";
-import { initializeSkills } from "../skills/index.js";
+import { initializeSkills, type SkillsInitResult } from "../skills/index.js";
 import { join } from "node:path";
 
 const log = createLogger("gateway");
@@ -78,10 +78,11 @@ export async function startGateway(
   // NOTE: write tools are disabled for now (Phase 1.5) until we add confirmation/permission gates.
 
   // Load skills if enabled
+  let skillsResult: SkillsInitResult | null = null;
   const skillsEnabled = config.skills?.enabled ?? true;
   if (skillsEnabled) {
     const skillsDir = config.skills?.directory ?? join(config.workspace, "skills");
-    await initializeSkills(skillsDir, tools);
+    skillsResult = await initializeSkills([skillsDir]);
   }
 
   // WriteGate reply router (shared across all channels)
@@ -101,7 +102,7 @@ export async function startGateway(
 
     telegram.onMessage(async (ctx) => {
       if (replyRouter.tryRoute(ctx)) return; // confirmation reply consumed
-      await handleMessage(ctx, config, workspace, sessionStore, transcripts, channels, tools, writeGateChannels);
+      await handleMessage(ctx, config, workspace, sessionStore, transcripts, channels, tools, writeGateChannels, skillsResult);
     });
 
     channels.register(telegram);
@@ -122,7 +123,7 @@ export async function startGateway(
 
     discord.onMessage(async (ctx) => {
       if (replyRouter.tryRoute(ctx)) return; // confirmation reply consumed
-      await handleMessage(ctx, config, workspace, sessionStore, transcripts, channels, tools, writeGateChannels);
+      await handleMessage(ctx, config, workspace, sessionStore, transcripts, channels, tools, writeGateChannels, skillsResult);
     });
 
     channels.register(discord);
@@ -197,6 +198,7 @@ async function handleMessage(
   channels: ChannelRegistry,
   tools: ToolRegistry,
   writeGateChannels: Map<string, WriteGateChannel>,
+  skillsResult: SkillsInitResult | null,
 ): Promise<void> {  
   if (!shouldHandleMessage(ctx, config)) {
     return;
@@ -253,6 +255,7 @@ async function handleMessage(
     chatType: ctx.chatType,
     timezone: config.timezone,
     model: config.providers[0].model,
+    skills: skillsResult ?? undefined,
   });
 
   // Agentic loop

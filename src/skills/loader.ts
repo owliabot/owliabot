@@ -1,125 +1,155 @@
 /**
- * Skill Loader
- * @see docs/architecture/skills-system.md Section 4
+ * Skill Loader (Markdown-based)
+ * @see docs/architecture/skills-system.md
  */
 
-import { readdir, access, readFile } from "node:fs/promises";
-import { join, basename } from "node:path";
-import { pathToFileURL } from "node:url";
+import { readdir, readFile, access } from "node:fs/promises";
+import { join, resolve } from "node:path";
+import yaml from "yaml";
 import { createLogger } from "../utils/logger.js";
-import { skillManifestSchema, type SkillManifest, type SkillModule, type LoadedSkill } from "./types.js";
+import type { Skill, SkillMeta, LoadSkillsResult, ParsedFrontmatter } from "./types.js";
 
 const log = createLogger("skills");
 
+/** Filename for skill definitions */
+export const SKILL_FILENAME = "SKILL.md";
+
+/** Regex to parse YAML frontmatter (handles empty frontmatter too) */
+const FRONTMATTER_REGEX = /^---[ \t]*\n([\s\S]*?)^---[ \t]*(?:\n)?([\s\S]*)$/m;
+
 /**
- * Scan a directory for skill subdirectories (those containing package.json)
+ * Parse YAML frontmatter from markdown content
  */
-export async function scanSkillsDirectory(skillsDir: string): Promise<string[]> {
+export function parseFrontmatter(content: string): ParsedFrontmatter | null {
+  const match = content.match(FRONTMATTER_REGEX);
+  if (!match) {
+    return null;
+  }
+
+  const [, yamlPart, contentPart] = match;
   try {
-    await access(skillsDir);
-  } catch {
-    log.warn(`Skills directory does not exist: ${skillsDir}`);
-    return [];
+    const data = yaml.parse(yamlPart) as Record<string, unknown>;
+    return {
+      data: data ?? {},
+      content: contentPart,
+    };
+  } catch (err) {
+    log.warn(`Failed to parse YAML frontmatter: ${err instanceof Error ? err.message : String(err)}`);
+    return null;
   }
-
-  const entries = await readdir(skillsDir, { withFileTypes: true });
-  const skillPaths: string[] = [];
-
-  for (const entry of entries) {
-    if (!entry.isDirectory()) continue;
-
-    const skillPath = join(skillsDir, entry.name);
-    const packagePath = join(skillPath, "package.json");
-
-    try {
-      await access(packagePath);
-      skillPaths.push(skillPath);
-    } catch {
-      // No package.json, skip
-      log.debug(`Skipping ${entry.name}: no package.json`);
-    }
-  }
-
-  return skillPaths;
 }
 
 /**
- * Parse and validate a skill's package.json
+ * Validate and extract SkillMeta from parsed frontmatter
  */
-export async function parseSkillManifest(skillPath: string): Promise<SkillManifest> {
-  const packagePath = join(skillPath, "package.json");
-  const content = await readFile(packagePath, "utf-8");
-  const json = JSON.parse(content);
+function extractMeta(data: Record<string, unknown>, id: string): SkillMeta {
+  const name = typeof data.name === "string" ? data.name : id;
+  const description = typeof data.description === "string" ? data.description : "";
+  const version = typeof data.version === "string" ? data.version : undefined;
+  const metadata = typeof data.metadata === "object" && data.metadata !== null
+    ? data.metadata as Record<string, unknown>
+    : undefined;
 
-  const result = skillManifestSchema.safeParse(json);
-  if (!result.success) {
-    const errors = result.error.format();
-    throw new Error(`Invalid skill manifest at ${packagePath}: ${JSON.stringify(errors)}`);
-  }
-
-  return result.data;
+  return { name, description, version, metadata };
 }
 
 /**
- * Dynamically import a skill module
- * Uses cache buster to support hot reload
+ * Load skills from a single directory
+ * Each subdirectory containing SKILL.md is treated as a skill
  */
-export async function loadSkillModule(
-  skillPath: string,
-  mainFile: string
-): Promise<SkillModule> {
-  const modulePath = join(skillPath, mainFile);
-  const moduleUrl = pathToFileURL(modulePath).href;
-
-  // Add cache buster for hot reload support
-  const cacheBuster = Date.now();
-  const urlWithBuster = `${moduleUrl}?v=${cacheBuster}`;
-
-  const module = await import(urlWithBuster);
-
-  if (!module.tools || typeof module.tools !== "object") {
-    throw new Error(`Skill module at ${modulePath} must export a 'tools' object`);
-  }
-
-  return { tools: module.tools };
-}
-
-export interface LoadSkillsResult {
-  loaded: LoadedSkill[];
-  failed: Array<{ name: string; error: string }>;
-}
-
-/**
- * Load all skills from a directory
- */
-export async function loadSkills(skillsDir: string): Promise<LoadSkillsResult> {
+export async function loadSkillsFromDir(dir: string): Promise<LoadSkillsResult> {
   const result: LoadSkillsResult = {
     loaded: [],
     failed: [],
   };
 
-  const skillPaths = await scanSkillsDirectory(skillsDir);
+  // Check if directory exists
+  try {
+    await access(dir);
+  } catch {
+    log.debug(`Skills directory does not exist: ${dir}`);
+    return result;
+  }
 
-  for (const skillPath of skillPaths) {
-    const skillName = basename(skillPath);
+  const entries = await readdir(dir, { withFileTypes: true });
+
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue;
+
+    const skillId = entry.name;
+    const skillDir = join(dir, skillId);
+    const skillPath = join(skillDir, SKILL_FILENAME);
 
     try {
-      const manifest = await parseSkillManifest(skillPath);
-      const module = await loadSkillModule(skillPath, manifest.main);
+      await access(skillPath);
+    } catch {
+      // No SKILL.md, skip silently
+      continue;
+    }
+
+    try {
+      const content = await readFile(skillPath, "utf-8");
+      const parsed = parseFrontmatter(content);
+
+      if (!parsed) {
+        result.failed.push({
+          id: skillId,
+          error: "Missing or invalid YAML frontmatter",
+        });
+        continue;
+      }
+
+      const meta = extractMeta(parsed.data, skillId);
+
+      // Require at least a description
+      if (!meta.description) {
+        result.failed.push({
+          id: skillId,
+          error: "Missing 'description' in frontmatter",
+        });
+        continue;
+      }
 
       result.loaded.push({
-        manifest,
-        module,
-        path: skillPath,
+        id: skillId,
+        meta,
+        location: resolve(skillPath),
       });
 
-      log.info(`Loaded skill: ${manifest.name}`);
+      log.debug(`Loaded skill: ${meta.name} (${skillId})`);
     } catch (err) {
-      const error = err instanceof Error ? err.message : String(err);
-      result.failed.push({ name: skillName, error });
-      log.error(`Failed to load skill ${skillName}: ${error}`);
+      result.failed.push({
+        id: skillId,
+        error: err instanceof Error ? err.message : String(err),
+      });
     }
   }
 
   return result;
+}
+
+/**
+ * Load skills from multiple directories
+ * Later directories override earlier ones (by skill id)
+ */
+export async function loadSkills(dirs: string[]): Promise<LoadSkillsResult> {
+  const skillsById = new Map<string, Skill>();
+  const allFailed: Array<{ id: string; error: string }> = [];
+
+  for (const dir of dirs) {
+    const result = await loadSkillsFromDir(dir);
+
+    // Merge loaded skills (later overrides earlier)
+    for (const skill of result.loaded) {
+      skillsById.set(skill.id, skill);
+    }
+
+    // Collect failures
+    allFailed.push(...result.failed);
+  }
+
+  return {
+    loaded: Array.from(skillsById.values()),
+    failed: allFailed,
+  };
 }

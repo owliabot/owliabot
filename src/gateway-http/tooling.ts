@@ -11,8 +11,6 @@ import {
 import type { SessionStore } from "../agent/session-store.js";
 import type { SessionTranscriptStore } from "../agent/session-transcript.js";
 import { randomUUID } from "node:crypto";
-import { initializeSkills } from "../skills/index.js";
-import { join } from "node:path";
 
 function createNoopSessionStore(): SessionStore {
   const entries = new Map<string, { sessionId: string; updatedAt: number }>();
@@ -73,8 +71,8 @@ export async function createGatewayToolRegistry(workspacePath: string) {
   tools.register(createListFilesTool(workspacePath));
   tools.register(createEditFileTool(workspacePath));
 
-  const skillsDir = join(workspacePath, "skills");
-  await initializeSkills(skillsDir, tools);
+  // Note: Markdown-based skills are injected into system prompts, not tool registries.
+  // Skills initialization should happen at the gateway level where system prompts are built.
 
   return tools;
 }

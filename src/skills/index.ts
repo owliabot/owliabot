@@ -1,45 +1,34 @@
-// src/skills/index.ts
 /**
- * Skills System Entry Point
+ * Skills System Entry Point (Markdown-based)
  * @see docs/architecture/skills-system.md
  */
 
-export { loadSkills, scanSkillsDirectory } from "./loader.js";
-export { skillToToolDefinitions } from "./registry.js";
-export { createSkillContext } from "./context.js";
+export { loadSkills, loadSkillsFromDir, parseFrontmatter, SKILL_FILENAME } from "./loader.js";
+export { formatSkillsForPrompt, escapeXml, SKILLS_INSTRUCTION } from "./prompt.js";
 export type {
-  SkillManifest,
-  SkillContext,
-  SkillModule,
-  LoadedSkill,
+  Skill,
+  SkillMeta,
+  SkillsInitResult,
+  LoadSkillsResult,
+  ParsedFrontmatter,
 } from "./types.js";
 
 import { createLogger } from "../utils/logger.js";
-import type { ToolRegistry } from "../agent/tools/registry.js";
-import { loadSkills, type LoadSkillsResult } from "./loader.js";
-import { skillToToolDefinitions } from "./registry.js";
+import { loadSkills } from "./loader.js";
+import { formatSkillsForPrompt, SKILLS_INSTRUCTION } from "./prompt.js";
+import type { SkillsInitResult } from "./types.js";
 
 const log = createLogger("skills");
 
 /**
- * Initialize skills system and register tools
+ * Initialize skills system from one or more directories
+ * @param dirs - Directories to load skills from (later overrides earlier)
+ * @returns Skills and prompt blocks for system prompt injection
  */
-export async function initializeSkills(
-  skillsDir: string,
-  registry: ToolRegistry
-): Promise<LoadSkillsResult> {
-  log.info(`Loading skills from ${skillsDir}`);
+export async function initializeSkills(dirs: string[]): Promise<SkillsInitResult> {
+  log.info(`Loading skills from ${dirs.length} director${dirs.length === 1 ? "y" : "ies"}`);
 
-  const result = await loadSkills(skillsDir);
-
-  // Register tools from loaded skills
-  for (const skill of result.loaded) {
-    const tools = skillToToolDefinitions(skill);
-    for (const tool of tools) {
-      registry.register(tool);
-    }
-    log.info(`Registered ${tools.length} tools from skill: ${skill.manifest.name}`);
-  }
+  const result = await loadSkills(dirs);
 
   // Log summary
   log.info(
@@ -47,10 +36,17 @@ export async function initializeSkills(
   );
 
   if (result.failed.length > 0) {
-    for (const { name, error } of result.failed) {
-      log.error(`  - ${name}: ${error}`);
+    for (const { id, error } of result.failed) {
+      log.warn(`  - ${id}: ${error}`);
     }
   }
 
-  return result;
+  // Generate prompt blocks
+  const promptBlock = formatSkillsForPrompt(result.loaded);
+
+  return {
+    skills: result.loaded,
+    promptBlock,
+    instruction: SKILLS_INSTRUCTION,
+  };
 }
