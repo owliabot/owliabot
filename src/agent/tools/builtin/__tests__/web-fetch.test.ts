@@ -66,4 +66,27 @@ describe("builtin/web_fetch tool", () => {
       body: "test content",
     });
   });
+
+  it("blocks POST body containing secrets", async () => {
+    const mockFetch = vi.fn();
+
+    const tool = createWebFetchTool({
+      config: {
+        ...defaultDeps.config,
+        blockOnSecret: true,
+      },
+      fetchImpl: mockFetch as unknown as typeof fetch,
+    });
+
+    // Body contains something that looks like an API key
+    const result = await tool.execute({
+      url: "https://example.com/api",
+      method: "POST",
+      body: "api_key=sk-1234567890abcdef1234567890abcdef",
+    }, mockContext);
+
+    expect(result.success).toBe(false);
+    expect(result.error).toMatch(/blocked/i);
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
 });

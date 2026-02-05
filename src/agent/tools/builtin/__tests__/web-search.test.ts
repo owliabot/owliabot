@@ -71,4 +71,41 @@ describe("builtin/web_search tool", () => {
       query: "test query",
     });
   });
+
+  it("searches with Brave using mock fetch when API key configured", async () => {
+    const mockJson = {
+      web: {
+        results: [
+          { title: "Test Result", url: "https://example.com", description: "A test result" },
+          { title: "Another Result", url: "https://example.org", description: "Another one" },
+        ],
+      },
+    };
+    const mockFetch = vi.fn().mockResolvedValue({
+      text: () => Promise.resolve(JSON.stringify(mockJson)),
+    });
+
+    const tool = createWebSearchTool({
+      config: {
+        ...defaultDeps.config,
+        webSearch: {
+          ...defaultDeps.config.webSearch,
+          defaultProvider: "brave",
+          brave: {
+            apiKey: "test-api-key",
+          },
+        },
+      },
+      fetchImpl: mockFetch as unknown as typeof fetch,
+    });
+
+    const result = await tool.execute({ query: "test query", provider: "brave" }, mockContext);
+    expect(result.success).toBe(true);
+    expect(result.data).toMatchObject({
+      provider: "brave",
+      query: "test query",
+    });
+    expect((result.data as any).results).toHaveLength(2);
+    expect((result.data as any).results[0].title).toBe("Test Result");
+  });
 });

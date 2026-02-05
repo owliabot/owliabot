@@ -52,6 +52,8 @@ USAGE:
     },
     security: {
       level: "write",
+      // NOTE: confirmRequired is set but confirmation flow is not yet implemented in gateway.
+      // This is a marker for Phase 1.5 when write-gate confirmation is added.
       confirmRequired: true,
     },
     async execute(params: unknown, _ctx: ToolContext): Promise<ToolResult> {

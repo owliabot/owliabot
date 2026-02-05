@@ -58,4 +58,18 @@ describe("builtin/exec tool", () => {
       stdout: expect.stringContaining("hello"),
     });
   });
+
+  it("times out long-running commands", async () => {
+    const deps = getDeps();
+    deps.config.commandAllowList.push("sleep");
+    deps.config.timeoutMs = 100; // 100ms timeout
+
+    const tool = createExecTool(deps);
+    const result = await tool.execute({ command: "sleep", params: ["10"] }, mockContext);
+
+    expect(result.success).toBe(false);
+    expect(result.data).toMatchObject({
+      timedOut: true,
+    });
+  }, 5000);
 });

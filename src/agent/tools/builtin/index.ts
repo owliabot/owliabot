@@ -25,8 +25,3 @@ export { createApplyPatchTool } from "./apply-patch.js";
 export { createExecTool, type ExecToolDeps } from "./exec.js";
 export { createWebFetchTool, type WebFetchToolDeps } from "./web-fetch.js";
 export { createWebSearchTool, type WebSearchToolDeps } from "./web-search.js";
-
-// System action tools (wrapping src/system/actions/*)
-export { createExecTool, type ExecToolDeps } from "./exec.js";
-export { createWebFetchTool, type WebFetchToolDeps } from "./web-fetch.js";
-export { createWebSearchTool, type WebSearchToolDeps } from "./web-search.js";
