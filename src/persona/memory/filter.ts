@@ -1,4 +1,5 @@
 import { readFile, readdir, lstat } from "node:fs/promises";
+import type { Dirent, Stats } from "node:fs";
 import path from "node:path";
 import { parse } from "yaml";
 import { createLogger } from "../../utils/logger.js";
@@ -394,7 +395,7 @@ async function listMarkdownFilesRecursive(
   dirAbs: string,
   baseRel: string
 ): Promise<MemoryFileInfo[]> {
-  let entries;
+  let entries: Dirent[];
   try {
     entries = await readdir(dirAbs, { withFileTypes: true });
   } catch {
@@ -407,7 +408,7 @@ async function listMarkdownFilesRecursive(
     const abs = path.join(dirAbs, entry.name);
     const rel = path.posix.join(baseRel, entry.name);
 
-    let st;
+    let st: Stats;
     try {
       st = await lstat(abs);
     } catch {

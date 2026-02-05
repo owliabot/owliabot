@@ -96,6 +96,31 @@ describe("persona loader", () => {
     expect(baseDocs.every((doc) => loader.isFromBase(doc))).toBe(true);
     expect(overlayDocs.every((doc) => !loader.isFromBase(doc))).toBe(true);
   });
+
+  it("rejects invalid agentId and sessionId paths", async () => {
+    const loader = new PersonaLoader({ rootDir: dir });
+
+    await expect(loader.load({ agentId: "../escape" })).rejects.toThrow(
+      /Invalid agent id/i
+    );
+
+    await expect(
+      loader.loadOverlay({ agentId: "main", sessionId: "../escape" })
+    ).rejects.toThrow(/Invalid session id/i);
+  });
+
+  it("rejects overlayDir that escapes the agent root", async () => {
+    const loader = new PersonaLoader({ rootDir: dir });
+    const personaRoot = join(dir, "persona");
+    const otherAgentDir = join(personaRoot, "agents", "other");
+
+    await expect(
+      loader.loadOverlay({
+        agentId: "main",
+        overlayDir: otherAgentDir,
+      })
+    ).rejects.toThrow(/overlay path escapes agent root/i);
+  });
 });
 
 describe("persona merger", () => {

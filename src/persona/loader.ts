@@ -1,5 +1,5 @@
 import { readFile } from "node:fs/promises";
-import { isAbsolute, join, resolve } from "node:path";
+import { isAbsolute, join, relative, resolve } from "node:path";
 import { createLogger } from "../utils/logger.js";
 import { parsePersonaFile } from "./frontmatter.js";
 import { MemoryFilter } from "./memory/filter.js";
@@ -93,11 +93,13 @@ export class PersonaLoader {
 
   async loadOverlay(request: PersonaLoadRequest): Promise<PersonaDocument[]> {
     const personaRoot = resolve(this.rootDir, this.personaDir);
-    const agentDir = resolveOverlayDir(
-      personaRoot,
-      request.agentId,
-      request.overlayDir
-    );
+    assertValidPathSegment(request.agentId, "agent id");
+    if (request.sessionId) {
+      assertValidPathSegment(request.sessionId, "session id");
+    }
+
+    const agentRoot = join(personaRoot, "agents", request.agentId);
+    const agentDir = resolveOverlayDir(agentRoot, request.overlayDir);
     const sessionDir = request.sessionId
       ? join(personaRoot, "session", request.sessionId)
       : null;
@@ -195,14 +197,40 @@ export class PersonaLoader {
 }
 
 function resolveOverlayDir(
-  personaRoot: string,
-  agentId: string,
+  agentRoot: string,
   overlayDir?: string
 ): string {
   if (overlayDir) {
-    return isAbsolute(overlayDir)
+    const resolved = isAbsolute(overlayDir)
       ? overlayDir
-      : resolve(personaRoot, overlayDir);
+      : resolve(agentRoot, overlayDir);
+    if (!isSubpath(resolved, agentRoot)) {
+      throw new Error(
+        `Overlay path escapes agent root: ${resolved} (root: ${agentRoot})`
+      );
+    }
+    return resolved;
   }
-  return join(personaRoot, "agents", agentId);
+  return agentRoot;
+}
+
+function assertValidPathSegment(value: string, label: string): void {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    throw new Error(`Invalid ${label}: empty value`);
+  }
+  if (isAbsolute(value)) {
+    throw new Error(`Invalid ${label}: absolute path not allowed (${value})`);
+  }
+  if (value.includes("..")) {
+    throw new Error(`Invalid ${label}: path traversal not allowed (${value})`);
+  }
+  if (/[\\/]/.test(value)) {
+    throw new Error(`Invalid ${label}: path separators not allowed (${value})`);
+  }
+}
+
+function isSubpath(target: string, base: string): boolean {
+  const rel = relative(base, target);
+  return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
 }
