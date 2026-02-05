@@ -151,6 +151,8 @@ export class ToolRouter {
     let result: ToolResult;
     let gateDecision: string | undefined;
     let gate: "WriteGate" | "TierPolicy" | undefined;
+    // Track security level for audit logging (default to "read" if tool not found)
+    let securityLevel: "read" | "write" | "sign" = "read";
 
     try {
       // Resolve the tool
@@ -164,7 +166,7 @@ export class ToolRouter {
         return result;
       }
 
-      const securityLevel = tool.security.level;
+      securityLevel = tool.security.level;
 
       // Route based on security level
       if (securityLevel === "write") {
@@ -231,7 +233,7 @@ export class ToolRouter {
         success: false,
         error: `Execution failed: ${errorMsg}`,
       };
-      await this.logAudit(name, "read", args, context, "error", gate, gateDecision, Date.now() - start, errorMsg);
+      await this.logAudit(name, securityLevel, args, context, "error", gate, gateDecision, Date.now() - start, errorMsg);
       return result;
     }
   }

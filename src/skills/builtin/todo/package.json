@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "description": "Manage a simple todo list",
   "main": "index.js",
+  "type": "module",
   "owliabot": {
     "tools": [
       {

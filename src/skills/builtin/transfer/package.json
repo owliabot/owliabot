@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "description": "Transfer tokens to another address",
   "main": "index.js",
+  "type": "module",
   "owliabot": {
     "tools": [
       {

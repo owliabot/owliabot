@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "description": "Get weather information for a city",
   "main": "index.js",
+  "type": "module",
   "owliabot": {
     "tools": [
       {
