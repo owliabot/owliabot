@@ -59,7 +59,7 @@ sign              →    2 或 1（取决于金额 / 合约类型）
 | `memory_search` | read | none | 语义搜索 |
 | `edit_file` | write | 3 | 编辑 workspace 文件 |
 | `clear_session` | write | 3 | 清空会话 |
-| `cron` | write | 3 | 创建/修改定时任务 |
+| `cron` | read | none | 定时任务调度 |
 
 ### 2.2 Skill 工具（`workspace/skills/`）
 
@@ -178,9 +178,7 @@ tools:
     requireConfirmation: false
 
   "cron":
-    tier: 3
-    requireConfirmation: true  # 创建/修改定时任务需要确认
-    allowedUsers: ["assignee-only"]
+    tier: none
 
   "gas__refuel":
     tier: 3

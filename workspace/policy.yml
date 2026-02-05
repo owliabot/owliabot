@@ -66,9 +66,7 @@ tools:
     requireConfirmation: false
 
   "cron":
-    tier: 3
-    requireConfirmation: true
-    allowedUsers: assignee-only
+    tier: none
 
   "gas__refuel":
     tier: 3
