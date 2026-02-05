@@ -246,50 +246,104 @@ auth
 program
   .command("pair")
   .description("Pair a device with the gateway HTTP server")
-  .option("--gateway-url <url>", "Gateway HTTP URL", "http://127.0.0.1:8787")
-  .option("--gateway-token <token>", "Gateway token for auto-approve")
-  .option("--device-id <id>", "Device ID (auto-generated if not provided)")
+  .option("--gateway-url <url>", "Gateway HTTP URL (default: http://127.0.0.1:8787)", "http://127.0.0.1:8787")
+  .option("--gateway-token <token>", "Gateway token for auto-approve (or set OWLIABOT_GATEWAY_TOKEN)")
+  .option("--device-id <id>", "Device ID (auto-generated UUID if not provided)")
+  .option("--timeout <ms>", "Request timeout in milliseconds", "30000")
   .action(async (options) => {
     try {
       const { randomUUID } = await import("node:crypto");
+      
+      // Get gateway token from option or env var (env var preferred for security)
+      const gatewayToken = options.gatewayToken ?? process.env.OWLIABOT_GATEWAY_TOKEN;
+      
+      // Validate device ID if provided
       const deviceId = options.deviceId ?? randomUUID();
+      if (options.deviceId && !/^[a-zA-Z0-9_-]+$/.test(options.deviceId)) {
+        throw new Error("Invalid device ID: must contain only alphanumeric characters, dashes, and underscores");
+      }
+      
       const gatewayUrl = options.gatewayUrl.replace(/\/$/, "");
+      const timeoutMs = parseInt(options.timeout, 10);
+      
+      if (isNaN(timeoutMs) || timeoutMs < 1000) {
+        throw new Error("Invalid timeout: must be at least 1000ms");
+      }
 
       log.info(`Pairing device: ${deviceId}`);
       log.info(`Gateway URL: ${gatewayUrl}`);
 
+      // Helper for fetch with timeout
+      const fetchWithTimeout = async (url: string, init: RequestInit): Promise<Response> => {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+        try {
+          return await fetch(url, { ...init, signal: controller.signal });
+        } finally {
+          clearTimeout(timeoutId);
+        }
+      };
+
       // Step 1: Request pairing
-      const requestRes = await fetch(`${gatewayUrl}/pairing/request`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "X-Device-Id": deviceId,
-        },
-      });
+      let requestRes: Response;
+      try {
+        requestRes = await fetchWithTimeout(`${gatewayUrl}/pairing/request`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-Device-Id": deviceId,
+          },
+        });
+      } catch (err) {
+        if (err instanceof Error && err.name === "AbortError") {
+          throw new Error(`Pairing request timed out after ${timeoutMs}ms`);
+        }
+        throw new Error(`Pairing request failed: ${err instanceof Error ? err.message : String(err)}`);
+      }
 
       if (!requestRes.ok) {
-        const err = await requestRes.json().catch(() => ({}));
-        throw new Error(`Pairing request failed: ${JSON.stringify(err)}`);
+        let errDetails = `HTTP ${requestRes.status}`;
+        try {
+          const errBody = await requestRes.json();
+          errDetails = JSON.stringify(errBody);
+        } catch {
+          // Keep HTTP status as error detail
+        }
+        throw new Error(`Pairing request failed: ${errDetails}`);
       }
 
       log.info("Pairing request submitted, status: pending");
 
       // Step 2: Auto-approve if gateway token provided
-      if (options.gatewayToken) {
+      if (gatewayToken) {
         log.info("Auto-approving with gateway token...");
 
-        const approveRes = await fetch(`${gatewayUrl}/pairing/approve`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "X-Gateway-Token": options.gatewayToken,
-          },
-          body: JSON.stringify({ deviceId }),
-        });
+        let approveRes: Response;
+        try {
+          approveRes = await fetchWithTimeout(`${gatewayUrl}/pairing/approve`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "X-Gateway-Token": gatewayToken,
+            },
+            body: JSON.stringify({ deviceId }),
+          });
+        } catch (err) {
+          if (err instanceof Error && err.name === "AbortError") {
+            throw new Error(`Pairing approval timed out after ${timeoutMs}ms`);
+          }
+          throw new Error(`Pairing approval failed: ${err instanceof Error ? err.message : String(err)}`);
+        }
 
         if (!approveRes.ok) {
-          const err = await approveRes.json().catch(() => ({}));
-          throw new Error(`Pairing approval failed: ${JSON.stringify(err)}`);
+          let errDetails = `HTTP ${approveRes.status}`;
+          try {
+            const errBody = await approveRes.json();
+            errDetails = JSON.stringify(errBody);
+          } catch {
+            // Keep HTTP status as error detail
+          }
+          throw new Error(`Pairing approval failed: ${errDetails}`);
         }
 
         const result = (await approveRes.json()) as {
@@ -302,7 +356,9 @@ program
           log.info(`Device ID: ${result.data.deviceId}`);
           log.info(`Device Token: ${result.data.deviceToken}`);
           log.info("");
-          log.info("Use this token in requests:");
+          log.warn("⚠️  Store the device token securely! It will not be shown again.");
+          log.info("");
+          log.info("Use these headers in requests:");
           log.info(`  X-Device-Id: ${result.data.deviceId}`);
           log.info(`  X-Device-Token: ${result.data.deviceToken}`);
         } else {
@@ -311,7 +367,7 @@ program
       } else {
         log.info("");
         log.info("Device is pending approval.");
-        log.info("To approve, run with --gateway-token or use the API:");
+        log.info("To approve, set OWLIABOT_GATEWAY_TOKEN env var and re-run, or use the API:");
         log.info(`  curl -X POST ${gatewayUrl}/pairing/approve \\`);
         log.info(`    -H "X-Gateway-Token: <token>" \\`);
         log.info(`    -H "Content-Type: application/json" \\`);
