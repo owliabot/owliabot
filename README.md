@@ -7,29 +7,30 @@ Self-hosted, crypto-native AI agent with a security-first design.
 
 ## Why OwliaBot?
 
-- Security first: private keys never enter the bot process.
-- Self-hosted: run fully on your own machine or server.
-- Extensible: add capabilities through JavaScript Skills.
-- Familiar interfaces: chat via Telegram or Discord.
+- **Security first**: private keys never enter the bot process
+- **Self-hosted**: run fully on your own machine or server
+- **Extensible**: add capabilities through JavaScript Skills
+- **Familiar interfaces**: chat via Telegram or Discord
 
 OwliaBot uses a 3-tier security model:
 
-- Tier 1: Companion App (user-confirmed transactions)
-- Tier 2: Session Key (small automated ops)
-- Tier 3: Smart Contract Wallet (large automated ops with granular permissions)
+| Tier | Description | Use Case |
+|------|-------------|----------|
+| Tier 1 | Companion App (user-confirmed) | Large/irreversible transactions |
+| Tier 2 | Session Key (limited, rotatable) | Small automated ops |
+| Tier 3 | Smart Contract Wallet | Granular permissions with on-chain limits |
 
 ## Features
 
-- Risk-focused AI workflows for crypto-native users and teams.
-- Signal monitoring across X (Twitter), Telegram, and other sources.
-- On-chain risk health checks for addresses and positions.
-- Ongoing monitoring for lending, LP, and other DeFi risk signals.
-- Clear, natural-language explanations of complex DeFi risk metrics.
-- Multi-provider AI model fallback (Anthropic, OpenAI).
-- Telegram and Discord channel integrations.
-- YAML-based configuration with environment variable support.
-- OAuth flow for Claude subscription authentication.
-- Workspace loading and cron-based heartbeat support.
+- Risk-focused AI workflows for crypto-native users and teams
+- Signal monitoring across X (Twitter), Telegram, and other sources
+- On-chain risk health checks for addresses and positions
+- Multi-provider AI model fallback (Anthropic, OpenAI)
+- Telegram and Discord channel integrations
+- Gateway HTTP server for device pairing and remote tool execution
+- System capabilities: `exec`, `web.fetch`, `web.search`
+- Memory subsystem with SQLite indexing
+- Audit logging with fail-closed design
 
 ## Quick Start
 
@@ -37,154 +38,198 @@ OwliaBot uses a 3-tier security model:
 
 - Node.js >= 22
 - A Telegram Bot token (from @BotFather) or a Discord Bot token
-- An AI provider API key (Anthropic, OpenAI, etc.)
+- An AI provider API key (Anthropic, OpenAI) — or use OAuth with Claude subscription
 
-### 1. Install dependencies
+### 1. Clone and install
 
 ```bash
+git clone https://github.com/owliabot/owliabot.git
+cd owliabot
 npm install
 ```
 
-### 2. Copy config template
+### 2. Run interactive setup (recommended)
+
+```bash
+npx tsx src/entry.ts onboard
+```
+
+The wizard will guide you through:
+- Choosing channels (Discord / Telegram)
+- Setting workspace path
+- Selecting AI model
+- Optional OAuth authentication
+- Channel token configuration
+
+Config is saved to `~/.owlia_dev/app.yaml`, secrets to `~/.owlia_dev/secrets.yaml`.
+
+### 3. Start the bot
+
+```bash
+npx tsx src/entry.ts start
+```
+
+Or with a custom config path:
+
+```bash
+npx tsx src/entry.ts start -c /path/to/config.yaml
+```
+
+Send a message to your bot — you should get a response!
+
+## Alternative: Manual Configuration
+
+If you prefer manual setup:
 
 ```bash
 cp config.example.yaml config.yaml
+# Edit config.yaml with your API keys and tokens
+npx tsx src/entry.ts start -c config.yaml
 ```
 
-### 3. Minimal configuration
+## CLI Commands
 
-Edit `config.yaml`:
+All commands use `npx tsx src/entry.ts <command>`:
 
-```yaml
-providers:
-  - id: claude
-    model: claude-sonnet-4-5
-    apiKey: "your-anthropic-api-key"
+| Command | Description |
+|---------|-------------|
+| `start` | Start the bot |
+| `onboard` | Interactive setup wizard |
+| `auth setup [provider]` | Setup OAuth (anthropic or openai-codex) |
+| `auth status [provider]` | Check auth status |
+| `auth logout [provider]` | Clear stored credentials |
+| `token set <channel>` | Set channel token from env var |
+| `pair` | Pair a device with Gateway HTTP |
 
-telegram:
-  token: "your-telegram-bot-token"
-  allowList:
-    - "your-telegram-user-id"
-
-workspace: ./workspace
-```
-
-You can also configure Discord instead of Telegram.
-
-### 4. Run the bot
+### Examples
 
 ```bash
-npm run dev -- start -c config.yaml
+# Interactive onboarding
+npx tsx src/entry.ts onboard
+
+# Start with default config (~/.owlia_dev/app.yaml)
+npx tsx src/entry.ts start
+
+# Start with custom config
+npx tsx src/entry.ts start -c config.yaml
+
+# Setup Claude OAuth
+npx tsx src/entry.ts auth setup anthropic
+
+# Check auth status
+npx tsx src/entry.ts auth status
+
+# Set Discord token from environment
+DISCORD_BOT_TOKEN=xxx npx tsx src/entry.ts token set discord
+
+# Pair a device with gateway
+OWLIABOT_GATEWAY_TOKEN=xxx npx tsx src/entry.ts pair --device-id my-device
 ```
 
-Send a message to your bot. You should get a response.
+## Gateway HTTP Server
+
+OwliaBot includes an HTTP gateway for device pairing and remote tool execution:
+
+```yaml
+# In config.yaml
+gateway:
+  http:
+    port: 8787
+    token: ${GATEWAY_TOKEN}
+    allowlist:
+      - "127.0.0.1"
+      - "10.0.0.0/8"
+```
+
+**Endpoints:**
+- `GET /health` — Health check
+- `POST /command/system` — System capabilities (web.fetch, web.search, exec)
+- `POST /command/tool` — Tool invocation
+- `POST /pair/*` — Device pairing flow
 
 ## Built-in Skills
 
-OwliaBot includes built-in skills to help you get started:
-
-- `crypto-price`: query prices from CoinGecko (no API key required)
-- `crypto-balance`: query wallet balances across chains (requires `ALCHEMY_API_KEY`)
+- `crypto-price`: Query prices from CoinGecko (no API key required)
+- `crypto-balance`: Query wallet balances (requires `ALCHEMY_API_KEY`)
 
 Example prompts:
-
 - "What's the current price of bitcoin?"
 - "Check balance of 0x... on ethereum"
 
-To enable `crypto-balance`, set:
+## Configuration Reference
+
+Key sections in your config file:
+
+| Section | Description |
+|---------|-------------|
+| `providers` | AI providers with priority-based fallback |
+| `telegram` | Telegram bot token and allowList |
+| `discord` | Discord bot token, guild settings, mention rules |
+| `workspace` | Path to workspace data (default `./workspace`) |
+| `gateway.http` | HTTP server for device pairing |
+| `notifications` | Proactive message target |
+| `heartbeat` | Cron-based scheduled tasks |
+| `system` | System capabilities (exec, web) policy |
+
+See [`config.example.yaml`](./config.example.yaml) for all options.
+
+## Development
 
 ```bash
-export ALCHEMY_API_KEY="your-key-here"
-```
+# Dev mode with hot reload
+npm run dev -- start -c config.yaml
 
-## Configuration Notes
+# Type check
+npm run typecheck
 
-Key sections in `config.yaml`:
+# Run tests
+npm test
 
-- `providers`: one or more AI providers, with optional `priority`
-- `telegram` / `discord`: channel tokens and optional `allowList`
-- `workspace`: path to workspace data (default `./workspace`)
-- `skills.enabled` and `skills.directory`: skills system toggle and path
-- `notifications.channel`: proactive message target (for example `telegram:883499266`)
-- `heartbeat`: cron-based scheduled tasks
-- `session`: DM conversation scope
-  - **Note:** DMs are treated as a single “main” conversation bucket (not per-sender). This is intended for single-user allowlist setups.
-  - `session.mainKey`: the DM bucket name (default `main`)
-  - `session.scope`: `per-agent` (default) or `global`
-- `group.activation`: group chat activation mode
-  - `mention` (default): only respond when explicitly mentioned (`ctx.mentioned`) or when the channel/group is allowlisted
-    - Discord: `ctx.mentioned` is true when you mention the bot (@bot)
-    - Telegram groups: `ctx.mentioned` is true when you reply to the bot, @botusername, or use a /command (optionally /command@bot)
-  - `always`: respond to all messages in group chats (consider allowlists to avoid spam)
+# Run tests in watch mode
+npm run test:watch
 
-Common environment variables:
+# Lint
+npm run lint
 
-- `ANTHROPIC_API_KEY`
-- `OPENAI_API_KEY`
-- `ALCHEMY_API_KEY`
-
-### (Optional) Claude OAuth
-
-If you want to use Claude subscription OAuth instead of API keys:
-
-```bash
-npm run dev -- auth setup
-```
-
-Then set the Anthropic provider in `config.yaml`:
-
-```yaml
-providers:
-  - id: anthropic
-    model: claude-sonnet-4-5
-    apiKey: oauth
-    priority: 1
+# Build for production
+npm run build
+npm run start -- start -c config.yaml
 ```
 
 ## Project Structure
 
-- `src/entry.ts`: CLI entry point (`owliabot`)
-- `src/config/*`: config schema, types, and loader
-- `src/channels/*`: Telegram / Discord integrations
-- `src/agent/*`: agent runtime, sessions, and tools
-- `src/workspace/*`: workspace loading and memory search
-- `src/memory/*`: memory search providers, indexing, and configuration
-- `config.example.yaml`: configuration template
-
-## Documentation Map (Source)
-
-These repo docs are the canonical reference:
-
-- `docs/src/content/docs/getting-started/introduction.md`
-- `docs/src/content/docs/getting-started/quick-start.md`
-- `docs/src/content/docs/reference/configuration.md`
-- `docs/src/content/docs/architecture/overview.md`
-- `docs/src/content/docs/architecture/security.md`
-- `docs/src/content/docs/skills/builtin-skills.md`
-- `docs/src/content/docs/skills/creating-skills.md`
-
-## Architecture Notes (Repo)
-
-- `docs/architecture/gateway-design.md`
-- `docs/architecture/gateway-functional.md`
-- `docs/architecture/gateway-technical.md`
-- `docs/architecture/playwright-mcp.md`
-- `docs/architecture/system-capability.md`
-
-## Common Commands
-
-```bash
-npm run dev -- start -c config.yaml   # run in dev/watch mode
-npm run build                         # compile TypeScript
-npm run start -- start -c config.yaml # run compiled output
-npm run lint                          # run ESLint
-npm run typecheck                     # TypeScript type check
-npm run test                          # run tests once
-npm run test:watch                    # run tests in watch mode
 ```
+src/
+├── entry.ts           # CLI entry point
+├── config/            # Config schema and loader
+├── channels/          # Telegram / Discord integrations
+├── agent/             # Agent runtime, sessions, tools
+├── gateway/           # Message gateway
+├── gateway-http/      # HTTP server for device pairing
+├── security/          # WriteGate, Tier policy, audit
+├── memory/            # Memory search and indexing
+├── workspace/         # Workspace loader
+└── skills/            # Skills system
+```
+
+## Documentation
+
+- [Setup & Verification Guide](docs/setup-verify.md)
+- [Gateway HTTP Design](docs/architecture/gateway-design.md)
+- [System Capabilities](docs/architecture/system-capability.md)
+- [Tier Policy & Security](docs/design/tier-policy.md)
+- [Audit Strategy](docs/design/audit-strategy.md)
 
 ## Troubleshooting
 
-- If the bot fails on startup, validate `config.yaml` first.
-- Ensure environment variables are visible in the current shell session.
-- Node.js version must be >= 22.
+| Issue | Solution |
+|-------|----------|
+| Bot fails on startup | Validate config YAML syntax and required fields |
+| "Node.js version" error | Upgrade to Node.js >= 22 |
+| Bot doesn't respond | Check allowList includes your user ID |
+| OAuth expired | Run `npx tsx src/entry.ts auth setup` again |
+| Discord bot silent in guild | Ensure `requireMentionInGuild` settings and channel allowlist |
+
+## License
+
+MIT
