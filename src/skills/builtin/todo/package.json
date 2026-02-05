@@ -1,0 +1,56 @@
+{
+  "name": "todo",
+  "version": "1.0.0",
+  "description": "Manage a simple todo list",
+  "main": "index.js",
+  "owliabot": {
+    "tools": [
+      {
+        "name": "add",
+        "description": "Add a new item to the todo list",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "item": {
+              "type": "string",
+              "description": "The todo item to add"
+            }
+          },
+          "required": ["item"]
+        },
+        "security": {
+          "level": "write"
+        }
+      },
+      {
+        "name": "list",
+        "description": "List all todo items",
+        "parameters": {
+          "type": "object",
+          "properties": {},
+          "required": []
+        },
+        "security": {
+          "level": "read"
+        }
+      },
+      {
+        "name": "complete",
+        "description": "Mark a todo item as complete by its number",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "number": {
+              "type": "integer",
+              "description": "The item number to mark complete (1-indexed)"
+            }
+          },
+          "required": ["number"]
+        },
+        "security": {
+          "level": "write"
+        }
+      }
+    ]
+  }
+}

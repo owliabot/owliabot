@@ -1,0 +1,27 @@
+{
+  "name": "weather",
+  "version": "1.0.0",
+  "description": "Get weather information for a city",
+  "main": "index.js",
+  "owliabot": {
+    "tools": [
+      {
+        "name": "get",
+        "description": "Get current weather for a city",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "city": {
+              "type": "string",
+              "description": "City name (e.g., London, New York, Tokyo)"
+            }
+          },
+          "required": ["city"]
+        },
+        "security": {
+          "level": "read"
+        }
+      }
+    ]
+  }
+}

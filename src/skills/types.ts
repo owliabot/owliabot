@@ -1,6 +1,6 @@
 /**
  * Skill System Type Definitions
- * @see docs/architecture/skills-system.md Section 3
+ * @see docs/design/skill-system.md
  */
 
 import { z } from "zod";
@@ -44,7 +44,27 @@ export type SkillManifest = z.infer<typeof skillManifestSchema>;
 export type SkillToolDef = z.infer<typeof skillToolSchema>;
 export type OwliabotConfig = z.infer<typeof owliabotConfigSchema>;
 
-// Context passed to skill tool execution
+// ── Signer Result ─────────────────────────────────────────────────────────
+
+/**
+ * Result from a signer operation (blockchain transaction)
+ */
+export interface SignerResult {
+  success: boolean;
+  data?: {
+    txHash?: string;
+    [key: string]: unknown;
+  };
+  error?: string;
+}
+
+// ── Skill Context ─────────────────────────────────────────────────────────
+
+/**
+ * Context passed to skill tool execution.
+ * Provides sandboxed access to tools, signing, and user interaction.
+ * @see docs/design/skill-system.md Section 4
+ */
 export interface SkillContext {
   // Environment variables (only those declared in requires.env)
   env: Record<string, string>;
@@ -60,9 +80,54 @@ export interface SkillContext {
     userId: string;
     channel: string;
   };
+
+  // ── NEW: Tool/Signer calls ────────────────────────────────────────────
+
+  /**
+   * Call a tool through the security pipeline.
+   * Write-level tools automatically go through WriteGate.
+   * @param name Tool name (e.g., "read-file", "edit-file")
+   * @param args Tool arguments
+   */
+  callTool: (name: string, args: unknown) => Promise<ToolResult>;
+
+  /**
+   * Call a signer operation for blockchain transactions.
+   * Automatically goes through TierPolicy for approval.
+   * @param operation Operation name (e.g., "transfer", "approve")
+   * @param params Operation parameters
+   */
+  callSigner: (operation: string, params: unknown) => Promise<SignerResult>;
+
+  // ── NEW: User interaction ─────────────────────────────────────────────
+
+  /**
+   * Send a message to the user in the current session.
+   * @param text Message text to send
+   */
+  sendMessage: (text: string) => Promise<void>;
+
+  /**
+   * Ask the user for confirmation.
+   * @param prompt The question to ask
+   * @returns true if confirmed, false otherwise
+   */
+  askConfirmation: (prompt: string) => Promise<boolean>;
+
+  // ── NEW: Workspace ────────────────────────────────────────────────────
+
+  /**
+   * Absolute path to the skill workspace directory.
+   * Skills should use this for file operations.
+   */
+  workspace: string;
 }
 
-// Skill module export format
+// ── Skill Module ──────────────────────────────────────────────────────────
+
+/**
+ * Skill module export format
+ */
 export interface SkillModule {
   tools: Record<
     string,
@@ -70,9 +135,15 @@ export interface SkillModule {
   >;
 }
 
-// Loaded skill with manifest and module
+/**
+ * Loaded skill with manifest and module
+ */
 export interface LoadedSkill {
   manifest: SkillManifest;
   module: SkillModule;
   path: string;
 }
+
+// ── Re-export ToolResult for convenience ──────────────────────────────────
+
+export type { ToolResult } from "../agent/tools/interface.js";

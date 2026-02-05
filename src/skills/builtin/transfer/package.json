@@ -1,0 +1,60 @@
+{
+  "name": "transfer",
+  "version": "1.0.0",
+  "description": "Transfer tokens to another address",
+  "main": "index.js",
+  "owliabot": {
+    "tools": [
+      {
+        "name": "send",
+        "description": "Send tokens to an address. Triggers TierPolicy based on amount.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "token": {
+              "type": "string",
+              "description": "Token symbol (e.g., ETH, USDC, SOL)"
+            },
+            "to": {
+              "type": "string",
+              "description": "Recipient address"
+            },
+            "amount": {
+              "type": "string",
+              "description": "Amount to send (e.g., '0.1', '100')"
+            }
+          },
+          "required": ["token", "to", "amount"]
+        },
+        "security": {
+          "level": "sign"
+        }
+      },
+      {
+        "name": "estimate",
+        "description": "Estimate gas/fees for a transfer without executing",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "token": {
+              "type": "string",
+              "description": "Token symbol (e.g., ETH, USDC, SOL)"
+            },
+            "to": {
+              "type": "string",
+              "description": "Recipient address"
+            },
+            "amount": {
+              "type": "string",
+              "description": "Amount to send"
+            }
+          },
+          "required": ["token", "to", "amount"]
+        },
+        "security": {
+          "level": "read"
+        }
+      }
+    ]
+  }
+}
