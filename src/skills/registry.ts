@@ -53,12 +53,20 @@ function createToolExecutor(
   const timeout = toolDef.timeout ?? 30_000;
 
   return async (params: unknown, ctx: ToolContext): Promise<ToolResult> => {
+    // Extract channel from sessionKey
+    // Canonical format: agent:<agentId>:<channel>:conv:<conversationId> → index 2
+    // Legacy/test format: <channel>:<userId> → index 0
+    const sessionParts = ctx.sessionKey.split(":");
+    const channel = sessionParts[0] === "agent"
+      ? (sessionParts[2] || "unknown")
+      : (sessionParts[0] || "unknown");
+
     const skillContext = createSkillContext({
       skillName: manifest.name,
       toolName: toolDef.name,
       callId: crypto.randomUUID(),
       userId: ctx.sessionKey,
-      channel: ctx.sessionKey.split(":")[0] || "unknown",
+      channel,
       requiredEnv,
       workspace: ctx.workspace,
       securityLevel: toolDef.security.level,
