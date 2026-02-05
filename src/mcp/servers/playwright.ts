@@ -123,7 +123,7 @@ export const playwrightPreset = {
  */
 export function getPlaywrightPreset(options?: {
   headless?: boolean;
-  browser?: "chromium" | "firefox" | "webkit";
+  browser?: "chrome" | "firefox" | "webkit" | "msedge";
   env?: Record<string, string>;
   /** Additional security overrides */
   additionalOverrides?: Record<string, MCPSecurityOverride>;
