@@ -130,6 +130,46 @@ check_requirements() {
   success "Docker daemon is running"
 }
 
+container_is_running() {
+  local name=$1
+  docker inspect -f '{{.State.Running}}' "$name" 2>/dev/null | grep -q true
+}
+
+container_is_restarting() {
+  local name=$1
+  docker inspect -f '{{.State.Restarting}}' "$name" 2>/dev/null | grep -q true
+}
+
+tail_container_logs() {
+  local name=$1
+  local lines=${2:-120}
+  echo ""
+  warn "Showing last ${lines} lines of logs for '${name}':"
+  docker logs --tail "$lines" "$name" 2>&1 || true
+}
+
+wait_for_container() {
+  local name=$1
+  local timeout_sec=${2:-30}
+
+  local start
+  start=$(date +%s)
+
+  while true; do
+    if container_is_running "$name" && ! container_is_restarting "$name"; then
+      return 0
+    fi
+
+    local now
+    now=$(date +%s)
+    if [ $((now - start)) -ge "$timeout_sec" ]; then
+      return 1
+    fi
+
+    sleep 1
+  done
+}
+
 main() {
   clear || true
   echo ""
@@ -496,26 +536,60 @@ EOF
     echo ""
     info "Logs: docker logs -f owliabot"
 
+    # Wait briefly for container to be stable before attempting docker exec.
+    if ! wait_for_container owliabot 15; then
+      warn "Container is not stable (running/restarting). OAuth via 'docker exec' may fail."
+      tail_container_logs owliabot 120
+    fi
+
     # =======================================================================
     # OAuth flows (optional)
     # =======================================================================
     if [ $USE_ANTHROPIC -eq 1 ] && [ -z "$ANTHROPIC_API_KEY" ]; then
       echo ""
       header "Anthropic OAuth"
-      info "Starting OAuth flow inside the container (interactive)."
-      info "If you prefer to do this later: docker exec -it owliabot node dist/entry.js auth setup anthropic"
-      if prompt_yn "Run Anthropic OAuth now?" "y"; then
-        docker exec -it owliabot node dist/entry.js auth setup anthropic
+      info "OAuth requires an interactive flow. You can run it either:"
+      info "  1) In a one-shot container (recommended if the main container is restarting)"
+      info "  2) Via docker exec (requires the main container to be running)"
+
+      if prompt_yn "Run Anthropic OAuth now (one-shot container)?" "y"; then
+        docker run --rm -it \
+          -v "${OWLIABOT_HOME}/auth:/home/owliabot/.owliabot/auth" \
+          -v "${OWLIABOT_HOME}/secrets.yaml:/app/config/secrets.yaml:ro" \
+          "${OWLIABOT_IMAGE}" auth setup anthropic
+      else
+        info "Later: docker exec -it owliabot node dist/entry.js auth setup anthropic"
+        if container_is_running owliabot && ! container_is_restarting owliabot; then
+          if prompt_yn "Run Anthropic OAuth now via docker exec?" "n"; then
+            docker exec -it owliabot node dist/entry.js auth setup anthropic
+          fi
+        else
+          warn "Skipping docker exec because the container is not stable."
+        fi
       fi
     fi
 
     if [ $USE_OPENAI_CODEX -eq 1 ]; then
       echo ""
       header "OpenAI OAuth (openai-codex)"
-      info "Starting OAuth flow inside the container (interactive)."
-      info "If you prefer to do this later: docker exec -it owliabot node dist/entry.js auth setup openai-codex"
-      if prompt_yn "Run OpenAI OAuth now?" "y"; then
-        docker exec -it owliabot node dist/entry.js auth setup openai-codex
+      info "OAuth requires an interactive flow. You can run it either:"
+      info "  1) In a one-shot container (recommended if the main container is restarting)"
+      info "  2) Via docker exec (requires the main container to be running)"
+
+      if prompt_yn "Run OpenAI OAuth now (one-shot container)?" "y"; then
+        docker run --rm -it \
+          -v "${OWLIABOT_HOME}/auth:/home/owliabot/.owliabot/auth" \
+          -v "${OWLIABOT_HOME}/secrets.yaml:/app/config/secrets.yaml:ro" \
+          "${OWLIABOT_IMAGE}" auth setup openai-codex
+      else
+        info "Later: docker exec -it owliabot node dist/entry.js auth setup openai-codex"
+        if container_is_running owliabot && ! container_is_restarting owliabot; then
+          if prompt_yn "Run OpenAI OAuth now via docker exec?" "n"; then
+            docker exec -it owliabot node dist/entry.js auth setup openai-codex
+          fi
+        else
+          warn "Skipping docker exec because the container is not stable."
+        fi
       fi
     fi
   fi
