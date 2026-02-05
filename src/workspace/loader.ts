@@ -6,12 +6,14 @@ import type { WorkspaceFiles } from "./types.js";
 const log = createLogger("workspace");
 
 const WORKSPACE_FILES = [
+  "AGENTS.md",
   "SOUL.md",
   "IDENTITY.md",
   "USER.md",
   "HEARTBEAT.md",
   "MEMORY.md",
   "TOOLS.md",
+  "BOOTSTRAP.md",
 ] as const;
 
 export async function loadWorkspace(workspacePath: string): Promise<WorkspaceFiles> {

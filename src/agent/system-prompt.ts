@@ -16,27 +16,37 @@ export function buildSystemPrompt(ctx: PromptContext): string {
   // 1. Base role
   sections.push("You are a crypto-focused AI assistant running locally.");
 
-  // 2. SOUL.md - Persona
+  // 2. AGENTS.md - Workspace guidance
+  if (ctx.workspace.agents) {
+    sections.push(`## Agent Guidelines\n${ctx.workspace.agents}`);
+  }
+
+  // 3. BOOTSTRAP.md - First-run setup
+  if (ctx.workspace.bootstrap) {
+    sections.push(`## Bootstrap\n${ctx.workspace.bootstrap}`);
+  }
+
+  // 4. SOUL.md - Persona
   if (ctx.workspace.soul) {
     sections.push(`## Persona & Boundaries\n${ctx.workspace.soul}`);
   }
 
-  // 3. IDENTITY.md - Identity
+  // 5. IDENTITY.md - Identity
   if (ctx.workspace.identity) {
     sections.push(`## Identity\n${ctx.workspace.identity}`);
   }
 
-  // 4. USER.md - User profile
+  // 6. USER.md - User profile
   if (ctx.workspace.user) {
     sections.push(`## User Profile\n${ctx.workspace.user}`);
   }
 
-  // 5. TOOLS.md - Tool usage notes
+  // 7. TOOLS.md - Tool usage notes
   if (ctx.workspace.tools) {
     sections.push(`## Tool Notes\n${ctx.workspace.tools}`);
   }
 
-  // 6. MEMORY.md - Long-term memory
+  // 8. MEMORY.md - Long-term memory
   // Security boundary: NEVER inject long-term memory into non-direct contexts.
   // (OpenClaw-style: MEMORY.md is private-only)
   const isNonDirect = ctx.chatType !== "direct";
@@ -44,7 +54,7 @@ export function buildSystemPrompt(ctx: PromptContext): string {
     sections.push(`## Memory\n${ctx.workspace.memory}`);
   }
 
-  // 7. Runtime info
+  // 9. Runtime info
   sections.push(`## Runtime
 - Time: ${new Date().toISOString()}
 - Timezone: ${ctx.timezone}
@@ -52,7 +62,7 @@ export function buildSystemPrompt(ctx: PromptContext): string {
 - Model: ${ctx.model}
 `);
 
-  // 8. Heartbeat mode
+  // 10. Heartbeat mode
   if (ctx.isHeartbeat && ctx.workspace.heartbeat) {
     sections.push(`## Heartbeat
 Read the following checklist and execute it:
