@@ -1,4 +1,4 @@
-import { Client, GatewayIntentBits, Events } from "discord.js";
+import { Client, GatewayIntentBits, Events, Partials } from "discord.js";
 import { createLogger } from "../../utils/logger.js";
 import type {
   ChannelPlugin,
@@ -34,6 +34,10 @@ export function createDiscordPlugin(config: DiscordConfig): ChannelPlugin {
       GatewayIntentBits.GuildMessages,
       GatewayIntentBits.DirectMessages,
       GatewayIntentBits.MessageContent,
+    ],
+    partials: [
+      Partials.Channel, // Required for DMs
+      Partials.Message,
     ],
   });
 
