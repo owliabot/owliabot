@@ -169,8 +169,9 @@ export class ToolRouter {
       securityLevel = tool.security.level;
 
       // Route based on security level
-      if (securityLevel === "write") {
-        gate = "WriteGate";
+      // Both write and sign level tools go through WriteGate for file operation approval
+      if (securityLevel === "write" || securityLevel === "sign") {
+        gate = securityLevel === "sign" ? "TierPolicy" : "WriteGate";
         const gateResult = await this.checkWriteGate(name, args, context);
         gateDecision = gateResult.reason;
 
@@ -185,13 +186,11 @@ export class ToolRouter {
         }
 
         log.debug(`Tool ${name} approved by WriteGate`);
-      } else if (securityLevel === "sign") {
-        // Sign-level tools are executed normally; their code calls callSigner()
-        // which routes through SignerRouter/TierPolicy. The security level here
-        // is metadata indicating the tool may perform signing operations.
-        gate = "TierPolicy";
-        gateDecision = "delegated_to_callSigner";
-        log.debug(`Sign-level tool ${name} - TierPolicy will be evaluated on callSigner()`);
+
+        // Sign-level tools also route through TierPolicy when they call callSigner()
+        if (securityLevel === "sign") {
+          log.debug(`Sign-level tool ${name} - TierPolicy will be evaluated on callSigner()`);
+        }
       }
 
       // Execute the tool
