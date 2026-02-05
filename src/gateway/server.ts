@@ -41,7 +41,7 @@ import { createCronIntegration } from "./cron-integration.js";
 import { createCronTool } from "../agent/tools/builtin/cron.js";
 import { createNotificationService } from "../notifications/service.js";
 import { initializeSkills, type SkillsInitResult } from "../skills/index.js";
-import { join, dirname } from "node:path";
+import { join, dirname, sep } from "node:path";
 import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
 
@@ -86,7 +86,13 @@ export async function startGateway(
   if (skillsEnabled) {
     const __filename = fileURLToPath(import.meta.url);
     const __dirname = dirname(__filename);
-    const packageRoot = join(__dirname, "..", ".."); // src/gateway -> package root
+    // Handle both src/ (dev) and dist/ (prod) layouts
+    // src/gateway/server.ts -> ../.. = package root
+    // dist/gateway/server.js -> ../../.. = package root (dist is a subdir)
+    const isInDist = __dirname.includes(`${sep}dist${sep}`) || __dirname.includes(`${sep}dist`);
+    const packageRoot = isInDist
+      ? join(__dirname, "..", "..", "..") // dist/gateway -> package root
+      : join(__dirname, "..", ".."); // src/gateway -> package root
     
     const builtinSkillsDir = join(packageRoot, "skills");
     const userSkillsDir = join(homedir(), ".owliabot", "skills");
