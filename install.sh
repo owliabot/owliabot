@@ -70,6 +70,9 @@ prompt_yn() {
     [[ "$yn" =~ ^[Yy]$ ]]
 }
 
+# Global variable to store select_option result (avoids set -e issue with return codes)
+SELECT_RESULT=0
+
 select_option() {
     local prompt_text=$1
     shift
@@ -84,7 +87,8 @@ select_option() {
     while true; do
         read -p "请选择 [1-${#options[@]}]: " selection
         if [[ "$selection" =~ ^[0-9]+$ ]] && [ "$selection" -ge 1 ] && [ "$selection" -le "${#options[@]}" ]; then
-            return $((selection-1))
+            SELECT_RESULT=$((selection-1))
+            return 0
         fi
         warn "请输入 1-${#options[@]} 之间的数字"
     done
@@ -151,7 +155,7 @@ main() {
     header "配置 AI 服务"
     
     select_option "选择 AI 服务提供商：" "Anthropic (Claude)" "OpenAI (GPT)" "两者都配置"
-    local ai_choice=$?
+    local ai_choice=$SELECT_RESULT
     
     ANTHROPIC_API_KEY=""
     OPENAI_API_KEY=""
@@ -192,7 +196,7 @@ main() {
     header "配置聊天平台"
     
     select_option "选择聊天平台：" "Discord" "Telegram" "两者都配置"
-    local chat_choice=$?
+    local chat_choice=$SELECT_RESULT
     
     DISCORD_BOT_TOKEN=""
     TELEGRAM_BOT_TOKEN=""
