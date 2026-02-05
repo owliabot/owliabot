@@ -6,7 +6,7 @@
  * Future: Can be swapped to RPC proxy for containerized mode.
  */
 
-import type { SkillContext } from "./types.js";
+import type { SkillContext, SignerResult, ToolResult } from "./types.js";
 
 export interface CreateContextOptions {
   skillName: string;
@@ -15,10 +15,28 @@ export interface CreateContextOptions {
   userId: string;
   channel: string;
   requiredEnv: string[];
+  workspace?: string;
+  // Optional: injected by ToolRouter/SignerRouter when available
+  callTool?: (name: string, args: unknown) => Promise<ToolResult>;
+  callSigner?: (operation: string, params: unknown) => Promise<SignerResult>;
+  sendMessage?: (text: string) => Promise<void>;
+  askConfirmation?: (prompt: string) => Promise<boolean>;
 }
 
 export function createSkillContext(options: CreateContextOptions): SkillContext {
-  const { skillName, toolName, callId, userId, channel, requiredEnv } = options;
+  const {
+    skillName,
+    toolName,
+    callId,
+    userId,
+    channel,
+    requiredEnv,
+    workspace,
+    callTool,
+    callSigner,
+    sendMessage,
+    askConfirmation,
+  } = options;
 
   // Filter env vars to only those declared in requires.env
   const env: Record<string, string> = {};
@@ -28,6 +46,11 @@ export function createSkillContext(options: CreateContextOptions): SkillContext 
       env[key] = value;
     }
   }
+
+  // Default stubs for callbacks not yet wired
+  const notImplemented = (name: string) => () => {
+    throw new Error(`${name} not available in this context`);
+  };
 
   return {
     env,
@@ -39,5 +62,10 @@ export function createSkillContext(options: CreateContextOptions): SkillContext 
       userId,
       channel,
     },
+    workspace: workspace ?? process.cwd(),
+    callTool: callTool ?? notImplemented("callTool"),
+    callSigner: callSigner ?? notImplemented("callSigner"),
+    sendMessage: sendMessage ?? (async () => {}),
+    askConfirmation: askConfirmation ?? (async () => false),
   };
 }

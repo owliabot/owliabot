@@ -126,7 +126,7 @@ export class SignerRouter {
           auditId,
           result.success ? "success" : "denied",
           result.error,
-          result.data?.txHash
+          result.data?.txHash ? { txHash: result.data.txHash } : undefined
         );
       }
 
