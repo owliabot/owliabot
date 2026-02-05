@@ -79,8 +79,19 @@ program
       // Handle shutdown
       const shutdown = async () => {
         log.info("Shutting down...");
-        if (stopHttp) await stopHttp();
-        await stopGateway();
+        // Wrap each stop in try/catch to ensure all cleanup runs
+        if (stopHttp) {
+          try {
+            await stopHttp();
+          } catch (err) {
+            log.error("Error stopping HTTP gateway", err);
+          }
+        }
+        try {
+          await stopGateway();
+        } catch (err) {
+          log.error("Error stopping message gateway", err);
+        }
         process.exit(0);
       };
 
