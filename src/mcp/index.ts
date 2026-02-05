@@ -40,6 +40,17 @@ export {
   type ToolCallResult,
 } from "./types.js";
 
+// Re-export manager
+export {
+  MCPManager,
+  createMCPManager,
+  type MCPServerInfo,
+  type ToolsChangedCallback,
+} from "./manager.js";
+
+// Re-export tool
+export { createMCPManageTool } from "./tool.js";
+
 const log = createLogger("mcp");
 
 // ============================================================================
