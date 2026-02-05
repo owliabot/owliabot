@@ -21,6 +21,21 @@ providers:
 #     apiKey: oauth  # placeholder, OAuth token will be used
 #     priority: 1
 
+# Option 3: OpenAI-compatible providers (Ollama, vLLM, LM Studio, LocalAI, etc.)
+# providers:
+#   - id: openai-compatible
+#     model: llama3.2              # Model name as known by your server
+#     baseUrl: http://localhost:11434/v1  # Ollama example
+#     apiKey: "none"               # Most local servers don't need API key
+#     priority: 1
+#
+# Common baseUrl examples:
+#   - Ollama:    http://localhost:11434/v1
+#   - vLLM:      http://localhost:8000/v1
+#   - LM Studio: http://localhost:1234/v1
+#   - LocalAI:   http://localhost:8080/v1
+#   - text-generation-webui: http://localhost:5000/v1
+
 # Telegram (optional)
 telegram:
   token: ${TELEGRAM_BOT_TOKEN}

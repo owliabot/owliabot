@@ -154,17 +154,26 @@ main() {
     # =========================================================================
     header "配置 AI 服务"
     
-    select_option "选择 AI 服务提供商：" "Anthropic (Claude)" "OpenAI (GPT)" "两者都配置"
+    select_option "选择 AI 服务提供商：" \
+        "Anthropic (Claude)" \
+        "OpenAI (GPT)" \
+        "OpenAI-compatible (Ollama, vLLM, LM Studio 等)" \
+        "多个提供商（支持 fallback）"
     local ai_choice=$SELECT_RESULT
     
     ANTHROPIC_API_KEY=""
     OPENAI_API_KEY=""
+    OPENAI_COMPAT_BASE_URL=""
+    OPENAI_COMPAT_API_KEY=""
+    OPENAI_COMPAT_MODEL=""
     DEFAULT_PROVIDER=""
     
-    if [ $ai_choice -eq 0 ] || [ $ai_choice -eq 2 ]; then
+    # Anthropic
+    if [ $ai_choice -eq 0 ] || [ $ai_choice -eq 3 ]; then
         echo ""
         info "Anthropic API Key 获取地址: https://console.anthropic.com/settings/keys"
-        prompt ANTHROPIC_API_KEY "请输入 Anthropic API Key" "" true
+        info "提示：如果你有 Claude 订阅，可跳过此步，之后用 OAuth 认证"
+        prompt ANTHROPIC_API_KEY "请输入 Anthropic API Key（留空跳过）" "" true
         if [ -z "$ANTHROPIC_API_KEY" ]; then
             warn "未配置 Anthropic API Key"
         else
@@ -173,10 +182,11 @@ main() {
         fi
     fi
     
-    if [ $ai_choice -eq 1 ] || [ $ai_choice -eq 2 ]; then
+    # OpenAI
+    if [ $ai_choice -eq 1 ] || [ $ai_choice -eq 3 ]; then
         echo ""
         info "OpenAI API Key 获取地址: https://platform.openai.com/api-keys"
-        prompt OPENAI_API_KEY "请输入 OpenAI API Key" "" true
+        prompt OPENAI_API_KEY "请输入 OpenAI API Key（留空跳过）" "" true
         if [ -z "$OPENAI_API_KEY" ]; then
             warn "未配置 OpenAI API Key"
         else
@@ -185,7 +195,29 @@ main() {
         fi
     fi
     
-    if [ -z "$ANTHROPIC_API_KEY" ] && [ -z "$OPENAI_API_KEY" ]; then
+    # OpenAI-compatible (Ollama, vLLM, etc.)
+    if [ $ai_choice -eq 2 ] || [ $ai_choice -eq 3 ]; then
+        echo ""
+        info "OpenAI-compatible 支持任何兼容 OpenAI v1 API 的服务"
+        info "常见示例："
+        info "  • Ollama:    http://localhost:11434/v1"
+        info "  • vLLM:      http://localhost:8000/v1"
+        info "  • LM Studio: http://localhost:1234/v1"
+        info "  • LocalAI:   http://localhost:8080/v1"
+        echo ""
+        prompt OPENAI_COMPAT_BASE_URL "请输入 API Base URL"
+        if [ -z "$OPENAI_COMPAT_BASE_URL" ]; then
+            warn "未配置 OpenAI-compatible 服务"
+        else
+            prompt OPENAI_COMPAT_MODEL "请输入模型名称" "llama3.2"
+            prompt OPENAI_COMPAT_API_KEY "请输入 API Key（如不需要可留空）" "" true
+            success "OpenAI-compatible 已配置: $OPENAI_COMPAT_BASE_URL"
+            [ -z "$DEFAULT_PROVIDER" ] && DEFAULT_PROVIDER="openai-compatible"
+        fi
+    fi
+    
+    # Validate at least one provider configured
+    if [ -z "$ANTHROPIC_API_KEY" ] && [ -z "$OPENAI_API_KEY" ] && [ -z "$OPENAI_COMPAT_BASE_URL" ]; then
         error "至少需要配置一个 AI 服务提供商"
         exit 1
     fi
@@ -277,6 +309,9 @@ anthropic:
 openai:
   apiKey: "${OPENAI_API_KEY}"
 
+openai-compatible:
+  apiKey: "${OPENAI_COMPAT_API_KEY}"
+
 # 聊天平台 Token
 discord:
   token: "${DISCORD_BOT_TOKEN}"
@@ -332,6 +367,29 @@ EOF
   - id: openai
     model: gpt-4o
     # apiKey 从 secretsPath 读取
+    priority: $priority
+EOF
+    fi
+    
+    if [ -n "$OPENAI_COMPAT_BASE_URL" ]; then
+        local priority=1
+        [ -n "$ANTHROPIC_API_KEY" ] && priority=$((priority+1))
+        [ -n "$OPENAI_API_KEY" ] && priority=$((priority+1))
+        cat >> config/app.yaml << EOF
+  - id: openai-compatible
+    model: ${OPENAI_COMPAT_MODEL:-llama3.2}
+    baseUrl: ${OPENAI_COMPAT_BASE_URL}
+EOF
+        if [ -n "$OPENAI_COMPAT_API_KEY" ]; then
+            cat >> config/app.yaml << EOF
+    # apiKey 从 secretsPath 读取
+EOF
+        else
+            cat >> config/app.yaml << EOF
+    apiKey: "none"  # 本地服务无需 API Key
+EOF
+        fi
+        cat >> config/app.yaml << EOF
     priority: $priority
 EOF
     fi
