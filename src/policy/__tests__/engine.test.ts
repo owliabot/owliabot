@@ -50,7 +50,7 @@ describe("PolicyEngine", () => {
         revoked: false,
       },
     };
-    const decision = await engine.decide("edit-file", {}, ctxNoSession);
+    const decision = await engine.decide("edit_file", {}, ctxNoSession);
     expect(decision.action).toBe("escalate");
     expect(decision.effectiveTier).toBe(1);
     expect(decision.reason).toBe("session-key-unavailable");
@@ -96,7 +96,7 @@ describe("PolicyEngine", () => {
       consecutiveDenials: 3,
       sessionKey: { id: "sk_123", expired: false, revoked: false },
     };
-    const decision = await engine.decide("edit-file", {}, ctxWithDenials);
+    const decision = await engine.decide("edit_file", {}, ctxWithDenials);
     expect(decision.action).toBe("deny");
     expect(decision.reason).toBe("consecutive-denials-halt");
   });
