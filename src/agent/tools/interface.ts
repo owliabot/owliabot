@@ -26,6 +26,12 @@ export interface ToolContext {
   signer: SignerInterface | null;
   config: ToolConfig;
   requestConfirmation?: (req: ConfirmationRequest) => Promise<boolean>;
+  /** Optional: workspace path for skill execution */
+  workspace?: string;
+  /** Optional: callTool for skills (routed through ToolRouter) */
+  callTool?: (name: string, args: unknown) => Promise<ToolResult>;
+  /** Optional: callSigner for skills (routed through SignerRouter) */
+  callSigner?: (operation: string, params: unknown) => Promise<ToolResult | unknown>;
 }
 
 export interface ToolConfig {

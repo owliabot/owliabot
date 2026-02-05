@@ -70,6 +70,10 @@ export interface ToolRouterOptions {
   writeGate: WriteGate;
   toolRegistry: ToolRegistry;
   auditLogger?: AuditLogger;
+  /** Optional: callSigner implementation for skill contexts */
+  callSigner?: (operation: string, params: unknown, context: ToolRouterContext) => Promise<unknown>;
+  /** Optional: workspace path for skill execution */
+  workspace?: string;
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -119,11 +123,15 @@ export class ToolRouter {
   private readonly writeGate: WriteGate;
   private readonly toolRegistry: ToolRegistry;
   private readonly auditLogger?: AuditLogger;
+  private readonly callSignerFn?: (operation: string, params: unknown, context: ToolRouterContext) => Promise<unknown>;
+  private readonly workspace?: string;
 
   constructor(options: ToolRouterOptions) {
     this.writeGate = options.writeGate;
     this.toolRegistry = options.toolRegistry;
     this.auditLogger = options.auditLogger;
+    this.callSignerFn = options.callSigner;
+    this.workspace = options.workspace;
   }
 
   /**
@@ -191,8 +199,15 @@ export class ToolRouter {
         agentId: "skill-router",
         signer: null,
         config: {},
+        workspace: this.workspace,
         requestConfirmation: context.requestConfirmation
           ? async (req) => context.requestConfirmation!(req.description)
+          : undefined,
+        // Provide callTool for skills to call other tools (routes back through this router)
+        callTool: (toolName: string, toolArgs: unknown) => this.callTool(toolName, toolArgs, context),
+        // Provide callSigner for skills to perform signing operations
+        callSigner: this.callSignerFn
+          ? (operation: string, params: unknown) => this.callSignerFn!(operation, params, context)
           : undefined,
       });
 

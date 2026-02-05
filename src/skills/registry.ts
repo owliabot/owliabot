@@ -60,6 +60,19 @@ function createToolExecutor(
       userId: ctx.sessionKey,
       channel: ctx.sessionKey.split(":")[0] || "unknown",
       requiredEnv,
+      workspace: ctx.workspace,
+      callTool: ctx.callTool,
+      callSigner: ctx.callSigner as typeof skillContext.callSigner,
+      askConfirmation: ctx.requestConfirmation
+        ? async (prompt: string) => {
+            const result = await ctx.requestConfirmation!({
+              type: "action",
+              title: "Skill Confirmation",
+              description: prompt,
+            });
+            return result;
+          }
+        : undefined,
     });
 
     try {
