@@ -34,7 +34,12 @@ cd owliabot
 1. 选择 AI 服务提供商（Anthropic / OpenAI）
 2. 选择聊天平台（Discord / Telegram）
 3. 输入 API Key 和 Bot Token
-4. 自动生成配置并启动
+4. 自动拉取预构建镜像并启动
+
+**无需本地构建**，镜像从 GitHub Container Registry 拉取：
+```
+ghcr.io/owliabot/owliabot:latest
+```
 
 ### 方式二：交互式 Onboarding
 

@@ -6,6 +6,9 @@
 
 set -e
 
+# Image from GitHub Container Registry
+OWLIABOT_IMAGE="${OWLIABOT_IMAGE:-ghcr.io/owliabot/owliabot:latest}"
+
 # Colors
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -342,28 +345,58 @@ EOF
     success "已生成 config/app.yaml"
     
     # =========================================================================
-    # Build and start
+    # Pull and start
     # =========================================================================
-    header "构建并启动"
+    header "拉取并启动"
     
-    if prompt_yn "是否立即构建 Docker 镜像？" "y"; then
-        info "正在构建镜像（首次可能需要几分钟）..."
-        if docker-compose build 2>&1 || docker compose build 2>&1; then
-            success "镜像构建完成"
+    if prompt_yn "是否立即启动 OwliaBot？" "y"; then
+        info "正在拉取镜像 ${OWLIABOT_IMAGE}..."
+        if docker pull "${OWLIABOT_IMAGE}"; then
+            success "镜像拉取完成"
         else
-            error "镜像构建失败"
+            warn "拉取失败，尝试本地构建..."
+            if docker build -t owliabot:local .; then
+                OWLIABOT_IMAGE="owliabot:local"
+                success "本地构建完成"
+            else
+                error "构建失败"
+                exit 1
+            fi
+        fi
+        
+        echo ""
+        info "正在启动..."
+        
+        # Stop existing container if running
+        docker rm -f owliabot 2>/dev/null || true
+        
+        # Start container
+        if docker run -d \
+            --name owliabot \
+            --restart unless-stopped \
+            -p "${GATEWAY_PORT}:${GATEWAY_PORT}" \
+            -v "$(pwd)/config:/app/config:ro" \
+            -v "$(pwd)/workspace:/app/workspace" \
+            --env-file .env \
+            "${OWLIABOT_IMAGE}" \
+            start -c /app/config/app.yaml; then
+            success "OwliaBot 已启动"
+        else
+            error "启动失败"
             exit 1
         fi
         
         echo ""
-        if prompt_yn "是否立即启动 OwliaBot？" "y"; then
-            info "正在启动..."
-            if docker-compose up -d 2>&1 || docker compose up -d 2>&1; then
-                success "OwliaBot 已启动"
-            else
-                error "启动失败"
-                exit 1
-            fi
+        info "等待服务就绪..."
+        sleep 3
+        
+        # Check health
+        if docker ps | grep -q owliabot; then
+            success "容器运行中"
+            echo ""
+            info "查看日志: docker logs -f owliabot"
+        else
+            warn "容器可能未正常启动，请检查日志: docker logs owliabot"
         fi
     fi
     
@@ -378,10 +411,11 @@ EOF
     echo "  • workspace/      - 工作区数据"
     echo ""
     echo "常用命令："
-    echo "  • 启动:  docker-compose up -d"
-    echo "  • 停止:  docker-compose down"
-    echo "  • 日志:  docker-compose logs -f"
-    echo "  • 状态:  docker-compose ps"
+    echo "  • 启动:  docker start owliabot"
+    echo "  • 停止:  docker stop owliabot"
+    echo "  • 重启:  docker restart owliabot"
+    echo "  • 日志:  docker logs -f owliabot"
+    echo "  • 状态:  docker ps | grep owliabot"
     echo ""
     
     if [ -n "$GATEWAY_TOKEN" ]; then
