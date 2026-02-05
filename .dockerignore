@@ -51,7 +51,7 @@ docs/
 # Development files
 .eslintrc*
 .prettierrc*
-tsconfig.json
+# tsconfig.json  # 需要用于构建，不能排除
 vitest.config.ts
 design.md
 reference/
