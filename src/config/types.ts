@@ -2,9 +2,9 @@
  * Config type exports
  */
 
-import type { Config } from "./schema.js";
+import type { Config, WalletConfig } from "./schema.js";
 
-export type { Config };
+export type { Config, WalletConfig };
 
 export interface ConfigLoader {
   load(path: string): Promise<Config>;

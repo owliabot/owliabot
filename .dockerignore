@@ -36,9 +36,10 @@ config/
 # Workspace files (should be mounted as volume)
 workspace/
 
-# Test files
+# Test files (unit tests excluded, e2e tests included)
 **/__tests__/
-**/*.test.ts
+src/**/*.test.ts
+!src/e2e/*.test.ts
 **/*.spec.ts
 coverage/
 .nyc_output/

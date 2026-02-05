@@ -1,7 +1,7 @@
 // src/agent/tools/builtin/index.ts
 
 // Factory (preferred for new code)
-export { createBuiltinTools, type BuiltinToolsOptions } from "./factory.js";
+export { createBuiltinTools, type BuiltinToolsOptions, type WalletFactoryConfig } from "./factory.js";
 
 // Policy filtering
 export { filterToolsByPolicy, type ToolPolicy } from "../policy.js";
@@ -25,3 +25,7 @@ export { createApplyPatchTool } from "./apply-patch.js";
 export { createExecTool, type ExecToolDeps } from "./exec.js";
 export { createWebFetchTool, type WebFetchToolDeps } from "./web-fetch.js";
 export { createWebSearchTool, type WebSearchToolDeps } from "./web-search.js";
+
+// Wallet tools (Clawlet integration)
+export { createWalletBalanceTool, type WalletBalanceToolDeps } from "./wallet-balance.js";
+export { createWalletTransferTool, type WalletTransferToolDeps } from "./wallet-transfer.js";

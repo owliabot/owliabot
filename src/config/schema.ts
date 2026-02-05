@@ -251,6 +251,43 @@ const groupSchema = z
   })
   .default({ activation: "mention" });
 
+// Wallet configuration (Clawlet integration)
+const walletSchema = z
+  .object({
+    enabled: z.boolean().default(false),
+    provider: z.enum(["clawlet"]).default("clawlet"),
+    clawlet: z
+      .object({
+        /** Unix socket path */
+        socketPath: z.string().default("/run/clawlet/clawlet.sock"),
+        /** Path to file containing auth token (safer than plaintext in config) */
+        authTokenFile: z.string().optional(),
+        /** Auth token (prefer authTokenFile for security) */
+        authToken: z.string().optional(),
+        /** Connection timeout in ms */
+        connectTimeout: z.number().int().default(5_000),
+        /** Request timeout in ms */
+        requestTimeout: z.number().int().default(30_000),
+      })
+      .default({
+        socketPath: "/run/clawlet/clawlet.sock",
+        connectTimeout: 5_000,
+        requestTimeout: 30_000,
+      }),
+    /** Default chain ID for wallet operations */
+    defaultChainId: z.number().int().default(8453), // Base
+  })
+  .default({
+    enabled: false,
+    provider: "clawlet",
+    clawlet: {
+      socketPath: "/run/clawlet/clawlet.sock",
+      connectTimeout: 5_000,
+      requestTimeout: 30_000,
+    },
+    defaultChainId: 8453,
+  });
+
 const memorySearchSchema = z
   .object({
     enabled: z.boolean().default(false),
@@ -367,9 +404,13 @@ export const configSchema = z.object({
 
   // Infrastructure (rate limiting, idempotency, event store)
   infra: infraSchema,
+
+  // Wallet integration (Clawlet)
+  wallet: walletSchema,
 });
 
 export type Config = z.infer<typeof configSchema>;
+export type WalletConfig = z.infer<typeof walletSchema>;
 export type ProviderConfig = z.infer<typeof providerSchema>;
 export type ToolPolicy = z.infer<typeof toolPolicySchema>;
 export type ToolsConfig = z.infer<typeof toolsConfigSchema>;

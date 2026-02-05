@@ -1,0 +1,75 @@
+# E2E Test Environment for OwliaBot Clawlet Integration
+#
+# Usage:
+#   docker compose -f docker-compose.e2e.yml up --build --abort-on-container-exit
+#
+# Ports (avoiding common ports - geth runs on 8545/8546/30303):
+#   - Anvil: 18545 (internal only, not exposed to host)
+
+services:
+  # Local Ethereum node (Anvil from Foundry)
+  anvil:
+    image: ghcr.io/foundry-rs/foundry:latest
+    entrypoint: anvil
+    command:
+      - --host=0.0.0.0
+      - --port=18545
+      - --accounts=10
+      - --balance=10000
+      - --block-time=1
+    networks:
+      - e2e-net
+    healthcheck:
+      test: ["CMD", "cast", "block-number", "--rpc-url", "http://localhost:18545"]
+      interval: 2s
+      timeout: 5s
+      retries: 10
+
+  # Clawlet wallet daemon
+  clawlet:
+    build:
+      context: ../clawlet
+      dockerfile: Dockerfile.e2e
+    environment:
+      - RUST_LOG=info
+      - CLAWLET_RPC_URL=http://anvil:18545
+    volumes:
+      - clawlet-socket:/run/clawlet
+      - clawlet-data:/home/clawlet/.clawlet
+    networks:
+      - e2e-net
+    depends_on:
+      anvil:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "test", "-S", "/run/clawlet/clawlet.sock"]
+      interval: 2s
+      timeout: 5s
+      retries: 10
+
+  # OwliaBot E2E tests
+  test:
+    build:
+      context: .
+      dockerfile: Dockerfile.e2e
+    environment:
+      - CLAWLET_SOCKET_PATH=/run/clawlet/clawlet.sock
+      - CLAWLET_ADMIN_PASSWORD=testpassword123
+      - CLAWLET_TEST_ADDRESS=0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266
+      - CLAWLET_TEST_CHAIN_ID=31337
+    volumes:
+      - clawlet-socket:/run/clawlet:ro
+    networks:
+      - e2e-net
+    depends_on:
+      clawlet:
+        condition: service_healthy
+    command: pnpm test:e2e:wallet
+
+networks:
+  e2e-net:
+    driver: bridge
+
+volumes:
+  clawlet-socket:
+  clawlet-data:

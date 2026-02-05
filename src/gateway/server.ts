@@ -149,6 +149,7 @@ export async function startGateway(
     sessionStore,
     transcripts,
     tools: config.tools,
+    wallet: config.wallet,
   })) {
     tools.register(tool);
   }

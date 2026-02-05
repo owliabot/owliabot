@@ -14,7 +14,9 @@
     "lint": "eslint src/",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "test:e2e:wallet": "vitest run src/e2e/wallet.test.ts",
+    "test:e2e:wallet:docker": "docker compose -f docker-compose.e2e.yml up --build --abort-on-container-exit --exit-code-from test"
   },
   "dependencies": {
     "@mariozechner/pi-ai": "^0.49.3",
