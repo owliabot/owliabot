@@ -41,13 +41,13 @@ tools:
   "help":
     tier: none
 
-  "list-files":
+  "list_files":
     tier: none
 
-  "memory-get":
+  "memory_get":
     tier: none
 
-  "memory-search":
+  "memory_search":
     tier: none
 
   "crypto-price__get_price":
@@ -57,13 +57,16 @@ tools:
     tier: none
 
   # ── Tier 3: Auto-execute, log only ──
-  "edit-file":
+  "edit_file":
     tier: 3
     requireConfirmation: false
 
-  "clear-session":
+  "clear_session":
     tier: 3
     requireConfirmation: false
+
+  "cron":
+    tier: none
 
   "gas__refuel":
     tier: 3

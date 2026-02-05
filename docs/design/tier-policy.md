@@ -54,11 +54,12 @@ sign              →    2 或 1（取决于金额 / 合约类型）
 |------|---------------|-----------|------|
 | `echo` | read | none | 测试回显 |
 | `help` | read | none | 帮助信息 |
-| `list-files` | read | none | 列出文件 |
-| `memory-get` | read | none | 读取记忆 |
-| `memory-search` | read | none | 语义搜索 |
-| `edit-file` | write | 3 | 编辑 workspace 文件 |
-| `clear-session` | write | 3 | 清空会话 |
+| `list_files` | read | none | 列出文件 |
+| `memory_get` | read | none | 读取记忆 |
+| `memory_search` | read | none | 语义搜索 |
+| `edit_file` | write | 3 | 编辑 workspace 文件 |
+| `clear_session` | write | 3 | 清空会话 |
+| `cron` | read | none | 定时任务调度 |
 
 ### 2.2 Skill 工具（`workspace/skills/`）
 
@@ -152,13 +153,13 @@ tools:
   "help":
     tier: none
 
-  "list-files":
+  "list_files":
     tier: none
 
-  "memory-get":
+  "memory_get":
     tier: none
 
-  "memory-search":
+  "memory_search":
     tier: none
 
   "crypto-price__get_price":
@@ -168,13 +169,16 @@ tools:
     tier: none
 
   # ── Tier 3: 自动执行，仅记录日志 ──
-  "edit-file":
+  "edit_file":
     tier: 3
     requireConfirmation: false
 
-  "clear-session":
+  "clear_session":
     tier: 3
     requireConfirmation: false
+
+  "cron":
+    tier: none
 
   "gas__refuel":
     tier: 3

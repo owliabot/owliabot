@@ -51,26 +51,44 @@ import { existsSync } from "node:fs";
  * Checks multiple candidate paths and returns the first that exists
  */
 function resolveBundledSkillsDir(): string | undefined {
+  const candidates: string[] = [];
+
   // 1. Environment variable override
   const override = process.env.OWLIABOT_BUNDLED_SKILLS_DIR?.trim();
-  if (override && existsSync(override)) {
-    return override;
+  if (override) {
+    candidates.push(override);
   }
 
   // 2. Resolve from module location: walk up to find package root with skills/
   try {
     const moduleDir = dirname(fileURLToPath(import.meta.url));
     // Try multiple levels up (handles src/, dist/, dist/gateway/, etc.)
-    for (const levels of ["../..", "../../..", "../../../.."]) {
-      const candidate = resolve(moduleDir, levels, "skills");
-      if (existsSync(candidate)) {
-        return candidate;
-      }
+    for (const levels of ["../..", "../../..", "../../../..", "../../../../.."]) {
+      candidates.push(resolve(moduleDir, levels, "skills"));
     }
-  } catch {
-    // ignore
+  } catch (err) {
+    // Log but continue with other candidates
+    console.debug(`[skills] import.meta.url resolution failed: ${err}`);
   }
 
+  // 3. Try relative to cwd (for dev mode and some install scenarios)
+  candidates.push(resolve(process.cwd(), "skills"));
+
+  // 4. Try common install locations
+  const homeDir = process.env.HOME ?? process.env.USERPROFILE;
+  if (homeDir) {
+    candidates.push(resolve(homeDir, ".owliabot", "bundled-skills"));
+  }
+
+  // Find first existing directory
+  for (const candidate of candidates) {
+    if (existsSync(candidate)) {
+      console.debug(`[skills] Found bundled skills at: ${candidate}`);
+      return candidate;
+    }
+  }
+
+  console.debug(`[skills] No bundled skills directory found. Tried: ${candidates.join(", ")}`);
   return undefined;
 }
 
@@ -119,10 +137,22 @@ export async function startGateway(
     
     // Collect directories that exist, in priority order (later overrides earlier)
     const skillsDirs: string[] = [];
-    if (builtinSkillsDir) skillsDirs.push(builtinSkillsDir);
-    if (existsSync(userSkillsDir)) skillsDirs.push(userSkillsDir);
-    if (existsSync(workspaceSkillsDir)) skillsDirs.push(workspaceSkillsDir);
+    if (builtinSkillsDir) {
+      skillsDirs.push(builtinSkillsDir);
+      log.debug(`Skills: using bundled dir: ${builtinSkillsDir}`);
+    } else {
+      log.warn("Skills: bundled skills directory not found");
+    }
+    if (existsSync(userSkillsDir)) {
+      skillsDirs.push(userSkillsDir);
+      log.debug(`Skills: using user dir: ${userSkillsDir}`);
+    }
+    if (existsSync(workspaceSkillsDir)) {
+      skillsDirs.push(workspaceSkillsDir);
+      log.debug(`Skills: using workspace dir: ${workspaceSkillsDir}`);
+    }
     
+    log.info(`Skills: loading from ${skillsDirs.length} directories`);
     skillsResult = await initializeSkills(skillsDirs);
   }
 
