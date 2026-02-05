@@ -1,0 +1,77 @@
+# OwliaBot Docker Ignore
+# Exclude files not needed in the Docker build context
+
+# Dependencies (will be installed fresh in container)
+node_modules/
+
+# Build output (will be built in container)
+dist/
+
+# Git
+.git/
+.gitignore
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Logs
+*.log
+logs/
+
+# Environment and secrets (NEVER include in image!)
+.env
+.env.*
+secrets.yaml
+*.pem
+*.key
+
+# Local config (users should mount their own)
+config/
+!config.example.yaml
+
+# Workspace files (should be mounted as volume)
+workspace/
+
+# Test files
+**/__tests__/
+**/*.test.ts
+**/*.spec.ts
+coverage/
+.nyc_output/
+
+# Documentation (not needed at runtime)
+docs/
+*.md
+!README.md
+
+# Development files
+.eslintrc*
+.prettierrc*
+tsconfig.json
+vitest.config.ts
+design.md
+reference/
+
+# CI/CD
+.github/
+.gitlab-ci.yml
+.travis.yml
+Jenkinsfile
+
+# Docker files (no need to copy these into the image)
+Dockerfile*
+docker-compose*.yml
+.dockerignore
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Temporary files
+tmp/
+temp/
+*.tmp
