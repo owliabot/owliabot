@@ -18,6 +18,7 @@ import type { SessionTranscriptStore } from "../agent/session-transcript.js";
 import type { ChannelRegistry } from "../channels/registry.js";
 import { summarizeAndSave, type SummarizeResult } from "./session-summarizer.js";
 import type { ModelConfig } from "../agent/models.js";
+import type { InfraStore } from "../infra/index.js";
 
 const log = createLogger("commands");
 
@@ -26,6 +27,9 @@ const DEFAULT_RESET_TRIGGERS = ["/new", "/reset"];
 
 /** Help command triggers */
 const HELP_TRIGGERS = ["/help", "help"];
+
+/** Status command triggers */
+const STATUS_TRIGGERS = ["/status"];
 
 /** Help message text */
 const HELP_TEXT = `🦉 **OwliaBot 帮助**
@@ -260,4 +264,86 @@ export async function tryHandleCommand(
   }
 
   return { handled: true };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Status Command Handler
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface StatusCommandContext {
+  ctx: MsgContext;
+  channels: ChannelRegistry;
+  infraStore: InfraStore | null;
+}
+
+/**
+ * Handle /status command to show infrastructure status.
+ * Returns { handled: true } if the message was a status command.
+ */
+export async function tryHandleStatusCommand(
+  options: StatusCommandContext
+): Promise<CommandResult> {
+  const { ctx, channels, infraStore } = options;
+
+  const body = ctx.body.trim();
+  const bodyLower = body.toLowerCase();
+
+  const isStatus = STATUS_TRIGGERS.some((t) => bodyLower === t.toLowerCase());
+  if (!isStatus) {
+    return { handled: false };
+  }
+
+  log.info(`Status command from ${ctx.from}`);
+
+  const channel = channels.get(ctx.channel);
+  if (!channel) {
+    return { handled: true };
+  }
+
+  const target = ctx.chatType === "direct" ? ctx.from : ctx.groupId ?? ctx.from;
+
+  if (!infraStore) {
+    await channel.send(target, {
+      text: "📊 **系统状态**\n\n基础设施模块未启用。",
+      replyToId: ctx.messageId,
+    });
+    return { handled: true };
+  }
+
+  const stats = infraStore.getStats();
+  const recentEvents = infraStore.getRecentEvents(5);
+
+  // Format recent events
+  const eventsText = recentEvents.length > 0
+    ? recentEvents.map((e) => {
+        const time = new Date(e.time).toISOString().slice(11, 19);
+        const statusIcon = e.status === "success" ? "✅" : e.status === "error" ? "❌" : "⚠️";
+        return `  ${statusIcon} \`${time}\` ${e.type} (${e.source.split(":").pop()})`;
+      }).join("\n")
+    : "  无最近事件";
+
+  const statusText = `📊 **系统状态**
+
+**运行时间:** ${formatUptime(stats.uptime)}
+**事件记录:** ${stats.eventCount} 条
+**去重缓存:** ${stats.idempotencyCount} 条
+**限流桶:** ${stats.rateLimitBuckets} 个
+
+**最近事件:**
+${eventsText}`;
+
+  await channel.send(target, {
+    text: statusText,
+    replyToId: ctx.messageId,
+  });
+
+  return { handled: true };
+}
+
+function formatUptime(seconds: number): string {
+  if (seconds < 60) return `${seconds}s`;
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  return `${hours}h ${minutes}m`;
 }

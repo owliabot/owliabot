@@ -189,6 +189,45 @@ const sessionSchema = z
   })
   .default({ scope: "per-agent", mainKey: "main" });
 
+// Infrastructure config for rate limiting, idempotency, event logging
+const infraSchema = z
+  .object({
+    enabled: z.boolean().default(true),
+    sqlitePath: z.string().default("~/.owliabot/infra.db"),
+    rateLimit: z
+      .object({
+        enabled: z.boolean().default(true),
+        windowMs: z.number().int().default(60_000), // 1 minute
+        maxMessages: z.number().int().default(30), // 30 messages per minute per user
+      })
+      .default({ enabled: true, windowMs: 60_000, maxMessages: 30 }),
+    idempotency: z
+      .object({
+        enabled: z.boolean().default(true),
+        ttlMs: z
+          .number()
+          .int()
+          .default(5 * 60 * 1000), // 5 minutes
+      })
+      .default({ enabled: true, ttlMs: 5 * 60 * 1000 }),
+    eventStore: z
+      .object({
+        enabled: z.boolean().default(true),
+        ttlMs: z
+          .number()
+          .int()
+          .default(24 * 60 * 60 * 1000), // 24 hours
+      })
+      .default({ enabled: true, ttlMs: 24 * 60 * 60 * 1000 }),
+  })
+  .default({
+    enabled: true,
+    sqlitePath: "~/.owliabot/infra.db",
+    rateLimit: { enabled: true, windowMs: 60_000, maxMessages: 30 },
+    idempotency: { enabled: true, ttlMs: 5 * 60 * 1000 },
+    eventStore: { enabled: true, ttlMs: 24 * 60 * 60 * 1000 },
+  });
+
 const agentsSchema = z
   .object({
     defaultId: z.string().default("main"),
@@ -314,6 +353,9 @@ export const configSchema = z.object({
       http: gatewayHttpSchema.optional(),
     })
     .optional(),
+
+  // Infrastructure (rate limiting, idempotency, event store)
+  infra: infraSchema,
 });
 
 export type Config = z.infer<typeof configSchema>;

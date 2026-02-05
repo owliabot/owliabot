@@ -18,7 +18,7 @@ import { callWithFailover, type LLMProvider } from "../agent/runner.js";
 import { buildSystemPrompt } from "../agent/system-prompt.js";
 import type { MsgContext } from "../channels/interface.js";
 import { shouldHandleMessage } from "./activation.js";
-import { tryHandleCommand } from "./commands.js";
+import { tryHandleCommand, tryHandleStatusCommand } from "./commands.js";
 import { ToolRegistry } from "../agent/tools/registry.js";
 import { executeToolCalls } from "../agent/tools/executor.js";
 import {
@@ -37,10 +37,11 @@ import { createCronIntegration } from "./cron-integration.js";
 import { createCronTool } from "../agent/tools/builtin/cron.js";
 import { createNotificationService } from "../notifications/service.js";
 import { initializeSkills, type SkillsInitResult } from "../skills/index.js";
+import { createInfraStore, hashMessage, type InfraStore } from "../infra/index.js";
 import { join, dirname, resolve } from "node:path";
 import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
-import { existsSync } from "node:fs";
+import { existsSync, mkdirSync } from "node:fs";
 
 /**
  * Resolve bundled skills directory (like OpenClaw's approach)
@@ -109,6 +110,25 @@ export async function startGateway(
   const { config, workspace, sessionsDir } = options;
 
   const channels = new ChannelRegistry();
+
+  // Initialize infrastructure store (rate limiting, idempotency, event logging)
+  let infraStore: InfraStore | null = null;
+  const infraConfig = config.infra;
+  if (infraConfig?.enabled !== false) {
+    const infraDbPath = infraConfig?.sqlitePath?.replace(
+      /^~/,
+      homedir(),
+    ) ?? join(homedir(), ".owliabot", "infra.db");
+
+    // Ensure parent directory exists
+    const infraDbDir = dirname(infraDbPath);
+    if (!existsSync(infraDbDir)) {
+      mkdirSync(infraDbDir, { recursive: true });
+    }
+
+    infraStore = createInfraStore({ sqlitePath: infraDbPath });
+    log.info(`Infrastructure store initialized: ${infraDbPath}`);
+  }
 
   const sessionStore = createSessionStore({
     sessionsDir,
@@ -192,6 +212,7 @@ export async function startGateway(
         tools,
         writeGateChannels,
         skillsResult,
+        infraStore,
       );
     });
 
@@ -226,6 +247,7 @@ export async function startGateway(
         tools,
         writeGateChannels,
         skillsResult,
+        infraStore,
       );
     });
 
@@ -290,8 +312,23 @@ export async function startGateway(
   await cronIntegration.start();
   log.info("Cron service started");
 
+  // Schedule periodic infra cleanup (every 5 minutes)
+  let infraCleanupInterval: NodeJS.Timeout | null = null;
+  if (infraStore) {
+    infraCleanupInterval = setInterval(() => {
+      infraStore?.cleanup(Date.now());
+    }, 5 * 60 * 1000);
+  }
+
   // Return cleanup function
   return async () => {
+    if (infraCleanupInterval) {
+      clearInterval(infraCleanupInterval);
+    }
+    if (infraStore) {
+      infraStore.cleanup(Date.now());
+      infraStore.close();
+    }
     cronIntegration.stop();
     legacyCron.stopAll();
     await channels.stopAll();
@@ -309,6 +346,7 @@ async function handleMessage(
   tools: ToolRegistry,
   writeGateChannels: Map<string, WriteGateChannel>,
   skillsResult: SkillsInitResult | null,
+  infraStore: InfraStore | null,
 ): Promise<void> {
   if (!shouldHandleMessage(ctx, config)) {
     return;
@@ -316,6 +354,79 @@ async function handleMessage(
 
   const agentId = resolveAgentId({ config });
   const sessionKey = resolveSessionKey({ ctx, config });
+  const now = Date.now();
+  const infraConfig = config.infra;
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Infrastructure: Idempotency Check (prevent duplicate message processing)
+  // ─────────────────────────────────────────────────────────────────────────
+  if (infraStore && infraConfig?.idempotency?.enabled !== false && ctx.messageId) {
+    const idempotencyKey = `msg:${ctx.channel}:${ctx.messageId}`;
+    const messageHash = hashMessage(ctx.channel, ctx.messageId, ctx.body);
+    const cached = infraStore.getIdempotency(idempotencyKey);
+
+    if (cached && cached.requestHash === messageHash && cached.expiresAt > now) {
+      log.debug(`Idempotency hit: skipping duplicate message ${ctx.messageId}`);
+      return; // Already processed this exact message
+    }
+
+    // Save idempotency record (will be updated with response later)
+    const ttlMs = infraConfig?.idempotency?.ttlMs ?? 5 * 60 * 1000;
+    infraStore.saveIdempotency(idempotencyKey, messageHash, { processing: true }, now + ttlMs);
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Infrastructure: Rate Limiting (prevent user spam)
+  // ─────────────────────────────────────────────────────────────────────────
+  if (infraStore && infraConfig?.rateLimit?.enabled !== false) {
+    const bucket = `user:${ctx.channel}:${ctx.from}`;
+    const windowMs = infraConfig?.rateLimit?.windowMs ?? 60_000;
+    const maxMessages = infraConfig?.rateLimit?.maxMessages ?? 30;
+
+    const { allowed, resetAt, remaining } = infraStore.checkRateLimit(bucket, windowMs, maxMessages, now);
+
+    if (!allowed) {
+      log.warn(`Rate limit exceeded for ${ctx.from} on ${ctx.channel}`);
+      const waitSeconds = Math.ceil((resetAt - now) / 1000);
+
+      // Log rate limit event
+      if (infraConfig?.eventStore?.enabled !== false) {
+        const eventTtlMs = infraConfig?.eventStore?.ttlMs ?? 24 * 60 * 60 * 1000;
+        infraStore.insertEvent({
+          type: "rate_limit",
+          time: now,
+          status: "blocked",
+          source: `${ctx.channel}:${ctx.from}`,
+          message: `Rate limit exceeded, wait ${waitSeconds}s`,
+          metadataJson: JSON.stringify({ bucket, remaining: 0, resetAt }),
+          expiresAt: now + eventTtlMs,
+        });
+      }
+
+      // Send rate limit warning to user
+      const channel = channels.get(ctx.channel);
+      if (channel) {
+        const target = ctx.chatType === "direct" ? ctx.from : (ctx.groupId ?? ctx.from);
+        await channel.send(target, {
+          text: `⚠️ 消息过于频繁，请在 ${waitSeconds} 秒后再试。`,
+          replyToId: ctx.messageId,
+        });
+      }
+      return;
+    }
+
+    log.debug(`Rate limit check passed: ${remaining} remaining for ${ctx.from}`);
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Handle /status command (infrastructure status)
+  // ─────────────────────────────────────────────────────────────────────────
+  const statusCmd = await tryHandleStatusCommand({
+    ctx,
+    channels,
+    infraStore,
+  });
+  if (statusCmd.handled) return;
 
   // Intercept slash commands before the LLM loop
   const cmd = await tryHandleCommand({
@@ -490,6 +601,31 @@ async function handleMessage(
     await channel.send(target, {
       text: finalContent,
       replyToId: ctx.messageId,
+    });
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Infrastructure: Event Store (log message processing result)
+  // ─────────────────────────────────────────────────────────────────────────
+  if (infraStore && infraConfig?.eventStore?.enabled !== false) {
+    const eventTtlMs = infraConfig?.eventStore?.ttlMs ?? 24 * 60 * 60 * 1000;
+    const endTime = Date.now();
+    const isError = finalContent.startsWith("⚠️");
+
+    infraStore.insertEvent({
+      type: "message.processed",
+      time: endTime,
+      status: isError ? "error" : "success",
+      source: `${ctx.channel}:${ctx.from}`,
+      message: `Processed message in ${endTime - now}ms`,
+      metadataJson: JSON.stringify({
+        sessionKey,
+        messageId: ctx.messageId,
+        iterations: iteration,
+        responseLength: finalContent.length,
+        durationMs: endTime - now,
+      }),
+      expiresAt: endTime + eventTtlMs,
     });
   }
 }
