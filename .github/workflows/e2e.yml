@@ -15,4 +15,7 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run build
+      # Install Chrome for Playwright MCP E2E tests
+      - name: Install Playwright browsers
+        run: npx playwright install chrome --with-deps
       - run: npm run test -- --reporter=verbose

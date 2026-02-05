@@ -17,11 +17,10 @@ import type { MCPServerConfig, MCPSecurityOverride } from "../types.js";
 export const playwrightServerConfig: MCPServerConfig = {
   name: "playwright",
   command: "npx",
-  args: ["--yes", "@anthropic/mcp-server-playwright@latest"],
+  args: ["--yes", "@playwright/mcp@latest"],
   transport: "stdio",
   env: {
-    // Run headless by default
-    PLAYWRIGHT_HEADLESS: "true",
+    // Note: @playwright/mcp uses --headless flag, not env var
   },
 };
 
@@ -31,25 +30,28 @@ export const playwrightServerConfig: MCPServerConfig = {
 export function createPlaywrightConfig(options?: {
   /** Run browser in headless mode (default: true) */
   headless?: boolean;
-  /** Browser type: chromium, firefox, webkit (default: chromium) */
-  browser?: "chromium" | "firefox" | "webkit";
+  /** Browser type: chrome, firefox, webkit, msedge (default: chrome) */
+  browser?: "chrome" | "firefox" | "webkit" | "msedge";
   /** Additional environment variables */
   env?: Record<string, string>;
 }): MCPServerConfig {
   const { headless = true, browser, env = {} } = options ?? {};
 
-  const serverEnv: Record<string, string> = {
-    PLAYWRIGHT_HEADLESS: headless ? "true" : "false",
-    ...env,
-  };
+  // Build CLI args
+  const args = ["--yes", "@playwright/mcp@latest"];
+
+  if (headless) {
+    args.push("--headless");
+  }
 
   if (browser) {
-    serverEnv.PLAYWRIGHT_BROWSER = browser;
+    args.push("--browser", browser);
   }
 
   return {
     ...playwrightServerConfig,
-    env: serverEnv,
+    args,
+    env,
   };
 }
 
