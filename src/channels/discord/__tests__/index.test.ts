@@ -36,6 +36,10 @@ vi.mock("discord.js", () => {
       MessageCreate: "messageCreate",
       ClientReady: "ready",
     },
+    Partials: {
+      Channel: 0,
+      Message: 1,
+    },
     __getLastClient: () => lastClient,
   };
 });
