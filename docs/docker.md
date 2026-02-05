@@ -20,7 +20,75 @@
 
 ## 快速开始
 
-### 方式一：使用 Docker Compose（推荐）
+### 方式一：交互式 Onboarding（推荐新手）
+
+通过向导式配置生成 `app.yaml`，无需手动编辑配置文件。
+
+1. **克隆仓库并构建镜像**
+
+```bash
+git clone https://github.com/owliabot/owliabot.git
+cd owliabot
+docker-compose build
+```
+
+2. **设置环境变量**
+
+创建 `.env` 文件：
+
+```bash
+# AI 服务 API 密钥（至少配置一个）
+ANTHROPIC_API_KEY=sk-ant-xxx
+OPENAI_API_KEY=sk-xxx
+
+# 聊天平台 Token（至少配置一个）
+DISCORD_BOT_TOKEN=xxx
+TELEGRAM_BOT_TOKEN=xxx
+
+# Gateway HTTP Token（用于 API 认证）
+GATEWAY_TOKEN=your-secure-token
+
+# 可选：时区设置
+TZ=Asia/Shanghai
+```
+
+3. **运行交互式 Onboarding**
+
+```bash
+# 创建配置目录
+mkdir -p owlia_dev workspace
+
+# 运行 onboard 向导（交互式）
+docker run -it --rm \
+  -v $(pwd)/owlia_dev:/home/owliabot/.owlia_dev \
+  -v $(pwd)/workspace:/app/workspace \
+  --env-file .env \
+  owliabot:latest onboard
+```
+
+向导会引导你配置 AI 提供商、聊天平台等，生成的配置保存在 `./owlia_dev/app.yaml`。
+
+4. **启动 Bot**
+
+```bash
+# 使用 onboard 生成的配置启动
+docker run -d \
+  --name owliabot \
+  --restart unless-stopped \
+  -p 8787:8787 \
+  -v $(pwd)/owlia_dev:/home/owliabot/.owlia_dev:ro \
+  -v $(pwd)/workspace:/app/workspace \
+  --env-file .env \
+  owliabot:latest start -c /home/owliabot/.owlia_dev/app.yaml
+```
+
+5. **查看日志**
+
+```bash
+docker logs -f owliabot
+```
+
+### 方式二：手动配置（推荐熟悉配置的用户）
 
 1. **克隆仓库并进入目录**
 
@@ -155,12 +223,14 @@ workspace: /app/workspace
 
 | 容器路径 | 说明 | 挂载模式 |
 |---------|------|---------|
-| `/app/config` | 配置文件目录 | 只读 (`:ro`) |
+| `/app/config` | 配置文件目录（手动配置方式） | 只读 (`:ro`) |
+| `/home/owliabot/.owlia_dev` | Onboard 生成的配置 | 只读 (`:ro`) |
 | `/app/workspace` | 工作区（记忆、文件等） | 读写 |
 | `/home/owliabot/.owliabot` | OAuth 凭据等持久化数据 | 读写 |
 
 ### 目录结构示例
 
+**手动配置方式：**
 ```
 owliabot/
 ├── config/
@@ -172,6 +242,35 @@ owliabot/
 ├── Dockerfile
 └── .env                  # 环境变量（不要提交到 Git！）
 ```
+
+**Onboard 方式：**
+```
+owliabot/
+├── owlia_dev/
+│   ├── app.yaml          # Onboard 生成的配置
+│   └── secrets.yaml      # Token 存储（可选）
+├── workspace/
+│   ├── memory/           # 记忆文件
+│   └── gateway.db        # Gateway 数据库
+├── docker-compose.yml
+├── Dockerfile
+└── .env                  # 环境变量（不要提交到 Git！）
+```
+
+## 敏感信息存放位置
+
+| 信息类型 | 存储位置 | 说明 |
+|---------|---------|------|
+| API Key（Anthropic/OpenAI） | `.env` 或 Docker Secrets | **推荐通过环境变量传入** |
+| Bot Token（Discord/Telegram） | `.env` 或 Docker Secrets | **推荐通过环境变量传入** |
+| Gateway Token | `.env` 或 Docker Secrets | **推荐通过环境变量传入** |
+| OAuth 凭据 | `/home/owliabot/.owliabot/` | 挂载 named volume 持久化 |
+| Onboard 生成的 secrets | `owlia_dev/secrets.yaml` | `token set` 命令写入 |
+
+**安全提示：**
+- `.env` 文件 **不要提交到 Git**（已在 `.gitignore`）
+- 生产环境推荐使用 Docker Secrets 或外部密钥管理（Vault 等）
+- `secrets.yaml` 和 `.env` 都应设置严格的文件权限（`chmod 600`）
 
 ## 构建自定义镜像
 

@@ -109,6 +109,68 @@ volumes:
 #       - GATEWAY_TOKEN_FILE=/run/secrets/gateway_token
 
 # ==============================================================================
+# Interactive Onboarding
+# ==============================================================================
+
+# Run onboarding wizard to generate config interactively:
+#
+#   docker-compose run --rm -it owliabot-onboard
+#
+# This creates config in ./owlia_dev/ which is mounted into the main container.
+
+  # owliabot-onboard:
+  #   build:
+  #     context: .
+  #     dockerfile: Dockerfile
+  #   image: owliabot:latest
+  #   container_name: owliabot-onboard
+  #   stdin_open: true
+  #   tty: true
+  #   volumes:
+  #     # Onboard writes to ~/.owlia_dev - mount to host for persistence
+  #     - ./owlia_dev:/home/owliabot/.owlia_dev
+  #     - ./workspace:/app/workspace
+  #     - owliabot-data:/home/owliabot/.owliabot
+  #   environment:
+  #     - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+  #     - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+  #     - DISCORD_BOT_TOKEN=${DISCORD_BOT_TOKEN:-}
+  #     - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}
+  #   command: ["onboard"]
+
+# After onboarding, start the bot with the generated config:
+#
+#   docker-compose up -d owliabot-from-onboard
+#
+  # owliabot-from-onboard:
+  #   build:
+  #     context: .
+  #     dockerfile: Dockerfile
+  #   image: owliabot:latest
+  #   container_name: owliabot
+  #   restart: unless-stopped
+  #   ports:
+  #     - "8787:8787"
+  #   volumes:
+  #     - ./owlia_dev:/home/owliabot/.owlia_dev:ro
+  #     - ./workspace:/app/workspace
+  #     - owliabot-data:/home/owliabot/.owliabot
+  #   environment:
+  #     - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+  #     - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+  #     - DISCORD_BOT_TOKEN=${DISCORD_BOT_TOKEN:-}
+  #     - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}
+  #     - GATEWAY_TOKEN=${GATEWAY_TOKEN:-}
+  #     - TZ=${TZ:-UTC}
+  #   command: ["start", "-c", "/home/owliabot/.owlia_dev/app.yaml"]
+  #   healthcheck:
+  #     test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8787/health"]
+  #     interval: 30s
+  #     timeout: 10s
+  #     retries: 3
+  #     start_period: 10s
+
+# ==============================================================================
 # Development Configuration with hot reload
 # ==============================================================================
 
