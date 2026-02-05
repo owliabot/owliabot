@@ -186,6 +186,7 @@ main() {
     if [ $ai_choice -eq 1 ] || [ $ai_choice -eq 3 ]; then
         echo ""
         info "OpenAI API Key 获取地址: https://platform.openai.com/api-keys"
+        info "提示：如果你有 ChatGPT Plus/Pro 订阅，可跳过此步，之后用 OAuth 认证"
         prompt OPENAI_API_KEY "请输入 OpenAI API Key（留空跳过）" "" true
         if [ -z "$OPENAI_API_KEY" ]; then
             warn "未配置 OpenAI API Key"
@@ -507,6 +508,15 @@ EOF
     echo ""
     echo "Docker 和 CLI 共享同一份 secrets，切换启动方式无需重新配置。"
     echo ""
+    
+    # Show OAuth hint if no API keys were configured
+    if [ -z "$ANTHROPIC_API_KEY" ] || [ -z "$OPENAI_API_KEY" ]; then
+        echo "OAuth 认证（如果你有订阅但跳过了 API Key）："
+        echo "  • Anthropic (Claude Pro/Max):  docker exec -it owliabot node dist/entry.js auth setup anthropic"
+        echo "  • OpenAI (ChatGPT Plus/Pro):   docker exec -it owliabot node dist/entry.js auth setup openai-codex"
+        echo ""
+    fi
+    
     echo "常用命令："
     echo "  • 启动:  docker start owliabot"
     echo "  • 停止:  docker stop owliabot"
