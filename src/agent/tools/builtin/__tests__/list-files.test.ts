@@ -10,7 +10,7 @@ describe("list-files tool", () => {
 
   beforeEach(() => {
     vi.resetAllMocks();
-    listFilesTool = createListFilesTool(workspacePath);
+    listFilesTool = createListFilesTool({ workspace: workspacePath });
   });
 
   it("should list files and directories", async () => {

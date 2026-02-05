@@ -21,7 +21,7 @@ describe("memory_get tool security boundary", () => {
     const link = join(dir, "memory", "link.md");
     await symlink(target, link);
 
-    const tool = createMemoryGetTool(dir);
+    const tool = createMemoryGetTool({ workspace: dir });
 
     // Allowed: MEMORY.md
     const ok1 = await tool.execute({ path: "MEMORY.md", from_line: 1, num_lines: 2 }, {} as any);
@@ -65,7 +65,7 @@ describe("memory_get tool security boundary", () => {
     await rm(join(dir, "memory"), { recursive: true, force: true });
     await symlink(outside, join(dir, "memory"));
 
-    const tool = createMemoryGetTool(dir);
+    const tool = createMemoryGetTool({ workspace: dir });
 
     const res = await tool.execute({ path: "memory/secret.md" }, {} as any);
     expect(res.success).toBe(false);

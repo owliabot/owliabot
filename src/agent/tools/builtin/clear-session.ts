@@ -3,10 +3,17 @@ import type { ToolDefinition } from "../interface.js";
 import type { SessionStore } from "../../session-store.js";
 import type { SessionTranscriptStore } from "../../session-transcript.js";
 
-export function createClearSessionTool(options: {
+/**
+ * Options for creating the clear_session tool
+ */
+export interface ClearSessionToolOptions {
+  /** Session store for managing sessions */
   sessionStore: SessionStore;
+  /** Transcript store for managing conversation history */
   transcripts: SessionTranscriptStore;
-}): ToolDefinition {
+}
+
+export function createClearSessionTool(options: ClearSessionToolOptions): ToolDefinition {
   return {
     name: "clear_session",
     description:

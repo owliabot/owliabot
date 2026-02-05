@@ -66,10 +66,10 @@ export async function createGatewayToolRegistry(workspacePath: string) {
   tools.register(echoTool);
   tools.register(createHelpTool(tools));
   tools.register(createClearSessionTool({ sessionStore, transcripts }));
-  tools.register(createMemorySearchTool(workspacePath));
-  tools.register(createMemoryGetTool(workspacePath));
-  tools.register(createListFilesTool(workspacePath));
-  tools.register(createEditFileTool(workspacePath));
+  tools.register(createMemorySearchTool({ workspace: workspacePath }));
+  tools.register(createMemoryGetTool({ workspace: workspacePath }));
+  tools.register(createListFilesTool({ workspace: workspacePath }));
+  tools.register(createEditFileTool({ workspace: workspacePath }));
 
   // Note: Markdown-based skills are injected into system prompts, not tool registries.
   // Skills initialization should happen at the gateway level where system prompts are built.

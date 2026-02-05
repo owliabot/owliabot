@@ -7,7 +7,16 @@ import { lstat, open, readFile, realpath } from "node:fs/promises";
 import { relative, resolve } from "node:path";
 import type { ToolDefinition } from "../interface.js";
 
-export function createMemoryGetTool(workspacePath: string): ToolDefinition {
+/**
+ * Options for creating the memory_get tool
+ */
+export interface MemoryGetToolOptions {
+  /** Workspace directory path */
+  workspace: string;
+}
+
+export function createMemoryGetTool(opts: MemoryGetToolOptions): ToolDefinition {
+  const { workspace: workspacePath } = opts;
   return {
     name: "memory_get",
     description:

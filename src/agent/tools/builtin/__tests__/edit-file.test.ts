@@ -10,7 +10,7 @@ describe("edit-file tool", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    editFileTool = createEditFileTool(workspacePath);
+    editFileTool = createEditFileTool({ workspace: workspacePath });
   });
 
   it("should replace exact text in file", async () => {

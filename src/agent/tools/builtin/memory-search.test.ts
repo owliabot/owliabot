@@ -36,7 +36,7 @@ describe("memory_search tool (sqlite)", () => {
 
       expect(row).toBeTruthy();
 
-      const tool = createMemorySearchTool(dir);
+      const tool = createMemorySearchTool({ workspace: dir });
       const res = await tool.execute(
         { query: "unicorn", max_results: 5 },
         {
@@ -77,7 +77,7 @@ describe("memory_search tool (sqlite)", () => {
       const dbPath = join(dir, "memory.sqlite");
       await indexMemory({ workspaceDir: dir, dbPath, extraPaths: ["extra"] });
 
-      const tool = createMemorySearchTool(dir);
+      const tool = createMemorySearchTool({ workspace: dir });
       const res = await tool.execute(
         { query: "alpha", max_results: 5 },
         {
@@ -121,7 +121,7 @@ describe("memory_search tool (sqlite)", () => {
         extraPaths: ["extra", "MEMORY.md", "./MEMORY.md"],
       });
 
-      const tool = createMemorySearchTool(dir);
+      const tool = createMemorySearchTool({ workspace: dir });
       const res = await tool.execute(
         { query: "alpha", max_results: 5 },
         {
@@ -171,7 +171,7 @@ describe("memory_search tool (sqlite)", () => {
       ).run("bad-chunk", "secrets/secret.md", 1, 1, "alpha\n");
       db.close();
 
-      const tool = createMemorySearchTool(dir);
+      const tool = createMemorySearchTool({ workspace: dir });
       const res = await tool.execute(
         { query: "alpha", max_results: 10 },
         {
@@ -229,7 +229,7 @@ describe("memory_search tool (sqlite)", () => {
 
       db.close();
 
-      const tool = createMemorySearchTool(dir);
+      const tool = createMemorySearchTool({ workspace: dir });
       const res = await tool.execute(
         { query: "alpha beta", max_results: 1 },
         {
@@ -272,7 +272,7 @@ describe("memory_search tool (sqlite)", () => {
         await writeFile(join(memoryDir, `f-${i}.md`), "(unused)\n", "utf-8");
       }
 
-      const tool = createMemorySearchTool(dir);
+      const tool = createMemorySearchTool({ workspace: dir });
       const res = await tool.execute(
         { query: "alpha", max_results: 5 },
         {
@@ -329,7 +329,7 @@ describe("memory_search tool (sqlite, transcripts source)", () => {
       const dbPath = join(dir, "memory.sqlite");
       await indexMemory({ workspaceDir: dir, dbPath, sources: ["files", "transcripts"] });
 
-      const tool = createMemorySearchTool(dir);
+      const tool = createMemorySearchTool({ workspace: dir });
       const res = await tool.execute(
         { query: "unicorn", max_results: 5 },
         {
@@ -382,7 +382,7 @@ describe("memory_search tool (sqlite, transcripts source)", () => {
       const dbPath = join(dir, "memory.sqlite");
       await indexMemory({ workspaceDir: dir, dbPath, sources: ["transcripts"] });
 
-      const tool = createMemorySearchTool(dir);
+      const tool = createMemorySearchTool({ workspace: dir });
       const res = await tool.execute(
         { query: "alpha", max_results: 10 },
         {
@@ -438,7 +438,7 @@ describe("memory_search tool (sqlite, transcripts source)", () => {
       const dbPath = join(dir, "memory.sqlite");
       await indexMemory({ workspaceDir: dir, dbPath, sources: ["transcripts"] });
 
-      const tool = createMemorySearchTool(dir);
+      const tool = createMemorySearchTool({ workspace: dir });
       const res = await tool.execute(
         { query: "alpha", max_results: 10 },
         {
@@ -495,7 +495,7 @@ describe("memory_search tool (sqlite, transcripts source)", () => {
       db.prepare("DROP TABLE IF EXISTS transcripts").run();
       db.close();
 
-      const tool = createMemorySearchTool(dir);
+      const tool = createMemorySearchTool({ workspace: dir });
       const res = await tool.execute(
         { query: "alpha", max_results: 10 },
         {
@@ -558,7 +558,7 @@ describe("memory_search tool (sqlite, transcripts source)", () => {
       const dbPath = join(dir, "memory.sqlite");
       await indexMemory({ workspaceDir: dir, dbPath, sources: ["transcripts"] });
 
-      const tool = createMemorySearchTool(dir);
+      const tool = createMemorySearchTool({ workspace: dir });
       const res = await tool.execute(
         { query: "alpha", max_results: 3 },
         {
@@ -602,7 +602,7 @@ describe("memory_search tool (provider fallback)", () => {
 
       const missingDbPath = join(dir, "missing.sqlite");
 
-      const tool = createMemorySearchTool(dir);
+      const tool = createMemorySearchTool({ workspace: dir });
       const res = await tool.execute(
         { query: "alpha", max_results: 5 },
         {
@@ -639,7 +639,7 @@ describe("memory_search tool (provider fallback)", () => {
 
       const missingDbPath = join(dir, "missing.sqlite");
 
-      const tool = createMemorySearchTool(dir);
+      const tool = createMemorySearchTool({ workspace: dir });
       const res = await tool.execute(
         { query: "alpha", max_results: 5 },
         {
@@ -677,7 +677,7 @@ describe("memory_search tool (provider fallback)", () => {
 
       const missingDbPath = join(dir, "missing.sqlite");
 
-      const tool = createMemorySearchTool(dir);
+      const tool = createMemorySearchTool({ workspace: dir });
       const res = await tool.execute(
         { query: "alpha", max_results: 10 },
         {

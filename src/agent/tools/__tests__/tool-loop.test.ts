@@ -129,7 +129,7 @@ describe("Tool Loop Integration", () => {
     registry = new ToolRegistry();
     registry.register(echoTool);
     registry.register(createHelpTool(registry));
-    registry.register(createListFilesTool(testWorkspace));
+    registry.register(createListFilesTool({ workspace: testWorkspace }));
 
     mockContext = {
       sessionKey: "discord:channel:1467915124764573736",

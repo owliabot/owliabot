@@ -7,6 +7,14 @@ import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { ToolDefinition } from "../interface.js";
 
+/**
+ * Options for creating the edit_file tool
+ */
+export interface EditFileToolOptions {
+  /** Workspace directory path */
+  workspace: string;
+}
+
 // Strip UTF-8 BOM if present
 function stripBom(text: string): { bom: string; text: string } {
   if (text.charCodeAt(0) === 0xfeff) {
@@ -117,7 +125,8 @@ function generateDiffInfo(
   return { linesChanged, firstChangedLine };
 }
 
-export function createEditFileTool(workspacePath: string): ToolDefinition {
+export function createEditFileTool(opts: EditFileToolOptions): ToolDefinition {
+  const { workspace: workspacePath } = opts;
   return {
     name: "edit_file",
     description:

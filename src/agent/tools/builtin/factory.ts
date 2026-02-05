@@ -66,12 +66,12 @@ export function createBuiltinTools(
     // Core tools (always available)
     echoTool,
     createClearSessionTool({ sessionStore, transcripts }),
-    createMemorySearchTool(workspace),
-    createMemoryGetTool(workspace),
-    createListFilesTool(workspace),
+    createMemorySearchTool({ workspace }),
+    createMemoryGetTool({ workspace }),
+    createListFilesTool({ workspace }),
 
     // Write tools (gated by config)
-    toolsConfig?.allowWrite ? createEditFileTool(workspace) : null,
+    toolsConfig?.allowWrite ? createEditFileTool({ workspace }) : null,
   ];
 
   return builtins.filter((t): t is ToolDefinition => t !== null);

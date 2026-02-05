@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createMemorySearchTool } from "../memory-search.js";
+import { createMemorySearchTool, type MemorySearchToolOptions } from "../memory-search.js";
 import { indexMemory } from "../../../../memory/index/indexer.js";
 
 async function makeTmpDir() {
@@ -28,7 +28,7 @@ describe("memory-search tool (__tests__)", () => {
       const dbPath = join(dir, "memory.sqlite");
       await indexMemory({ workspaceDir: dir, dbPath });
 
-      const tool = createMemorySearchTool(dir);
+      const tool = createMemorySearchTool({ workspace: dir });
       const result = await tool.execute(
         { query: "interesting", max_results: 5 },
         {
@@ -65,7 +65,7 @@ describe("memory-search tool (__tests__)", () => {
       const dbPath = join(dir, "memory.sqlite");
       await indexMemory({ workspaceDir: dir, dbPath });
 
-      const tool = createMemorySearchTool(dir);
+      const tool = createMemorySearchTool({ workspace: dir });
       const result = await tool.execute(
         { query: "alpha" },
         {
@@ -100,7 +100,7 @@ describe("memory-search tool (__tests__)", () => {
       const dbPath = join(dir, "memory.sqlite");
       await indexMemory({ workspaceDir: dir, dbPath });
 
-      const tool = createMemorySearchTool(dir);
+      const tool = createMemorySearchTool({ workspace: dir });
       const result = await tool.execute(
         { query: "alpha", max_results: 1 },
         {
@@ -134,7 +134,7 @@ describe("memory-search tool (__tests__)", () => {
       const dbPath = join(dir, "memory.sqlite");
       await indexMemory({ workspaceDir: dir, dbPath });
 
-      const tool = createMemorySearchTool(dir);
+      const tool = createMemorySearchTool({ workspace: dir });
       const result = await tool.execute(
         { query: "zzzznonexistentzzzz" },
         {
@@ -169,7 +169,7 @@ describe("memory-search tool (__tests__)", () => {
       const dbPath = join(dir, "memory.sqlite");
       await indexMemory({ workspaceDir: dir, dbPath });
 
-      const tool = createMemorySearchTool(dir);
+      const tool = createMemorySearchTool({ workspace: dir });
       const result = await tool.execute(
         { query: "First line", max_results: 1 },
         {
@@ -206,7 +206,7 @@ describe("memory-search tool (__tests__)", () => {
       await mkdir(join(dir, "memory"), { recursive: true });
       await writeFile(join(dir, "MEMORY.md"), "alpha\n", "utf-8");
 
-      const tool = createMemorySearchTool(dir);
+      const tool = createMemorySearchTool({ workspace: dir });
       const result = await tool.execute(
         { query: "alpha" },
         {
@@ -231,7 +231,7 @@ describe("memory-search tool (__tests__)", () => {
   });
 
   it("should have correct metadata", () => {
-    const tool = createMemorySearchTool("/tmp/fake");
+    const tool = createMemorySearchTool({ workspace: "/tmp/fake" });
     expect(tool.name).toBe("memory_search");
     expect(tool.description).toContain("Search through memory");
     expect(tool.security.level).toBe("read");

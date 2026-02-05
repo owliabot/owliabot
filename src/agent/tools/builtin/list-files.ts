@@ -6,7 +6,16 @@ import { readdir, stat } from "node:fs/promises";
 import { join } from "node:path";
 import type { ToolDefinition } from "../interface.js";
 
-export function createListFilesTool(workspacePath: string): ToolDefinition {
+/**
+ * Options for creating the list_files tool
+ */
+export interface ListFilesToolOptions {
+  /** Workspace directory path */
+  workspace: string;
+}
+
+export function createListFilesTool(opts: ListFilesToolOptions): ToolDefinition {
+  const { workspace: workspacePath } = opts;
   return {
     name: "list_files",
     description:

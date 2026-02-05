@@ -6,7 +6,16 @@ import type { ToolDefinition } from "../interface.js";
 import { searchMemory } from "../../../workspace/memory-search.js";
 import { resolveMemoryStorePath } from "../../../memory/config.js";
 
-export function createMemorySearchTool(workspacePath: string): ToolDefinition {
+/**
+ * Options for creating the memory_search tool
+ */
+export interface MemorySearchToolOptions {
+  /** Workspace directory path */
+  workspace: string;
+}
+
+export function createMemorySearchTool(opts: MemorySearchToolOptions): ToolDefinition {
+  const { workspace: workspacePath } = opts;
   return {
     name: "memory_search",
     description:

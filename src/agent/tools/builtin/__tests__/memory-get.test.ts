@@ -20,7 +20,7 @@ describe("memory-get tool", () => {
     const content = "Line 1\nLine 2\nLine 3\nLine 4\nLine 5";
     const dir = await setupWorkspace(content);
     try {
-      const tool = createMemoryGetTool(dir);
+      const tool = createMemoryGetTool({ workspace: dir });
       const result = await tool.execute(
         { path: "memory/test.md" },
         {} as any
@@ -39,7 +39,7 @@ describe("memory-get tool", () => {
     const content = "Line 1\nLine 2\nLine 3\nLine 4\nLine 5";
     const dir = await setupWorkspace(content);
     try {
-      const tool = createMemoryGetTool(dir);
+      const tool = createMemoryGetTool({ workspace: dir });
       const result = await tool.execute(
         {
           path: "memory/test.md",
@@ -63,7 +63,7 @@ describe("memory-get tool", () => {
     const content = "Line 1\nLine 2\nLine 3";
     const dir = await setupWorkspace(content);
     try {
-      const tool = createMemoryGetTool(dir);
+      const tool = createMemoryGetTool({ workspace: dir });
       const result = await tool.execute(
         {
           path: "memory/test.md",
@@ -85,7 +85,7 @@ describe("memory-get tool", () => {
   it("should reject paths with ..", async () => {
     const dir = await makeTmpDir();
     try {
-      const tool = createMemoryGetTool(dir);
+      const tool = createMemoryGetTool({ workspace: dir });
       const result = await tool.execute(
         { path: "../etc/passwd" },
         {} as any
@@ -101,7 +101,7 @@ describe("memory-get tool", () => {
   it("should reject absolute paths", async () => {
     const dir = await makeTmpDir();
     try {
-      const tool = createMemoryGetTool(dir);
+      const tool = createMemoryGetTool({ workspace: dir });
       const result = await tool.execute(
         { path: "/etc/passwd" },
         {} as any
@@ -120,7 +120,7 @@ describe("memory-get tool", () => {
       await mkdir(join(dir, "memory"), { recursive: true });
       await writeFile(join(dir, "memory", "test.txt"), "content", "utf-8");
 
-      const tool = createMemoryGetTool(dir);
+      const tool = createMemoryGetTool({ workspace: dir });
       const result = await tool.execute(
         { path: "memory/test.txt" },
         {} as any
@@ -138,7 +138,7 @@ describe("memory-get tool", () => {
     try {
       await writeFile(join(dir, "NOTES.md"), "nope", "utf-8");
 
-      const tool = createMemoryGetTool(dir);
+      const tool = createMemoryGetTool({ workspace: dir });
       const result = await tool.execute(
         { path: "NOTES.md" },
         {} as any
@@ -156,7 +156,7 @@ describe("memory-get tool", () => {
     try {
       await mkdir(join(dir, "memory"), { recursive: true });
 
-      const tool = createMemoryGetTool(dir);
+      const tool = createMemoryGetTool({ workspace: dir });
       const result = await tool.execute(
         { path: "memory/missing.md" },
         {} as any
@@ -173,7 +173,7 @@ describe("memory-get tool", () => {
     const content = "Line 1\nLine 2\nLine 3";
     const dir = await setupWorkspace(content);
     try {
-      const tool = createMemoryGetTool(dir);
+      const tool = createMemoryGetTool({ workspace: dir });
       const result = await tool.execute(
         { path: "memory/test.md" },
         {} as any
@@ -193,7 +193,7 @@ describe("memory-get tool", () => {
       await mkdir(join(dir, "memory"), { recursive: true });
       await writeFile(join(dir, "memory", "empty.md"), "", "utf-8");
 
-      const tool = createMemoryGetTool(dir);
+      const tool = createMemoryGetTool({ workspace: dir });
       const result = await tool.execute(
         { path: "memory/empty.md" },
         {} as any
@@ -213,7 +213,7 @@ describe("memory-get tool", () => {
     try {
       await writeFile(join(dir, "MEMORY.md"), "line1\nline2\nline3", "utf-8");
 
-      const tool = createMemoryGetTool(dir);
+      const tool = createMemoryGetTool({ workspace: dir });
       const result = await tool.execute(
         { path: "MEMORY.md", from_line: 1, num_lines: 2 },
         {} as any
@@ -228,7 +228,7 @@ describe("memory-get tool", () => {
   });
 
   it("should have correct metadata", () => {
-    const tool = createMemoryGetTool("/tmp/fake");
+    const tool = createMemoryGetTool({ workspace: "/tmp/fake" });
     expect(tool.name).toBe("memory_get");
     expect(tool.description).toContain("Get specific lines");
     expect(tool.security.level).toBe("read");
