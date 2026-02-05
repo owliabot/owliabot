@@ -72,8 +72,8 @@ export class SignerRouter {
       estimatedValueUsd: call.estimatedValueUsd,
     });
 
-    // Build escalation context for policy decision
-    const escalationContext = await this.buildEscalationContext(context);
+    // Build escalation context for policy decision (include estimated value for tier escalation)
+    const escalationContext = await this.buildEscalationContext(context, call.estimatedValueUsd);
 
     // 1. Evaluate tier policy
     const decision = await this.policyEngine.decide(
@@ -280,7 +280,8 @@ export class SignerRouter {
    * Build escalation context from router context
    */
   private async buildEscalationContext(
-    context: SignerRouterContext
+    context: SignerRouterContext,
+    amountUsd?: number
   ): Promise<EscalationContext> {
     const sessionKeyStatus = await this.signerService.getSessionKeyStatus();
     const thresholds = await this.policyEngine.getThresholds();
@@ -293,6 +294,7 @@ export class SignerRouter {
             revoked: sessionKeyStatus.revoked,
           }
         : undefined,
+      amountUsd,
       thresholds,
       dailySpentUsd: context.dailySpentUsd ?? 0,
       consecutiveDenials: context.consecutiveDenials ?? 0,

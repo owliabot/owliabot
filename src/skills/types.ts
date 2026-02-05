@@ -114,6 +114,23 @@ export interface SkillContext {
    */
   askConfirmation: (prompt: string) => Promise<boolean>;
 
+  // ── NEW: File I/O (sandboxed to workspace) ─────────────────────────────
+
+  /**
+   * Read a file from the skill's workspace.
+   * Path is resolved relative to workspace.
+   * @param path File path (relative to workspace)
+   */
+  readFile: (path: string) => Promise<string>;
+
+  /**
+   * Write a file to the skill's workspace.
+   * Path is resolved relative to workspace.
+   * @param path File path (relative to workspace)
+   * @param content File content to write
+   */
+  writeFile: (path: string, content: string) => Promise<void>;
+
   // ── NEW: Workspace ────────────────────────────────────────────────────
 
   /**

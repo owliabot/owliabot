@@ -6,6 +6,8 @@
  * Future: Can be swapped to RPC proxy for containerized mode.
  */
 
+import { readFile as fsReadFile, writeFile as fsWriteFile, mkdir } from "node:fs/promises";
+import { dirname, resolve, relative } from "node:path";
 import type { SkillContext, SignerResult, ToolResult } from "./types.js";
 
 export interface CreateContextOptions {
@@ -52,6 +54,19 @@ export function createSkillContext(options: CreateContextOptions): SkillContext 
     throw new Error(`${name} not available in this context`);
   };
 
+  const workspacePath = workspace ?? process.cwd();
+
+  // Sandboxed file I/O: ensure path is within workspace
+  const resolveSafePath = (path: string): string => {
+    const resolved = resolve(workspacePath, path);
+    const rel = relative(workspacePath, resolved);
+    // Block path traversal (paths starting with .. or absolute paths outside workspace)
+    if (rel.startsWith("..") || resolve(resolved) !== resolved) {
+      throw new Error(`Path escapes workspace: ${path}`);
+    }
+    return resolved;
+  };
+
   return {
     env,
     fetch: globalThis.fetch,
@@ -62,7 +77,17 @@ export function createSkillContext(options: CreateContextOptions): SkillContext 
       userId,
       channel,
     },
-    workspace: workspace ?? process.cwd(),
+    workspace: workspacePath,
+    readFile: async (path: string) => {
+      const safePath = resolveSafePath(path);
+      return fsReadFile(safePath, "utf-8");
+    },
+    writeFile: async (path: string, content: string) => {
+      const safePath = resolveSafePath(path);
+      // Ensure parent directory exists
+      await mkdir(dirname(safePath), { recursive: true });
+      return fsWriteFile(safePath, content, "utf-8");
+    },
     callTool: callTool ?? notImplemented("callTool"),
     callSigner: callSigner ?? notImplemented("callSigner"),
     sendMessage: sendMessage ?? (async () => {}),
