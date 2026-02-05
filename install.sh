@@ -252,39 +252,58 @@ main() {
     success "时区设置为 $TZ"
     
     # =========================================================================
-    # Generate .env file
+    # Generate secrets file (~/.owliabot/secrets.yaml)
     # =========================================================================
     header "生成配置文件"
     
-    cat > .env << EOF
-# OwliaBot 环境变量配置
+    # Secrets directory (shared between Docker and CLI)
+    OWLIABOT_HOME="${HOME}/.owliabot"
+    mkdir -p "${OWLIABOT_HOME}"
+    
+    cat > "${OWLIABOT_HOME}/secrets.yaml" << EOF
+# OwliaBot Secrets
 # 由 install.sh 生成于 $(date)
+# 此文件包含敏感信息，请勿提交到 Git
 
 # AI 服务 API Key
-ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
-OPENAI_API_KEY=${OPENAI_API_KEY}
+anthropic:
+  apiKey: "${ANTHROPIC_API_KEY}"
+
+openai:
+  apiKey: "${OPENAI_API_KEY}"
 
 # 聊天平台 Token
-DISCORD_BOT_TOKEN=${DISCORD_BOT_TOKEN}
-TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+discord:
+  token: "${DISCORD_BOT_TOKEN}"
 
-# Gateway HTTP
-GATEWAY_TOKEN=${GATEWAY_TOKEN}
+telegram:
+  token: "${TELEGRAM_BOT_TOKEN}"
 
-# 时区
-TZ=${TZ}
+# Gateway HTTP Token
+gateway:
+  token: "${GATEWAY_TOKEN}"
 EOF
     
-    chmod 600 .env
-    success "已生成 .env 文件（权限已设为 600）"
+    chmod 600 "${OWLIABOT_HOME}/secrets.yaml"
+    success "已生成 ~/.owliabot/secrets.yaml（权限 600）"
     
     # =========================================================================
     # Generate config/app.yaml
     # =========================================================================
     
+    # =========================================================================
+    # Generate config/app.yaml (references secrets from ~/.owliabot)
+    # =========================================================================
+    
     cat > config/app.yaml << EOF
 # OwliaBot 配置文件
 # 由 install.sh 生成于 $(date)
+#
+# Secrets 存储在 ~/.owliabot/secrets.yaml
+# Docker 和 CLI 启动都会读取同一份 secrets
+
+# Secrets 文件路径（Docker 内映射到 /home/owliabot/.owliabot）
+secretsPath: /home/owliabot/.owliabot/secrets.yaml
 
 # AI 提供商配置
 providers:
@@ -294,7 +313,7 @@ EOF
         cat >> config/app.yaml << EOF
   - id: anthropic
     model: claude-sonnet-4-5
-    apiKey: \${ANTHROPIC_API_KEY}
+    # apiKey 从 secretsPath 读取
     priority: 1
 EOF
     fi
@@ -305,27 +324,27 @@ EOF
         cat >> config/app.yaml << EOF
   - id: openai
     model: gpt-4o
-    apiKey: \${OPENAI_API_KEY}
+    # apiKey 从 secretsPath 读取
     priority: $priority
 EOF
     fi
     
     cat >> config/app.yaml << EOF
 
-# 聊天平台配置
+# 聊天平台配置（token 从 secretsPath 读取）
 EOF
 
     if [ -n "$DISCORD_BOT_TOKEN" ]; then
         cat >> config/app.yaml << EOF
 discord:
-  token: \${DISCORD_BOT_TOKEN}
+  enabled: true
 EOF
     fi
     
     if [ -n "$TELEGRAM_BOT_TOKEN" ]; then
         cat >> config/app.yaml << EOF
 telegram:
-  token: \${TELEGRAM_BOT_TOKEN}
+  enabled: true
 EOF
     fi
     
@@ -336,10 +355,13 @@ gateway:
   http:
     host: 0.0.0.0
     port: ${GATEWAY_PORT}
-    token: \${GATEWAY_TOKEN}
+    # token 从 secretsPath 读取
 
 # 工作区路径
 workspace: /app/workspace
+
+# 时区
+timezone: ${TZ}
 EOF
 
     success "已生成 config/app.yaml"
@@ -371,13 +393,18 @@ EOF
         docker rm -f owliabot 2>/dev/null || true
         
         # Start container
+        # Mount:
+        #   - ~/.owliabot -> /home/owliabot/.owliabot (secrets, 与 CLI 共享)
+        #   - ./config    -> /app/config (配置文件)
+        #   - ./workspace -> /app/workspace (工作区)
         if docker run -d \
             --name owliabot \
             --restart unless-stopped \
             -p "${GATEWAY_PORT}:${GATEWAY_PORT}" \
+            -v "${OWLIABOT_HOME}:/home/owliabot/.owliabot:ro" \
             -v "$(pwd)/config:/app/config:ro" \
             -v "$(pwd)/workspace:/app/workspace" \
-            --env-file .env \
+            -e "TZ=${TZ}" \
             "${OWLIABOT_IMAGE}" \
             start -c /app/config/app.yaml; then
             success "OwliaBot 已启动"
@@ -406,9 +433,11 @@ EOF
     header "安装完成 🎉"
     
     echo "配置文件位置："
-    echo "  • .env           - 环境变量（敏感信息）"
-    echo "  • config/app.yaml - 主配置文件"
-    echo "  • workspace/      - 工作区数据"
+    echo "  • ~/.owliabot/secrets.yaml - API Key 和 Token（敏感信息）"
+    echo "  • ./config/app.yaml        - 主配置文件"
+    echo "  • ./workspace/             - 工作区数据"
+    echo ""
+    echo "Docker 和 CLI 共享同一份 secrets，切换启动方式无需重新配置。"
     echo ""
     echo "常用命令："
     echo "  • 启动:  docker start owliabot"

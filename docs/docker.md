@@ -280,18 +280,33 @@ owliabot/
 
 ## 敏感信息存放位置
 
+所有敏感信息统一存储在 `~/.owliabot/secrets.yaml`，Docker 和 CLI 启动共享同一份：
+
 | 信息类型 | 存储位置 | 说明 |
 |---------|---------|------|
-| API Key（Anthropic/OpenAI） | `.env` 或 Docker Secrets | **推荐通过环境变量传入** |
-| Bot Token（Discord/Telegram） | `.env` 或 Docker Secrets | **推荐通过环境变量传入** |
-| Gateway Token | `.env` 或 Docker Secrets | **推荐通过环境变量传入** |
-| OAuth 凭据 | `/home/owliabot/.owliabot/` | 挂载 named volume 持久化 |
-| Onboard 生成的 secrets | `owlia_dev/secrets.yaml` | `token set` 命令写入 |
+| API Key（Anthropic/OpenAI） | `~/.owliabot/secrets.yaml` | 安装脚本自动写入 |
+| Bot Token（Discord/Telegram） | `~/.owliabot/secrets.yaml` | 安装脚本自动写入 |
+| Gateway Token | `~/.owliabot/secrets.yaml` | 安装脚本自动写入 |
+| OAuth 凭据 | `~/.owliabot/auth/` | OAuth 流程自动生成 |
+
+**目录结构：**
+```
+~/.owliabot/              # 敏感信息目录（Docker + CLI 共享）
+├── secrets.yaml          # API Key, Token（权限 600）
+└── auth/                 # OAuth 凭据
+
+./config/                 # 配置目录（可放在 workspace）
+└── app.yaml              # 主配置（引用 secrets）
+
+./workspace/              # 工作区
+├── memory/               # 记忆文件
+└── gateway.db            # 数据库
+```
 
 **安全提示：**
-- `.env` 文件 **不要提交到 Git**（已在 `.gitignore`）
-- 生产环境推荐使用 Docker Secrets 或外部密钥管理（Vault 等）
-- `secrets.yaml` 和 `.env` 都应设置严格的文件权限（`chmod 600`）
+- `~/.owliabot/` 目录权限应为 `700`
+- `secrets.yaml` 权限应为 `600`（安装脚本自动设置）
+- 该目录 **不在项目目录内**，不会被误提交到 Git
 
 ## 构建自定义镜像
 
