@@ -4,9 +4,9 @@
  */
 
 import { describe, it, expect, vi, beforeEach, type Mock } from "vitest";
-import { ToolRouter, type ToolRegistry, type AuditLogger, type ToolRouterContext, type AuditEntry } from "./tool-router.js";
-import type { WriteGate, WriteGateResult, WriteGateCallContext } from "../security/write-gate.js";
-import type { ToolCall, ToolDefinition, ToolResult } from "../agent/tools/interface.js";
+import { ToolRouter, type ToolRegistry, type AuditLogger, type ToolRouterContext, type AuditEntry } from "../tool-router.js";
+import type { WriteGate, WriteGateResult, WriteGateCallContext } from "../../security/write-gate.js";
+import type { ToolCall, ToolDefinition, ToolResult } from "../../agent/tools/interface.js";
 
 // ── Test Fixtures ──────────────────────────────────────────────────────────
 
@@ -193,7 +193,7 @@ describe("ToolRouter", () => {
   });
 
   describe("Sign tools", () => {
-    it("should deny sign-level tools (TierPolicy not implemented)", async () => {
+    it("should execute sign-level tools (TierPolicy evaluated on callSigner)", async () => {
       const signTool = createMockTool({
         name: "transfer",
         security: { level: "sign" },
@@ -203,9 +203,10 @@ describe("ToolRouter", () => {
 
       const result = await router.callTool("transfer", { to: "0x123", amount: "1" }, context);
 
-      expect(result.success).toBe(false);
-      expect(result.error).toContain("not yet implemented");
-      expect(signTool.execute).not.toHaveBeenCalled();
+      // Sign-level tools execute normally; TierPolicy is evaluated when
+      // the skill code calls callSigner(), not at tool invocation time
+      expect(result.success).toBe(true);
+      expect(signTool.execute).toHaveBeenCalled();
     });
   });
 
@@ -448,7 +449,7 @@ describe("ToolRouter", () => {
 describe("createToolRouter", () => {
   it("should create a ToolRouter instance", async () => {
     // Import here to avoid circular dependency issues in tests
-    const { createToolRouter } = await import("./tool-router.js");
+    const { createToolRouter } = await import("../tool-router.js");
     
     const writeGate = createMockWriteGate();
     const registry = createMockToolRegistry([]);

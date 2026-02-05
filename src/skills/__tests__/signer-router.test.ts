@@ -4,19 +4,19 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { SignerRouter, TimeoutError } from "./signer-router.js";
-import type { SignerRouterOptions } from "./signer-router.js";
+import { SignerRouter, TimeoutError } from "../signer-router.js";
+import type { SignerRouterOptions } from "../signer-router.js";
 import type {
   SignerService,
   SignerCall,
   SignerRouterContext,
   SignerResult,
   SessionKeyStatus,
-} from "./signer-service-interface.js";
-import type { PolicyEngine } from "../policy/engine.js";
-import type { PolicyDecision, EscalationContext } from "../policy/types.js";
-import type { AuditLogger, PreLogResult } from "../audit/logger.js";
-import type { SignerTier } from "../signer/interface.js";
+} from "../signer-service-interface.js";
+import type { PolicyEngine } from "../../policy/engine.js";
+import type { PolicyDecision, EscalationContext } from "../../policy/types.js";
+import type { AuditLogger, PreLogResult } from "../../audit/logger.js";
+import type { SignerTier } from "../../signer/interface.js";
 
 // Mock logger to suppress logs during tests
 vi.mock("../utils/logger.js", () => ({
@@ -177,7 +177,7 @@ describe("SignerRouter", () => {
         "audit-001",
         "success",
         undefined,
-        "0xabc123"
+        { txHash: "0xabc123" }
       );
     });
 
@@ -251,7 +251,7 @@ describe("SignerRouter", () => {
 
       const confirmMsg = askConfirmation.mock.calls[0][0];
       expect(confirmMsg).toContain("Confirm");
-      expect(confirmMsg).toContain("DEX Swap"); // humanized operation
+      expect(confirmMsg).toContain("Dex Swap"); // humanized operation
       expect(confirmMsg).toContain("$45.50"); // formatted amount
     });
 
@@ -492,7 +492,7 @@ describe("SignerRouter", () => {
         "audit-001",
         "success",
         undefined,
-        "0xabc123"
+        { txHash: "0xabc123" }
       );
     });
 
