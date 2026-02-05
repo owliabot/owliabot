@@ -60,9 +60,9 @@ export const tools = {
           token: token.toUpperCase(),
           to,
           amount: parsedAmount.toString(),
-          txHash: result.txHash,
-          explorerUrl: result.explorerUrl || null,
-          tier: result.tier,
+          txHash: result.data?.txHash,
+          explorerUrl: result.data?.explorerUrl || null,
+          tier: result.effectiveTier || result.data?.tier,
           timestamp: new Date().toISOString(),
         },
       };
@@ -107,7 +107,7 @@ export const tools = {
       }
 
       // Determine which tier this would trigger
-      const usdValue = estimate.usdValue || 0;
+      const usdValue = estimate.data?.usdValue || 0;
       let tier, tierDescription;
 
       if (usdValue < 50) {
@@ -127,9 +127,9 @@ export const tools = {
           token: token.toUpperCase(),
           to,
           amount: parsedAmount.toString(),
-          estimatedGas: estimate.gas,
-          estimatedFee: estimate.fee,
-          feeCurrency: estimate.feeCurrency,
+          estimatedGas: estimate.data?.gas,
+          estimatedFee: estimate.data?.fee,
+          feeCurrency: estimate.data?.feeCurrency,
           usdValue: usdValue.toFixed(2),
           tier,
           tierDescription,

@@ -176,16 +176,12 @@ export class ToolRouter {
 
         log.debug(`Tool ${name} approved by WriteGate`);
       } else if (securityLevel === "sign") {
-        // Future: TierPolicy integration
+        // Sign-level tools are executed normally; their code calls callSigner()
+        // which routes through SignerRouter/TierPolicy. The security level here
+        // is metadata indicating the tool may perform signing operations.
         gate = "TierPolicy";
-        gateDecision = "not_implemented";
-        log.warn(`Sign-level tool ${name} called but TierPolicy not yet implemented`);
-        result = {
-          success: false,
-          error: "Sign-level tools not yet implemented",
-        };
-        await this.logAudit(name, securityLevel, args, context, "denied", gate, gateDecision, Date.now() - start);
-        return result;
+        gateDecision = "delegated_to_callSigner";
+        log.debug(`Sign-level tool ${name} - TierPolicy will be evaluated on callSigner()`);
       }
 
       // Execute the tool
