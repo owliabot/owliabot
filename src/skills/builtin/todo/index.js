@@ -1,5 +1,7 @@
 // workspace/skills/todo/index.js
-// Demonstrates: write tool (triggers WriteGate confirmation)
+// Demonstrates: write-level skill (WriteGate approval happens at tool invocation)
+// Since this skill declares security.level="write", file writes are allowed after
+// ToolRouter approves the tool call through WriteGate.
 
 const TODO_FILE = "todo.md";
 

@@ -61,6 +61,7 @@ function createToolExecutor(
       channel: ctx.sessionKey.split(":")[0] || "unknown",
       requiredEnv,
       workspace: ctx.workspace,
+      securityLevel: toolDef.security.level,
       callTool: ctx.callTool,
       callSigner: ctx.callSigner as typeof skillContext.callSigner,
       askConfirmation: ctx.requestConfirmation

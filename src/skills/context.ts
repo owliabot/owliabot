@@ -18,6 +18,13 @@ export interface CreateContextOptions {
   channel: string;
   requiredEnv: string[];
   workspace?: string;
+  /**
+   * Security level declared by the skill tool.
+   * - "read": no file writes allowed (writeFile throws)
+   * - "write": file writes allowed (WriteGate already approved at tool level)
+   * - "sign": file writes allowed (already elevated context)
+   */
+  securityLevel?: "read" | "write" | "sign";
   // Optional: injected by ToolRouter/SignerRouter when available
   callTool?: (name: string, args: unknown) => Promise<ToolResult>;
   callSigner?: (operation: string, params: unknown) => Promise<SignerResult>;
@@ -34,6 +41,7 @@ export function createSkillContext(options: CreateContextOptions): SkillContext 
     channel,
     requiredEnv,
     workspace,
+    securityLevel = "read",
     callTool,
     callSigner,
     sendMessage,
@@ -83,6 +91,13 @@ export function createSkillContext(options: CreateContextOptions): SkillContext 
       return fsReadFile(safePath, "utf-8");
     },
     writeFile: async (path: string, content: string) => {
+      // Enforce security level - only write/sign level skills can write files
+      if (securityLevel === "read") {
+        throw new Error(
+          `writeFile not allowed: skill "${skillName}" declares security.level="read". ` +
+          `Declare "write" or "sign" to enable file writes.`
+        );
+      }
       const safePath = resolveSafePath(path);
       // Ensure parent directory exists
       await mkdir(dirname(safePath), { recursive: true });
