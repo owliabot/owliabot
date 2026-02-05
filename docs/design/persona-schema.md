@@ -2,6 +2,8 @@
 
 This document defines the frontmatter schema and merge rules for the layered persona system.
 
+See also: [persona-bootstrap](./persona-bootstrap.md) for bootstrap question mapping, overlay generation, and load flow.
+
 ## Frontmatter Fields
 - `schema_version`: Schema version string (example: `"1.0"`).
 - `id`: Persona identifier.
