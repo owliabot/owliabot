@@ -59,6 +59,8 @@ export function createDiscordPlugin(config: DiscordConfig): ChannelPlugin {
       log.info("Starting Discord bot...");
 
       client.on(Events.MessageCreate, async (message) => {
+        log.debug(`MessageCreate: from=${message.author.tag} content="${message.content.substring(0, 50)}..." guild=${message.guild?.name || 'DM'}`);
+        
         // Ignore bot messages
         if (message.author.bot) return;
         if (!messageHandler) return;
@@ -118,6 +120,8 @@ export function createDiscordPlugin(config: DiscordConfig): ChannelPlugin {
               : false;
 
           const requireMention = config.requireMentionInGuild ?? true;
+          
+          log.debug(`Guild message: mentioned=${mentioned}, requireMention=${requireMention}, botUser=${botUser?.id}`);
 
           // Strict mode: if mention is required, ONLY respond when the bot user is mentioned.
           // (Channel allowlist does not bypass mention requirement.)
@@ -138,6 +142,11 @@ export function createDiscordPlugin(config: DiscordConfig): ChannelPlugin {
         }
       });
 
+      // Log when client is ready
+      client.once(Events.ClientReady, (c) => {
+        log.info(`Logged in as ${c.user.tag}, guilds: ${c.guilds.cache.size}`);
+      });
+      
       await client.login(config.token);
       log.info("Discord bot started");
     },
