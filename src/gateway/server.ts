@@ -41,7 +41,38 @@ import { createCronIntegration } from "./cron-integration.js";
 import { createCronTool } from "../agent/tools/builtin/cron.js";
 import { createNotificationService } from "../notifications/service.js";
 import { initializeSkills, type SkillsInitResult } from "../skills/index.js";
-import { join } from "node:path";
+import { join, dirname, resolve } from "node:path";
+import { homedir } from "node:os";
+import { fileURLToPath } from "node:url";
+import { existsSync } from "node:fs";
+
+/**
+ * Resolve bundled skills directory (like OpenClaw's approach)
+ * Checks multiple candidate paths and returns the first that exists
+ */
+function resolveBundledSkillsDir(): string | undefined {
+  // 1. Environment variable override
+  const override = process.env.OWLIABOT_BUNDLED_SKILLS_DIR?.trim();
+  if (override && existsSync(override)) {
+    return override;
+  }
+
+  // 2. Resolve from module location: walk up to find package root with skills/
+  try {
+    const moduleDir = dirname(fileURLToPath(import.meta.url));
+    // Try multiple levels up (handles src/, dist/, dist/gateway/, etc.)
+    for (const levels of ["../..", "../../..", "../../../.."]) {
+      const candidate = resolve(moduleDir, levels, "skills");
+      if (existsSync(candidate)) {
+        return candidate;
+      }
+    }
+  } catch {
+    // ignore
+  }
+
+  return undefined;
+}
 
 const log = createLogger("gateway");
 
@@ -78,11 +109,21 @@ export async function startGateway(
   // NOTE: write tools are disabled for now (Phase 1.5) until we add confirmation/permission gates.
 
   // Load skills if enabled
+  // Multi-directory loading: builtin → user home → workspace (later overrides earlier)
   let skillsResult: SkillsInitResult | null = null;
   const skillsEnabled = config.skills?.enabled ?? true;
   if (skillsEnabled) {
-    const skillsDir = config.skills?.directory ?? join(config.workspace, "skills");
-    skillsResult = await initializeSkills([skillsDir]);
+    const builtinSkillsDir = resolveBundledSkillsDir();
+    const userSkillsDir = join(homedir(), ".owliabot", "skills");
+    const workspaceSkillsDir = config.skills?.directory ?? join(config.workspace, "skills");
+    
+    // Collect directories that exist, in priority order (later overrides earlier)
+    const skillsDirs: string[] = [];
+    if (builtinSkillsDir) skillsDirs.push(builtinSkillsDir);
+    if (existsSync(userSkillsDir)) skillsDirs.push(userSkillsDir);
+    if (existsSync(workspaceSkillsDir)) skillsDirs.push(workspaceSkillsDir);
+    
+    skillsResult = await initializeSkills(skillsDirs);
   }
 
   // WriteGate reply router (shared across all channels)
