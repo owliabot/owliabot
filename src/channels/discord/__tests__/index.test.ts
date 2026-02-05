@@ -11,6 +11,9 @@ vi.mock("discord.js", () => {
     on = vi.fn((event: string, handler: any) => {
       this.handlers[event] = handler;
     });
+    once = vi.fn((event: string, handler: any) => {
+      this.handlers[event] = handler;
+    });
     channels = {
       fetch: vi.fn(),
     };
