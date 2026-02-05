@@ -20,7 +20,23 @@
 
 ## 快速开始
 
-### 方式一：交互式 Onboarding（推荐新手）
+### 方式一：一键安装脚本（推荐）
+
+最简单的方式，运行安装脚本，按提示操作即可：
+
+```bash
+git clone https://github.com/owliabot/owliabot.git
+cd owliabot
+./install.sh
+```
+
+脚本会引导你：
+1. 选择 AI 服务提供商（Anthropic / OpenAI）
+2. 选择聊天平台（Discord / Telegram）
+3. 输入 API Key 和 Bot Token
+4. 自动生成配置并启动
+
+### 方式二：交互式 Onboarding
 
 通过向导式配置生成 `app.yaml`，无需手动编辑配置文件。
 
@@ -88,7 +104,7 @@ docker run -d \
 docker logs -f owliabot
 ```
 
-### 方式二：手动配置（推荐熟悉配置的用户）
+### 方式三：手动配置（熟悉配置的用户）
 
 1. **克隆仓库并进入目录**
 
@@ -142,7 +158,7 @@ docker-compose up -d
 docker-compose logs -f
 ```
 
-### 方式二：使用 Docker Run
+### 方式四：使用 Docker Run
 
 1. **构建镜像**
 
