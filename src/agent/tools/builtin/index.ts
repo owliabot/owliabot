@@ -1,4 +1,9 @@
 // src/agent/tools/builtin/index.ts
+
+// Factory (preferred for new code)
+export { createBuiltinTools, type BuiltinToolsOptions } from "./factory.js";
+
+// Individual tool exports (for special cases)
 export { echoTool } from "./echo.js";
 export { createHelpTool } from "./help.js";
 export { createClearSessionTool } from "./clear-session.js";

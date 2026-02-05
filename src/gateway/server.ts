@@ -22,12 +22,8 @@ import { tryHandleCommand } from "./commands.js";
 import { ToolRegistry } from "../agent/tools/registry.js";
 import { executeToolCalls } from "../agent/tools/executor.js";
 import {
-  echoTool,
+  createBuiltinTools,
   createHelpTool,
-  createClearSessionTool,
-  createMemorySearchTool,
-  createMemoryGetTool,
-  createListFilesTool,
 } from "../agent/tools/builtin/index.js";
 import {
   WriteGateReplyRouter,
@@ -63,7 +59,12 @@ function resolveBundledSkillsDir(): string | undefined {
   try {
     const moduleDir = dirname(fileURLToPath(import.meta.url));
     // Try multiple levels up (handles src/, dist/, dist/gateway/, etc.)
-    for (const levels of ["../..", "../../..", "../../../..", "../../../../.."]) {
+    for (const levels of [
+      "../..",
+      "../../..",
+      "../../../..",
+      "../../../../..",
+    ]) {
       candidates.push(resolve(moduleDir, levels, "skills"));
     }
   } catch (err) {
@@ -88,7 +89,9 @@ function resolveBundledSkillsDir(): string | undefined {
     }
   }
 
-  console.debug(`[skills] No bundled skills directory found. Tried: ${candidates.join(", ")}`);
+  console.debug(
+    `[skills] No bundled skills directory found. Tried: ${candidates.join(", ")}`,
+  );
   return undefined;
 }
 
@@ -101,7 +104,7 @@ export interface GatewayOptions {
 }
 
 export async function startGateway(
-  options: GatewayOptions
+  options: GatewayOptions,
 ): Promise<() => Promise<void>> {
   const { config, workspace, sessionsDir } = options;
 
@@ -116,15 +119,17 @@ export async function startGateway(
     sessionsDir,
   });
 
-  // Create tool registry and register builtin tools
+  // Create tool registry and register builtin tools via factory
   const tools = new ToolRegistry();
-  tools.register(echoTool);
-  tools.register(createHelpTool(tools));
-  tools.register(createClearSessionTool({ sessionStore, transcripts }));
-  tools.register(createMemorySearchTool(config.workspace));
-  tools.register(createMemoryGetTool(config.workspace));
-  tools.register(createListFilesTool(config.workspace));
-  // NOTE: write tools are disabled for now (Phase 1.5) until we add confirmation/permission gates.
+  for (const tool of createBuiltinTools({
+    workspace: config.workspace,
+    sessionStore,
+    transcripts,
+    tools: config.tools,
+  })) {
+    tools.register(tool);
+  }
+  tools.register(createHelpTool(tools)); // Last - needs registry reference
 
   // Load skills if enabled
   // Multi-directory loading: builtin → user home → workspace (later overrides earlier)
@@ -133,8 +138,9 @@ export async function startGateway(
   if (skillsEnabled) {
     const builtinSkillsDir = resolveBundledSkillsDir();
     const userSkillsDir = join(homedir(), ".owliabot", "skills");
-    const workspaceSkillsDir = config.skills?.directory ?? join(config.workspace, "skills");
-    
+    const workspaceSkillsDir =
+      config.skills?.directory ?? join(config.workspace, "skills");
+
     // Collect directories that exist, in priority order (later overrides earlier)
     const skillsDirs: string[] = [];
     if (builtinSkillsDir) {
@@ -151,7 +157,7 @@ export async function startGateway(
       skillsDirs.push(workspaceSkillsDir);
       log.debug(`Skills: using workspace dir: ${workspaceSkillsDir}`);
     }
-    
+
     log.info(`Skills: loading from ${skillsDirs.length} directories`);
     skillsResult = await initializeSkills(skillsDirs);
   }
@@ -169,11 +175,24 @@ export async function startGateway(
       allowList: config.telegram.allowList,
     });
 
-    writeGateChannels.set("telegram", createWriteGateChannelAdapter(telegram, replyRouter));
+    writeGateChannels.set(
+      "telegram",
+      createWriteGateChannelAdapter(telegram, replyRouter),
+    );
 
     telegram.onMessage(async (ctx) => {
       if (replyRouter.tryRoute(ctx)) return; // confirmation reply consumed
-      await handleMessage(ctx, config, workspace, sessionStore, transcripts, channels, tools, writeGateChannels, skillsResult);
+      await handleMessage(
+        ctx,
+        config,
+        workspace,
+        sessionStore,
+        transcripts,
+        channels,
+        tools,
+        writeGateChannels,
+        skillsResult,
+      );
     });
 
     channels.register(telegram);
@@ -190,21 +209,38 @@ export async function startGateway(
       preFilter: (ctx) => replyRouter.hasPendingWaiter(ctx),
     });
 
-    writeGateChannels.set("discord", createWriteGateChannelAdapter(discord, replyRouter));
+    writeGateChannels.set(
+      "discord",
+      createWriteGateChannelAdapter(discord, replyRouter),
+    );
 
     discord.onMessage(async (ctx) => {
       if (replyRouter.tryRoute(ctx)) return; // confirmation reply consumed
-      await handleMessage(ctx, config, workspace, sessionStore, transcripts, channels, tools, writeGateChannels, skillsResult);
+      await handleMessage(
+        ctx,
+        config,
+        workspace,
+        sessionStore,
+        transcripts,
+        channels,
+        tools,
+        writeGateChannels,
+        skillsResult,
+      );
     });
 
     channels.register(discord);
   }
 
   if (config.telegram && !config.telegram.token) {
-    log.warn("Telegram configured but token missing; skipping Telegram channel startup");
+    log.warn(
+      "Telegram configured but token missing; skipping Telegram channel startup",
+    );
   }
   if (config.discord && !config.discord.token) {
-    log.warn("Discord configured but token missing; skipping Discord channel startup");
+    log.warn(
+      "Discord configured but token missing; skipping Discord channel startup",
+    );
   }
 
   // Start all channels
@@ -236,7 +272,10 @@ export async function startGateway(
   const cronIntegration = createCronIntegration({
     config,
     onSystemEvent: (text, opts) => {
-      log.debug({ text: text.slice(0, 50), agentId: opts?.agentId }, "system event enqueued");
+      log.debug(
+        { text: text.slice(0, 50), agentId: opts?.agentId },
+        "system event enqueued",
+      );
     },
     onHeartbeatRequest: (reason) => {
       log.debug({ reason }, "heartbeat requested");
@@ -270,7 +309,7 @@ async function handleMessage(
   tools: ToolRegistry,
   writeGateChannels: Map<string, WriteGateChannel>,
   skillsResult: SkillsInitResult | null,
-): Promise<void> {  
+): Promise<void> {
   if (!shouldHandleMessage(ctx, config)) {
     return;
   }
@@ -289,9 +328,12 @@ async function handleMessage(
     defaultModelLabel: config.providers?.[0]?.model,
     workspacePath: config.workspace,
     // Use configured summaryModel, or fall back to default provider's model (OpenClaw strategy)
-    summaryModel: config.session?.summaryModel 
-      ? { provider: config.providers?.[0]?.id, model: config.session.summaryModel } 
-      : config.providers?.[0] 
+    summaryModel: config.session?.summaryModel
+      ? {
+          provider: config.providers?.[0]?.id,
+          model: config.session.summaryModel,
+        }
+      : config.providers?.[0]
         ? { provider: config.providers[0].id, model: config.providers[0].model }
         : undefined,
     summarizeOnReset: config.session?.summarizeOnReset,
@@ -443,7 +485,8 @@ async function handleMessage(
   // Send response
   const channel = channels.get(ctx.channel);
   if (channel) {
-    const target = ctx.chatType === "direct" ? ctx.from : ctx.groupId ?? ctx.from;
+    const target =
+      ctx.chatType === "direct" ? ctx.from : (ctx.groupId ?? ctx.from);
     await channel.send(target, {
       text: finalContent,
       replyToId: ctx.messageId,
