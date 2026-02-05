@@ -1,10 +1,10 @@
 #!/bin/bash
 #
-# OwliaBot Docker 安装脚本
-# 交互式配置并启动 Bot
+# OwliaBot Docker installer
+# Interactive configuration + optional OAuth setup
 #
 
-set -e
+set -euo pipefail
 
 # Image from GitHub Container Registry
 OWLIABOT_IMAGE="${OWLIABOT_IMAGE:-ghcr.io/owliabot/owliabot:latest}"
@@ -18,292 +18,305 @@ CYAN='\033[0;36m'
 NC='\033[0m' # No Color
 
 # Helper functions
-info() { echo -e "${BLUE}ℹ${NC} $1"; }
+info() { echo -e "${BLUE}i${NC} $1"; }
 success() { echo -e "${GREEN}✓${NC} $1"; }
-warn() { echo -e "${YELLOW}⚠${NC} $1"; }
+warn() { echo -e "${YELLOW}!${NC} $1"; }
 error() { echo -e "${RED}✗${NC} $1"; }
 
+die() {
+  error "$1"
+  exit 1
+}
+
 header() {
-    echo ""
-    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-    echo -e "${CYAN}  $1${NC}"
-    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-    echo ""
+  echo ""
+  echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo -e "${CYAN}  $1${NC}"
+  echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo ""
 }
 
 prompt() {
-    local var_name=$1
-    local prompt_text=$2
-    local default=$3
-    local is_secret=${4:-false}
-    
-    if [ -n "$default" ]; then
-        prompt_text="$prompt_text [$default]"
-    fi
-    
-    if [ "$is_secret" = true ]; then
-        read -sp "$prompt_text: " value
-        echo ""
-    else
-        read -p "$prompt_text: " value
-    fi
-    
-    if [ -z "$value" ] && [ -n "$default" ]; then
-        value="$default"
-    fi
-    
-    eval "$var_name='$value'"
+  local var_name=$1
+  local prompt_text=$2
+  local default=${3:-}
+  local is_secret=${4:-false}
+
+  if [ -n "${default}" ]; then
+    prompt_text="$prompt_text [$default]"
+  fi
+
+  local value
+  if [ "${is_secret}" = true ]; then
+    read -rsp "$prompt_text: " value
+    echo ""
+  else
+    read -rp "$prompt_text: " value
+  fi
+
+  if [ -z "${value}" ] && [ -n "${default}" ]; then
+    value="${default}"
+  fi
+
+  # shellcheck disable=SC2163
+  eval "$var_name=\"$value\""
 }
 
 prompt_yn() {
-    local prompt_text=$1
-    local default=${2:-n}
-    
-    if [ "$default" = "y" ]; then
-        read -p "$prompt_text [Y/n]: " yn
-        yn=${yn:-y}
-    else
-        read -p "$prompt_text [y/N]: " yn
-        yn=${yn:-n}
-    fi
-    
-    [[ "$yn" =~ ^[Yy]$ ]]
+  local prompt_text=$1
+  local default=${2:-n}
+  local yn
+
+  if [ "${default}" = "y" ]; then
+    read -rp "$prompt_text [Y/n]: " yn
+    yn=${yn:-y}
+  else
+    read -rp "$prompt_text [y/N]: " yn
+    yn=${yn:-n}
+  fi
+
+  [[ "$yn" =~ ^[Yy]$ ]]
 }
 
-# Global variable to store select_option result (avoids set -e issue with return codes)
+# Global variable to store select_option result (avoids set -e issues with return codes)
 SELECT_RESULT=0
 
 select_option() {
-    local prompt_text=$1
-    shift
-    local options=("$@")
-    
-    echo "$prompt_text"
-    for i in "${!options[@]}"; do
-        echo "  $((i+1)). ${options[$i]}"
-    done
-    
-    local selection
-    while true; do
-        read -p "请选择 [1-${#options[@]}]: " selection
-        if [[ "$selection" =~ ^[0-9]+$ ]] && [ "$selection" -ge 1 ] && [ "$selection" -le "${#options[@]}" ]; then
-            SELECT_RESULT=$((selection-1))
-            return 0
-        fi
-        warn "请输入 1-${#options[@]} 之间的数字"
-    done
+  local prompt_text=$1
+  shift
+  local options=("$@")
+
+  echo "$prompt_text"
+  for i in "${!options[@]}"; do
+    echo "  $((i+1)). ${options[$i]}"
+  done
+
+  local selection
+  while true; do
+    read -rp "Select [1-${#options[@]}]: " selection
+    if [[ "$selection" =~ ^[0-9]+$ ]] && [ "$selection" -ge 1 ] && [ "$selection" -le "${#options[@]}" ]; then
+      SELECT_RESULT=$((selection-1))
+      return 0
+    fi
+    warn "Please enter a number between 1 and ${#options[@]}"
+  done
 }
 
-# Check requirements
 check_requirements() {
-    header "检查环境"
-    
-    local missing=()
-    
-    if ! command -v docker &> /dev/null; then
-        missing+=("docker")
-    else
-        success "Docker 已安装"
-    fi
-    
-    if ! command -v docker-compose &> /dev/null && ! docker compose version &> /dev/null; then
-        missing+=("docker-compose")
-    else
-        success "Docker Compose 已安装"
-    fi
-    
-    if [ ${#missing[@]} -gt 0 ]; then
-        error "缺少依赖: ${missing[*]}"
-        echo ""
-        echo "请先安装 Docker："
-        echo "  https://docs.docker.com/get-docker/"
-        exit 1
-    fi
-    
-    # Check if docker daemon is running
-    if ! docker info &> /dev/null; then
-        error "Docker 服务未运行，请先启动 Docker"
-        exit 1
-    fi
-    success "Docker 服务运行中"
+  header "Checking requirements"
+
+  local missing=()
+
+  if ! command -v docker &>/dev/null; then
+    missing+=("docker")
+  else
+    success "Docker found"
+  fi
+
+  if ! command -v docker-compose &>/dev/null && ! docker compose version &>/dev/null; then
+    missing+=("docker-compose")
+  else
+    success "Docker Compose found"
+  fi
+
+  if [ ${#missing[@]} -gt 0 ]; then
+    die "Missing dependencies: ${missing[*]}\nInstall Docker: https://docs.docker.com/get-docker/"
+  fi
+
+  if ! docker info &>/dev/null; then
+    die "Docker daemon is not running. Please start Docker and try again."
+  fi
+
+  success "Docker daemon is running"
 }
 
-# Main installation
 main() {
-    clear
-    echo ""
-    echo -e "${CYAN}"
-    echo "   ____          ___       ____        _   "
-    echo "  / __ \\        / (_)     |  _ \\      | |  "
-    echo " | |  | |_      _| |_  __ _| |_) | ___ | |_ "
-    echo " | |  | \\ \\ /\\ / / | |/ _\` |  _ < / _ \\| __|"
-    echo " | |__| |\\ V  V /| | | (_| | |_) | (_) | |_ "
-    echo "  \\____/  \\_/\\_/ |_|_|\\__,_|____/ \\___/ \\__|"
-    echo -e "${NC}"
-    echo ""
-    echo "  欢迎使用 OwliaBot Docker 安装向导"
-    echo ""
-    
-    check_requirements
-    
-    # Create directories
-    mkdir -p config workspace
-    
-    # =========================================================================
-    # AI Provider
-    # =========================================================================
-    header "配置 AI 服务"
-    
-    select_option "选择 AI 服务提供商：" \
-        "Anthropic (Claude)" \
-        "OpenAI (GPT)" \
-        "OpenAI-compatible (Ollama, vLLM, LM Studio 等)" \
-        "多个提供商（支持 fallback）"
-    local ai_choice=$SELECT_RESULT
-    
-    ANTHROPIC_API_KEY=""
-    OPENAI_API_KEY=""
-    OPENAI_COMPAT_BASE_URL=""
-    OPENAI_COMPAT_API_KEY=""
-    OPENAI_COMPAT_MODEL=""
-    DEFAULT_PROVIDER=""
-    
-    # Anthropic
-    if [ $ai_choice -eq 0 ] || [ $ai_choice -eq 3 ]; then
-        echo ""
-        info "Anthropic API Key 获取地址: https://console.anthropic.com/settings/keys"
-        info "提示：如果你有 Claude 订阅，可跳过此步，之后用 OAuth 认证"
-        prompt ANTHROPIC_API_KEY "请输入 Anthropic API Key（留空跳过）" "" true
-        if [ -z "$ANTHROPIC_API_KEY" ]; then
-            warn "未配置 Anthropic API Key"
-        else
-            success "Anthropic API Key 已配置"
-            DEFAULT_PROVIDER="anthropic"
-        fi
-    fi
-    
-    # OpenAI
-    if [ $ai_choice -eq 1 ] || [ $ai_choice -eq 3 ]; then
-        echo ""
-        info "OpenAI API Key 获取地址: https://platform.openai.com/api-keys"
-        info "提示：如果你有 ChatGPT Plus/Pro 订阅，可跳过此步，之后用 OAuth 认证"
-        prompt OPENAI_API_KEY "请输入 OpenAI API Key（留空跳过）" "" true
-        if [ -z "$OPENAI_API_KEY" ]; then
-            warn "未配置 OpenAI API Key"
-        else
-            success "OpenAI API Key 已配置"
-            [ -z "$DEFAULT_PROVIDER" ] && DEFAULT_PROVIDER="openai"
-        fi
-    fi
-    
-    # OpenAI-compatible (Ollama, vLLM, etc.)
-    if [ $ai_choice -eq 2 ] || [ $ai_choice -eq 3 ]; then
-        echo ""
-        info "OpenAI-compatible 支持任何兼容 OpenAI v1 API 的服务"
-        info "常见示例："
-        info "  • Ollama:    http://localhost:11434/v1"
-        info "  • vLLM:      http://localhost:8000/v1"
-        info "  • LM Studio: http://localhost:1234/v1"
-        info "  • LocalAI:   http://localhost:8080/v1"
-        echo ""
-        prompt OPENAI_COMPAT_BASE_URL "请输入 API Base URL"
-        if [ -z "$OPENAI_COMPAT_BASE_URL" ]; then
-            warn "未配置 OpenAI-compatible 服务"
-        else
-            prompt OPENAI_COMPAT_MODEL "请输入模型名称" "llama3.2"
-            prompt OPENAI_COMPAT_API_KEY "请输入 API Key（如不需要可留空）" "" true
-            success "OpenAI-compatible 已配置: $OPENAI_COMPAT_BASE_URL"
-            [ -z "$DEFAULT_PROVIDER" ] && DEFAULT_PROVIDER="openai-compatible"
-        fi
-    fi
-    
-    # Validate at least one provider configured
-    if [ -z "$ANTHROPIC_API_KEY" ] && [ -z "$OPENAI_API_KEY" ] && [ -z "$OPENAI_COMPAT_BASE_URL" ]; then
-        error "至少需要配置一个 AI 服务提供商"
-        exit 1
-    fi
-    
-    # =========================================================================
-    # Chat Platform
-    # =========================================================================
-    header "配置聊天平台"
-    
-    select_option "选择聊天平台：" "Discord" "Telegram" "两者都配置"
-    local chat_choice=$SELECT_RESULT
-    
-    DISCORD_BOT_TOKEN=""
-    TELEGRAM_BOT_TOKEN=""
-    
-    if [ $chat_choice -eq 0 ] || [ $chat_choice -eq 2 ]; then
-        echo ""
-        info "Discord Bot Token 获取地址: https://discord.com/developers/applications"
-        info "创建 Bot 后，在 Bot 页面点击 'Reset Token' 获取"
-        prompt DISCORD_BOT_TOKEN "请输入 Discord Bot Token" "" true
-        if [ -z "$DISCORD_BOT_TOKEN" ]; then
-            warn "未配置 Discord Bot Token"
-        else
-            success "Discord Bot Token 已配置"
-        fi
-    fi
-    
-    if [ $chat_choice -eq 1 ] || [ $chat_choice -eq 2 ]; then
-        echo ""
-        info "Telegram Bot Token 获取地址: 与 @BotFather 对话，使用 /newbot 创建"
-        prompt TELEGRAM_BOT_TOKEN "请输入 Telegram Bot Token" "" true
-        if [ -z "$TELEGRAM_BOT_TOKEN" ]; then
-            warn "未配置 Telegram Bot Token"
-        else
-            success "Telegram Bot Token 已配置"
-        fi
-    fi
-    
-    if [ -z "$DISCORD_BOT_TOKEN" ] && [ -z "$TELEGRAM_BOT_TOKEN" ]; then
-        error "至少需要配置一个聊天平台"
-        exit 1
-    fi
-    
-    # =========================================================================
-    # Gateway HTTP
-    # =========================================================================
-    header "配置 Gateway HTTP"
-    
-    info "Gateway HTTP 用于健康检查和 API 访问"
-    
-    GATEWAY_PORT="8787"
-    prompt GATEWAY_PORT "Gateway 端口" "8787"
-    
-    # Generate a random token if not provided
-    GATEWAY_TOKEN=$(openssl rand -hex 16 2>/dev/null || head -c 32 /dev/urandom | xxd -p | tr -d '\n' | head -c 32)
-    echo ""
-    info "已生成随机 Gateway Token（可自定义）"
-    prompt GATEWAY_TOKEN "Gateway Token" "$GATEWAY_TOKEN" true
-    success "Gateway Token 已配置"
-    
-    # =========================================================================
-    # Optional: Timezone
-    # =========================================================================
-    header "其他配置"
-    
-    TZ="UTC"
-    prompt TZ "时区" "Asia/Shanghai"
-    success "时区设置为 $TZ"
-    
-    # =========================================================================
-    # Generate secrets file (~/.owliabot/secrets.yaml)
-    # =========================================================================
-    header "生成配置文件"
-    
-    # Secrets directory (shared between Docker and CLI)
-    OWLIABOT_HOME="${HOME}/.owliabot"
-    mkdir -p "${OWLIABOT_HOME}"
-    chmod 700 "${OWLIABOT_HOME}"
-    
-    cat > "${OWLIABOT_HOME}/secrets.yaml" << EOF
-# OwliaBot Secrets
-# 由 install.sh 生成于 $(date)
-# 此文件包含敏感信息，请勿提交到 Git
+  clear || true
+  echo ""
+  echo -e "${CYAN}"
+  echo "   ____          ___       ____        _   "
+  echo "  / __ \\        / (_)     |  _ \\      | |  "
+  echo " | |  | |_      _| |_  __ _| |_) | ___ | |_ "
+  echo " | |  | \\ \\ /\\ / / | |/ _\` |  _ < / _ \\| __|"
+  echo " | |__| |\\ V  V /| | | (_| | |_) | (_) | |_ "
+  echo "  \\____/  \\_/\\_/ |_|_|\\__,_|____/ \\___/ \\__|"
+  echo -e "${NC}"
+  echo ""
+  echo "  Welcome to the OwliaBot Docker installer"
+  echo ""
 
-# AI 服务 API Key
+  check_requirements
+
+  mkdir -p config workspace
+
+  # ===========================================================================
+  # AI Providers
+  # ===========================================================================
+  header "AI provider setup"
+
+  select_option "Choose your AI provider(s):" \
+    "Anthropic (Claude)" \
+    "OpenAI (API key)" \
+    "OpenAI (OAuth via ChatGPT Plus/Pro - openai-codex)" \
+    "OpenAI-compatible (Ollama / vLLM / LM Studio / etc.)" \
+    "Multiple providers (fallback)"
+  local ai_choice=$SELECT_RESULT
+
+  ANTHROPIC_API_KEY=""
+  OPENAI_API_KEY=""
+  OPENAI_COMPAT_BASE_URL=""
+  OPENAI_COMPAT_API_KEY=""
+  OPENAI_COMPAT_MODEL=""
+
+  USE_ANTHROPIC=0
+  USE_OPENAI=0
+  USE_OPENAI_CODEX=0
+  USE_OPENAI_COMPAT=0
+
+  # Anthropic
+  if [ $ai_choice -eq 0 ] || [ $ai_choice -eq 4 ]; then
+    USE_ANTHROPIC=1
+    echo ""
+    info "Anthropic: https://console.anthropic.com/settings/keys"
+    if prompt_yn "Do you want to use OAuth instead of an API key? (Claude Pro/Max subscription)" "y"; then
+      # OAuth will be run later (inside the container)
+      ANTHROPIC_API_KEY=""
+      success "Anthropic OAuth will be configured after the container starts"
+    else
+      prompt ANTHROPIC_API_KEY "Enter Anthropic API key" "" true
+      [ -n "$ANTHROPIC_API_KEY" ] && success "Anthropic API key set" || warn "Anthropic API key not provided"
+    fi
+  fi
+
+  # OpenAI (API key)
+  if [ $ai_choice -eq 1 ] || [ $ai_choice -eq 4 ]; then
+    USE_OPENAI=1
+    echo ""
+    info "OpenAI API keys: https://platform.openai.com/api-keys"
+    prompt OPENAI_API_KEY "Enter OpenAI API key" "" true
+    [ -n "$OPENAI_API_KEY" ] && success "OpenAI API key set" || warn "OpenAI API key not provided"
+  fi
+
+  # OpenAI (OAuth - openai-codex)
+  if [ $ai_choice -eq 2 ] || [ $ai_choice -eq 4 ]; then
+    USE_OPENAI_CODEX=1
+    echo ""
+    info "OpenAI OAuth (openai-codex) uses your ChatGPT Plus/Pro subscription."
+    success "OpenAI OAuth will be configured after the container starts"
+  fi
+
+  # OpenAI-compatible
+  if [ $ai_choice -eq 3 ] || [ $ai_choice -eq 4 ]; then
+    USE_OPENAI_COMPAT=1
+    echo ""
+    info "OpenAI-compatible supports any server that implements the OpenAI v1 API."
+    info "Examples:"
+    info "  - Ollama:    http://localhost:11434/v1"
+    info "  - vLLM:      http://localhost:8000/v1"
+    info "  - LM Studio: http://localhost:1234/v1"
+    info "  - LocalAI:   http://localhost:8080/v1"
+    echo ""
+    prompt OPENAI_COMPAT_BASE_URL "API base URL"
+    if [ -z "$OPENAI_COMPAT_BASE_URL" ]; then
+      warn "No OpenAI-compatible base URL provided"
+      USE_OPENAI_COMPAT=0
+    else
+      prompt OPENAI_COMPAT_MODEL "Model name" "llama3.2"
+      prompt OPENAI_COMPAT_API_KEY "API key (optional)" "" true
+      success "OpenAI-compatible configured: $OPENAI_COMPAT_BASE_URL"
+    fi
+  fi
+
+  # Validate: at least one working provider path (API key or OAuth selection)
+  if [ $USE_ANTHROPIC -eq 0 ] && [ $USE_OPENAI -eq 0 ] && [ $USE_OPENAI_CODEX -eq 0 ] && [ $USE_OPENAI_COMPAT -eq 0 ]; then
+    die "You must select at least one provider."
+  fi
+
+  # If user selected only API-key providers, enforce key presence.
+  if [ $USE_OPENAI -eq 1 ] && [ -z "$OPENAI_API_KEY" ] && [ $USE_OPENAI_CODEX -eq 0 ]; then
+    warn "OpenAI selected but no API key provided."
+  fi
+  if [ $USE_ANTHROPIC -eq 1 ] && [ -z "$ANTHROPIC_API_KEY" ]; then
+    # Could be OAuth path; we'll keep going.
+    :
+  fi
+
+  # ===========================================================================
+  # Chat platform
+  # ===========================================================================
+  header "Chat platform setup"
+
+  select_option "Choose platform(s):" "Discord" "Telegram" "Both"
+  local chat_choice=$SELECT_RESULT
+
+  DISCORD_BOT_TOKEN=""
+  TELEGRAM_BOT_TOKEN=""
+
+  if [ $chat_choice -eq 0 ] || [ $chat_choice -eq 2 ]; then
+    echo ""
+    info "Discord developer portal: https://discord.com/developers/applications"
+    prompt DISCORD_BOT_TOKEN "Enter Discord bot token" "" true
+    [ -n "$DISCORD_BOT_TOKEN" ] && success "Discord token set" || warn "Discord token not provided"
+  fi
+
+  if [ $chat_choice -eq 1 ] || [ $chat_choice -eq 2 ]; then
+    echo ""
+    info "Telegram BotFather: https://t.me/BotFather"
+    prompt TELEGRAM_BOT_TOKEN "Enter Telegram bot token" "" true
+    [ -n "$TELEGRAM_BOT_TOKEN" ] && success "Telegram token set" || warn "Telegram token not provided"
+  fi
+
+  if [ -z "$DISCORD_BOT_TOKEN" ] && [ -z "$TELEGRAM_BOT_TOKEN" ]; then
+    die "You must configure at least one chat platform token (Discord or Telegram)."
+  fi
+
+  # ===========================================================================
+  # Gateway HTTP
+  # ===========================================================================
+  header "Gateway HTTP"
+
+  info "Gateway HTTP is used for health checks and REST API access."
+
+  GATEWAY_PORT="8787"
+  prompt GATEWAY_PORT "Host port to expose the gateway" "8787"
+
+  # Generate a random token if not provided
+  if command -v openssl &>/dev/null; then
+    GATEWAY_TOKEN=$(openssl rand -hex 16)
+  else
+    GATEWAY_TOKEN=$(head -c 32 /dev/urandom | xxd -p | tr -d '\n' | head -c 32)
+  fi
+
+  echo ""
+  info "Generated a random gateway token (you can override it)."
+  prompt GATEWAY_TOKEN "Gateway token" "$GATEWAY_TOKEN" true
+  success "Gateway token set"
+
+  # ===========================================================================
+  # Timezone
+  # ===========================================================================
+  header "Other settings"
+
+  TZ="UTC"
+  prompt TZ "Timezone" "UTC"
+  success "Timezone: $TZ"
+
+  # ===========================================================================
+  # Secrets & config
+  # ===========================================================================
+  header "Writing config"
+
+  OWLIABOT_HOME="${HOME}/.owliabot"
+  mkdir -p "${OWLIABOT_HOME}"
+  chmod 700 "${OWLIABOT_HOME}"
+  mkdir -p "${OWLIABOT_HOME}/auth"
+  chmod 700 "${OWLIABOT_HOME}/auth"
+
+  cat > "${OWLIABOT_HOME}/secrets.yaml" << EOF
+# OwliaBot Secrets
+# Generated by install.sh on $(date)
+# This file contains sensitive information. Do NOT commit it.
+
 anthropic:
   apiKey: "${ANTHROPIC_API_KEY}"
 
@@ -313,228 +326,226 @@ openai:
 openai-compatible:
   apiKey: "${OPENAI_COMPAT_API_KEY}"
 
-# 聊天平台 Token
 discord:
   token: "${DISCORD_BOT_TOKEN}"
 
 telegram:
   token: "${TELEGRAM_BOT_TOKEN}"
 
-# Gateway HTTP Token
 gateway:
   token: "${GATEWAY_TOKEN}"
 EOF
-    
-    chmod 600 "${OWLIABOT_HOME}/secrets.yaml"
-    success "已生成 ~/.owliabot/secrets.yaml（权限 600）"
-    
-    # =========================================================================
-    # Generate config/app.yaml
-    # =========================================================================
-    
-    # =========================================================================
-    # Generate config/app.yaml (references secrets from ~/.owliabot)
-    # =========================================================================
-    
-    # Create symlink so owliabot can find secrets (it looks in same dir as app.yaml)
-    ln -sf "${OWLIABOT_HOME}/secrets.yaml" config/secrets.yaml
-    success "已创建 config/secrets.yaml -> ~/.owliabot/secrets.yaml 符号链接"
-    
-    cat > config/app.yaml << EOF
-# OwliaBot 配置文件
-# 由 install.sh 生成于 $(date)
-#
-# Secrets 存储在 ~/.owliabot/secrets.yaml
-# config/secrets.yaml 是指向它的符号链接
-# Docker 和 CLI 启动都会读取同一份 secrets
 
-# AI 提供商配置
+  chmod 600 "${OWLIABOT_HOME}/secrets.yaml"
+  success "Wrote ${OWLIABOT_HOME}/secrets.yaml (chmod 600)"
+
+  # Create symlink so owliabot can find secrets next to app.yaml
+  ln -sf "${OWLIABOT_HOME}/secrets.yaml" config/secrets.yaml
+  success "Linked config/secrets.yaml -> ~/.owliabot/secrets.yaml"
+
+  # Build app config
+  cat > config/app.yaml << EOF
+# OwliaBot config
+# Generated by install.sh on $(date)
+#
+# Secrets are in ~/.owliabot/secrets.yaml (config/secrets.yaml is a symlink)
+
 providers:
 EOF
 
+  # Provider blocks
+  local priority=1
+
+  if [ $USE_ANTHROPIC -eq 1 ]; then
     if [ -n "$ANTHROPIC_API_KEY" ]; then
-        cat >> config/app.yaml << EOF
+      cat >> config/app.yaml << EOF
   - id: anthropic
     model: claude-sonnet-4-5
-    # apiKey 从 secretsPath 读取
-    priority: 1
+    apiKey: secrets
+    priority: ${priority}
+EOF
+    else
+      # OAuth placeholder (token will be loaded from ~/.owliabot/auth)
+      cat >> config/app.yaml << EOF
+  - id: anthropic
+    model: claude-sonnet-4-5
+    apiKey: oauth
+    priority: ${priority}
 EOF
     fi
-    
-    if [ -n "$OPENAI_API_KEY" ]; then
-        local priority=1
-        [ -n "$ANTHROPIC_API_KEY" ] && priority=2
-        cat >> config/app.yaml << EOF
+    priority=$((priority+1))
+  fi
+
+  if [ $USE_OPENAI -eq 1 ]; then
+    cat >> config/app.yaml << EOF
   - id: openai
     model: gpt-4o
-    # apiKey 从 secretsPath 读取
-    priority: $priority
+    apiKey: secrets
+    priority: ${priority}
 EOF
-    fi
-    
+    priority=$((priority+1))
+  fi
+
+  if [ $USE_OPENAI_CODEX -eq 1 ]; then
+    cat >> config/app.yaml << EOF
+  - id: openai-codex
+    model: gpt-5.2
+    apiKey: oauth
+    priority: ${priority}
+EOF
+    priority=$((priority+1))
+  fi
+
+  if [ $USE_OPENAI_COMPAT -eq 1 ]; then
     if [ -n "$OPENAI_COMPAT_BASE_URL" ]; then
-        local priority=1
-        [ -n "$ANTHROPIC_API_KEY" ] && priority=$((priority+1))
-        [ -n "$OPENAI_API_KEY" ] && priority=$((priority+1))
-        cat >> config/app.yaml << EOF
+      cat >> config/app.yaml << EOF
   - id: openai-compatible
-    model: ${OPENAI_COMPAT_MODEL:-llama3.2}
+    model: ${OPENAI_COMPAT_MODEL}
     baseUrl: ${OPENAI_COMPAT_BASE_URL}
 EOF
-        if [ -n "$OPENAI_COMPAT_API_KEY" ]; then
-            cat >> config/app.yaml << EOF
-    # apiKey 从 secretsPath 读取
-EOF
-        else
-            cat >> config/app.yaml << EOF
-    apiKey: "none"  # 本地服务无需 API Key
-EOF
-        fi
+      if [ -n "$OPENAI_COMPAT_API_KEY" ]; then
         cat >> config/app.yaml << EOF
-    priority: $priority
+    apiKey: secrets
 EOF
+      else
+        cat >> config/app.yaml << EOF
+    apiKey: "none"
+EOF
+      fi
+      cat >> config/app.yaml << EOF
+    priority: ${priority}
+EOF
+      priority=$((priority+1))
     fi
-    
-    cat >> config/app.yaml << EOF
+  fi
 
-# 聊天平台配置（token 从 secretsPath 读取）
+  cat >> config/app.yaml << EOF
+
+# Chat platform config (tokens are read from secrets.yaml)
 EOF
 
-    if [ -n "$DISCORD_BOT_TOKEN" ]; then
-        cat >> config/app.yaml << EOF
+  if [ -n "$DISCORD_BOT_TOKEN" ]; then
+    cat >> config/app.yaml << EOF
 discord:
   enabled: true
 EOF
-    fi
-    
-    if [ -n "$TELEGRAM_BOT_TOKEN" ]; then
-        cat >> config/app.yaml << EOF
+  fi
+
+  if [ -n "$TELEGRAM_BOT_TOKEN" ]; then
+    cat >> config/app.yaml << EOF
 telegram:
   enabled: true
 EOF
-    fi
-    
-    cat >> config/app.yaml << EOF
+  fi
 
-# Gateway HTTP 配置
-# 容器内固定使用 8787 端口（Dockerfile healthcheck 依赖此端口）
-# 外部端口通过 docker run -p 映射
+  cat >> config/app.yaml << EOF
+
+# Gateway HTTP config
+# Container always uses port 8787 (Dockerfile healthcheck depends on it)
+# Host port is mapped via docker -p
+
 gateway:
   http:
     host: 0.0.0.0
     port: 8787
-    # token 从 secrets.yaml 读取
 
-# 工作区路径
 workspace: /app/workspace
-
-# 时区
 timezone: ${TZ}
 EOF
 
-    success "已生成 config/app.yaml"
-    
-    # =========================================================================
-    # Pull and start
-    # =========================================================================
-    header "拉取并启动"
-    
-    if prompt_yn "是否立即启动 OwliaBot？" "y"; then
-        info "正在拉取镜像 ${OWLIABOT_IMAGE}..."
-        if docker pull "${OWLIABOT_IMAGE}"; then
-            success "镜像拉取完成"
-        else
-            warn "拉取失败，尝试本地构建..."
-            if docker build -t owliabot:local .; then
-                OWLIABOT_IMAGE="owliabot:local"
-                success "本地构建完成"
-            else
-                error "构建失败"
-                exit 1
-            fi
-        fi
-        
-        echo ""
-        info "正在启动..."
-        
-        # Stop existing container if running
-        docker rm -f owliabot 2>/dev/null || true
-        
-        # Start container
-        # Mount:
-        #   - ~/.owliabot/secrets.yaml -> /app/config/secrets.yaml (secrets)
-        #   - ./config/app.yaml        -> /app/config/app.yaml (配置)
-        #   - ./workspace              -> /app/workspace (工作区)
-        # Note: 绑定 127.0.0.1 仅本机访问，如需公网访问改为 0.0.0.0
-        if docker run -d \
-            --name owliabot \
-            --restart unless-stopped \
-            -p "127.0.0.1:${GATEWAY_PORT}:8787" \
-            -v "${OWLIABOT_HOME}/secrets.yaml:/app/config/secrets.yaml:ro" \
-            -v "$(pwd)/config/app.yaml:/app/config/app.yaml:ro" \
-            -v "$(pwd)/workspace:/app/workspace" \
-            -e "TZ=${TZ}" \
-            "${OWLIABOT_IMAGE}" \
-            start -c /app/config/app.yaml; then
-            success "OwliaBot 已启动"
-        else
-            error "启动失败"
-            exit 1
-        fi
-        
-        echo ""
-        info "等待服务就绪..."
-        sleep 3
-        
-        # Check health
-        if docker ps | grep -q owliabot; then
-            success "容器运行中"
-            echo ""
-            info "查看日志: docker logs -f owliabot"
-        else
-            warn "容器可能未正常启动，请检查日志: docker logs owliabot"
-        fi
+  success "Wrote config/app.yaml"
+
+  # ===========================================================================
+  # Pull + run
+  # ===========================================================================
+  header "Pull & run"
+
+  if prompt_yn "Start OwliaBot now?" "y"; then
+    info "Pulling image: ${OWLIABOT_IMAGE}"
+    if docker pull "${OWLIABOT_IMAGE}"; then
+      success "Image pulled"
+    else
+      warn "Pull failed. Building locally..."
+      docker build -t owliabot:local .
+      OWLIABOT_IMAGE="owliabot:local"
+      success "Local image built"
     fi
-    
-    # =========================================================================
-    # Summary
-    # =========================================================================
-    header "安装完成 🎉"
-    
-    echo "配置文件位置："
-    echo "  • ~/.owliabot/secrets.yaml - API Key 和 Token（敏感信息）"
-    echo "  • ./config/app.yaml        - 主配置文件"
-    echo "  • ./workspace/             - 工作区数据"
+
+    info "Starting container..."
+    docker rm -f owliabot 2>/dev/null || true
+
+    # Mount:
+    # - secrets.yaml (read-only) into /app/config/secrets.yaml
+    # - auth dir (read-write) into /home/owliabot/.owliabot/auth for OAuth tokens
+    # - app config into /app/config/app.yaml
+    # - workspace dir
+    docker run -d \
+      --name owliabot \
+      --restart unless-stopped \
+      -p "127.0.0.1:${GATEWAY_PORT}:8787" \
+      -v "${OWLIABOT_HOME}/secrets.yaml:/app/config/secrets.yaml:ro" \
+      -v "${OWLIABOT_HOME}/auth:/home/owliabot/.owliabot/auth" \
+      -v "$(pwd)/config/app.yaml:/app/config/app.yaml:ro" \
+      -v "$(pwd)/workspace:/app/workspace" \
+      -e "TZ=${TZ}" \
+      "${OWLIABOT_IMAGE}" \
+      start -c /app/config/app.yaml
+
+    success "OwliaBot started"
+
     echo ""
-    echo "Docker 和 CLI 共享同一份 secrets，切换启动方式无需重新配置。"
-    echo ""
-    
-    # Show OAuth hint if no API keys were configured
-    if [ -z "$ANTHROPIC_API_KEY" ] || [ -z "$OPENAI_API_KEY" ]; then
-        echo "OAuth 认证（如果你有订阅但跳过了 API Key）："
-        echo "  • Anthropic (Claude Pro/Max):  docker exec -it owliabot node dist/entry.js auth setup anthropic"
-        echo "  • OpenAI (ChatGPT Plus/Pro):   docker exec -it owliabot node dist/entry.js auth setup openai-codex"
-        echo ""
+    info "Logs: docker logs -f owliabot"
+
+    # =======================================================================
+    # OAuth flows (optional)
+    # =======================================================================
+    if [ $USE_ANTHROPIC -eq 1 ] && [ -z "$ANTHROPIC_API_KEY" ]; then
+      echo ""
+      header "Anthropic OAuth"
+      info "Starting OAuth flow inside the container (interactive)."
+      info "If you prefer to do this later: docker exec -it owliabot node dist/entry.js auth setup anthropic"
+      if prompt_yn "Run Anthropic OAuth now?" "y"; then
+        docker exec -it owliabot node dist/entry.js auth setup anthropic
+      fi
     fi
-    
-    echo "常用命令："
-    echo "  • 启动:  docker start owliabot"
-    echo "  • 停止:  docker stop owliabot"
-    echo "  • 重启:  docker restart owliabot"
-    echo "  • 日志:  docker logs -f owliabot"
-    echo "  • 状态:  docker ps | grep owliabot"
-    echo ""
-    
-    if [ -n "$GATEWAY_TOKEN" ]; then
-        echo "Gateway HTTP:"
-        echo "  • 地址:  http://localhost:${GATEWAY_PORT}"
-        echo "  • Token: ${GATEWAY_TOKEN:0:8}..."
-        echo ""
+
+    if [ $USE_OPENAI_CODEX -eq 1 ]; then
+      echo ""
+      header "OpenAI OAuth (openai-codex)"
+      info "Starting OAuth flow inside the container (interactive)."
+      info "If you prefer to do this later: docker exec -it owliabot node dist/entry.js auth setup openai-codex"
+      if prompt_yn "Run OpenAI OAuth now?" "y"; then
+        docker exec -it owliabot node dist/entry.js auth setup openai-codex
+      fi
     fi
-    
-    echo -e "${GREEN}感谢使用 OwliaBot！${NC}"
-    echo ""
+  fi
+
+  # ===========================================================================
+  # Summary
+  # ===========================================================================
+  header "Done"
+
+  echo "Files created:"
+  echo "  - ~/.owliabot/secrets.yaml   (sensitive)"
+  echo "  - ~/.owliabot/auth/          (OAuth tokens)"
+  echo "  - ./config/app.yaml          (app config)"
+  echo "  - ./config/secrets.yaml      (symlink to ~/.owliabot/secrets.yaml)"
+  echo "  - ./workspace/               (workspace)"
+  echo ""
+
+  echo "Common commands:"
+  echo "  - Start:   docker start owliabot"
+  echo "  - Stop:    docker stop owliabot"
+  echo "  - Restart: docker restart owliabot"
+  echo "  - Logs:    docker logs -f owliabot"
+  echo ""
+
+  echo "Gateway HTTP:"
+  echo "  - URL:   http://localhost:${GATEWAY_PORT}"
+  echo "  - Token: ${GATEWAY_TOKEN:0:8}..."
+  echo ""
+
+  success "All set."
 }
 
-# Run
 main "$@"
