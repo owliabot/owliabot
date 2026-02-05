@@ -190,6 +190,50 @@ main() {
   mkdir -p config workspace
 
   # ===========================================================================
+  # Check for existing configuration
+  # ===========================================================================
+  OWLIABOT_HOME="${HOME}/.owliabot"
+  EXISTING_SECRETS="${OWLIABOT_HOME}/secrets.yaml"
+  
+  # Variables to store existing values
+  EXISTING_ANTHROPIC_KEY=""
+  EXISTING_OPENAI_KEY=""
+  EXISTING_DISCORD_TOKEN=""
+  EXISTING_TELEGRAM_TOKEN=""
+  EXISTING_GATEWAY_TOKEN=""
+  EXISTING_OPENAI_COMPAT_KEY=""
+  
+  if [ -f "$EXISTING_SECRETS" ]; then
+    header "Existing configuration found"
+    info "Found existing secrets at: ${EXISTING_SECRETS}"
+    
+    # Parse existing values (simple grep-based extraction)
+    EXISTING_ANTHROPIC_KEY=$(grep -A1 '^anthropic:' "$EXISTING_SECRETS" 2>/dev/null | grep 'apiKey:' | sed 's/.*apiKey:[[:space:]]*"\?\([^"]*\)"\?/\1/' | tr -d ' ' || true)
+    EXISTING_OPENAI_KEY=$(grep -A1 '^openai:' "$EXISTING_SECRETS" 2>/dev/null | grep 'apiKey:' | sed 's/.*apiKey:[[:space:]]*"\?\([^"]*\)"\?/\1/' | tr -d ' ' || true)
+    EXISTING_DISCORD_TOKEN=$(grep -A1 '^discord:' "$EXISTING_SECRETS" 2>/dev/null | grep 'token:' | sed 's/.*token:[[:space:]]*"\?\([^"]*\)"\?/\1/' | tr -d ' ' || true)
+    EXISTING_TELEGRAM_TOKEN=$(grep -A1 '^telegram:' "$EXISTING_SECRETS" 2>/dev/null | grep 'token:' | sed 's/.*token:[[:space:]]*"\?\([^"]*\)"\?/\1/' | tr -d ' ' || true)
+    EXISTING_GATEWAY_TOKEN=$(grep -A1 '^gateway:' "$EXISTING_SECRETS" 2>/dev/null | grep 'token:' | sed 's/.*token:[[:space:]]*"\?\([^"]*\)"\?/\1/' | tr -d ' ' || true)
+    EXISTING_OPENAI_COMPAT_KEY=$(grep -A1 '^openai-compatible:' "$EXISTING_SECRETS" 2>/dev/null | grep 'apiKey:' | sed 's/.*apiKey:[[:space:]]*"\?\([^"]*\)"\?/\1/' | tr -d ' ' || true)
+    
+    # Show what was found
+    [ -n "$EXISTING_ANTHROPIC_KEY" ] && info "Found Anthropic API key: ${EXISTING_ANTHROPIC_KEY:0:10}..."
+    [ -n "$EXISTING_OPENAI_KEY" ] && info "Found OpenAI API key: ${EXISTING_OPENAI_KEY:0:10}..."
+    [ -n "$EXISTING_DISCORD_TOKEN" ] && info "Found Discord token: ${EXISTING_DISCORD_TOKEN:0:20}..."
+    [ -n "$EXISTING_TELEGRAM_TOKEN" ] && info "Found Telegram token: ${EXISTING_TELEGRAM_TOKEN:0:10}..."
+    [ -n "$EXISTING_GATEWAY_TOKEN" ] && info "Found Gateway token: ${EXISTING_GATEWAY_TOKEN:0:10}..."
+    
+    if prompt_yn "Do you want to reuse existing credentials?" "y"; then
+      REUSE_EXISTING=1
+      success "Will reuse existing credentials where applicable"
+    else
+      REUSE_EXISTING=0
+      info "Will configure new credentials"
+    fi
+  else
+    REUSE_EXISTING=0
+  fi
+
+  # ===========================================================================
   # AI Providers
   # ===========================================================================
   header "AI provider setup"
@@ -218,7 +262,12 @@ main() {
     USE_ANTHROPIC=1
     echo ""
     info "Anthropic: https://console.anthropic.com/settings/keys"
-    if prompt_yn "Do you want to use OAuth instead of an API key? (Claude Pro/Max subscription)" "y"; then
+    
+    # Check for existing key
+    if [ "$REUSE_EXISTING" -eq 1 ] && [ -n "$EXISTING_ANTHROPIC_KEY" ]; then
+      ANTHROPIC_API_KEY="$EXISTING_ANTHROPIC_KEY"
+      success "Reusing existing Anthropic API key"
+    elif prompt_yn "Do you want to use OAuth instead of an API key? (Claude Pro/Max subscription)" "y"; then
       # OAuth will be run later (inside the container)
       ANTHROPIC_API_KEY=""
       success "Anthropic OAuth will be configured after the container starts"
@@ -233,8 +282,15 @@ main() {
     USE_OPENAI=1
     echo ""
     info "OpenAI API keys: https://platform.openai.com/api-keys"
-    prompt OPENAI_API_KEY "Enter OpenAI API key" "" true
-    [ -n "$OPENAI_API_KEY" ] && success "OpenAI API key set" || warn "OpenAI API key not provided"
+    
+    # Check for existing key
+    if [ "$REUSE_EXISTING" -eq 1 ] && [ -n "$EXISTING_OPENAI_KEY" ]; then
+      OPENAI_API_KEY="$EXISTING_OPENAI_KEY"
+      success "Reusing existing OpenAI API key"
+    else
+      prompt OPENAI_API_KEY "Enter OpenAI API key" "" true
+      [ -n "$OPENAI_API_KEY" ] && success "OpenAI API key set" || warn "OpenAI API key not provided"
+    fi
   fi
 
   # OpenAI (OAuth - openai-codex)
@@ -295,15 +351,29 @@ main() {
   if [ $chat_choice -eq 0 ] || [ $chat_choice -eq 2 ]; then
     echo ""
     info "Discord developer portal: https://discord.com/developers/applications"
-    prompt DISCORD_BOT_TOKEN "Enter Discord bot token" "" true
-    [ -n "$DISCORD_BOT_TOKEN" ] && success "Discord token set" || warn "Discord token not provided"
+    
+    # Check for existing token
+    if [ "$REUSE_EXISTING" -eq 1 ] && [ -n "$EXISTING_DISCORD_TOKEN" ]; then
+      DISCORD_BOT_TOKEN="$EXISTING_DISCORD_TOKEN"
+      success "Reusing existing Discord token"
+    else
+      prompt DISCORD_BOT_TOKEN "Enter Discord bot token" "" true
+      [ -n "$DISCORD_BOT_TOKEN" ] && success "Discord token set" || warn "Discord token not provided"
+    fi
   fi
 
   if [ $chat_choice -eq 1 ] || [ $chat_choice -eq 2 ]; then
     echo ""
     info "Telegram BotFather: https://t.me/BotFather"
-    prompt TELEGRAM_BOT_TOKEN "Enter Telegram bot token" "" true
-    [ -n "$TELEGRAM_BOT_TOKEN" ] && success "Telegram token set" || warn "Telegram token not provided"
+    
+    # Check for existing token
+    if [ "$REUSE_EXISTING" -eq 1 ] && [ -n "$EXISTING_TELEGRAM_TOKEN" ]; then
+      TELEGRAM_BOT_TOKEN="$EXISTING_TELEGRAM_TOKEN"
+      success "Reusing existing Telegram token"
+    else
+      prompt TELEGRAM_BOT_TOKEN "Enter Telegram bot token" "" true
+      [ -n "$TELEGRAM_BOT_TOKEN" ] && success "Telegram token set" || warn "Telegram token not provided"
+    fi
   fi
 
   if [ -z "$DISCORD_BOT_TOKEN" ] && [ -z "$TELEGRAM_BOT_TOKEN" ]; then
@@ -320,17 +390,23 @@ main() {
   GATEWAY_PORT="8787"
   prompt GATEWAY_PORT "Host port to expose the gateway" "8787"
 
-  # Generate a random token if not provided
-  if command -v openssl &>/dev/null; then
-    GATEWAY_TOKEN=$(openssl rand -hex 16)
+  # Check for existing token or generate new one
+  if [ "$REUSE_EXISTING" -eq 1 ] && [ -n "$EXISTING_GATEWAY_TOKEN" ]; then
+    GATEWAY_TOKEN="$EXISTING_GATEWAY_TOKEN"
+    echo ""
+    success "Reusing existing Gateway token"
   else
-    GATEWAY_TOKEN=$(head -c 32 /dev/urandom | xxd -p | tr -d '\n' | head -c 32)
-  fi
+    if command -v openssl &>/dev/null; then
+      GATEWAY_TOKEN=$(openssl rand -hex 16)
+    else
+      GATEWAY_TOKEN=$(head -c 32 /dev/urandom | xxd -p | tr -d '\n' | head -c 32)
+    fi
 
-  echo ""
-  info "Generated a random gateway token (you can override it)."
-  prompt GATEWAY_TOKEN "Gateway token" "$GATEWAY_TOKEN" true
-  success "Gateway token set"
+    echo ""
+    info "Generated a random gateway token (you can override it)."
+    prompt GATEWAY_TOKEN "Gateway token" "$GATEWAY_TOKEN" true
+    success "Gateway token set"
+  fi
 
   # ===========================================================================
   # Timezone
@@ -346,7 +422,7 @@ main() {
   # ===========================================================================
   header "Writing config"
 
-  OWLIABOT_HOME="${HOME}/.owliabot"
+  # OWLIABOT_HOME already defined at the beginning
   mkdir -p "${OWLIABOT_HOME}"
   chmod 700 "${OWLIABOT_HOME}"
   mkdir -p "${OWLIABOT_HOME}/auth"
