@@ -259,6 +259,7 @@ main() {
     # Secrets directory (shared between Docker and CLI)
     OWLIABOT_HOME="${HOME}/.owliabot"
     mkdir -p "${OWLIABOT_HOME}"
+    chmod 700 "${OWLIABOT_HOME}"
     
     cat > "${OWLIABOT_HOME}/secrets.yaml" << EOF
 # OwliaBot Secrets
@@ -295,15 +296,17 @@ EOF
     # Generate config/app.yaml (references secrets from ~/.owliabot)
     # =========================================================================
     
+    # Create symlink so owliabot can find secrets (it looks in same dir as app.yaml)
+    ln -sf "${OWLIABOT_HOME}/secrets.yaml" config/secrets.yaml
+    success "已创建 config/secrets.yaml -> ~/.owliabot/secrets.yaml 符号链接"
+    
     cat > config/app.yaml << EOF
 # OwliaBot 配置文件
 # 由 install.sh 生成于 $(date)
 #
 # Secrets 存储在 ~/.owliabot/secrets.yaml
+# config/secrets.yaml 是指向它的符号链接
 # Docker 和 CLI 启动都会读取同一份 secrets
-
-# Secrets 文件路径（Docker 内映射到 /home/owliabot/.owliabot）
-secretsPath: /home/owliabot/.owliabot/secrets.yaml
 
 # AI 提供商配置
 providers:
@@ -351,11 +354,13 @@ EOF
     cat >> config/app.yaml << EOF
 
 # Gateway HTTP 配置
+# 容器内固定使用 8787 端口（Dockerfile healthcheck 依赖此端口）
+# 外部端口通过 docker run -p 映射
 gateway:
   http:
     host: 0.0.0.0
-    port: ${GATEWAY_PORT}
-    # token 从 secretsPath 读取
+    port: 8787
+    # token 从 secrets.yaml 读取
 
 # 工作区路径
 workspace: /app/workspace
@@ -394,15 +399,16 @@ EOF
         
         # Start container
         # Mount:
-        #   - ~/.owliabot -> /home/owliabot/.owliabot (secrets, 与 CLI 共享)
-        #   - ./config    -> /app/config (配置文件)
-        #   - ./workspace -> /app/workspace (工作区)
+        #   - ~/.owliabot/secrets.yaml -> /app/config/secrets.yaml (secrets)
+        #   - ./config/app.yaml        -> /app/config/app.yaml (配置)
+        #   - ./workspace              -> /app/workspace (工作区)
+        # Note: 绑定 127.0.0.1 仅本机访问，如需公网访问改为 0.0.0.0
         if docker run -d \
             --name owliabot \
             --restart unless-stopped \
-            -p "${GATEWAY_PORT}:${GATEWAY_PORT}" \
-            -v "${OWLIABOT_HOME}:/home/owliabot/.owliabot:ro" \
-            -v "$(pwd)/config:/app/config:ro" \
+            -p "127.0.0.1:${GATEWAY_PORT}:8787" \
+            -v "${OWLIABOT_HOME}/secrets.yaml:/app/config/secrets.yaml:ro" \
+            -v "$(pwd)/config/app.yaml:/app/config/app.yaml:ro" \
             -v "$(pwd)/workspace:/app/workspace" \
             -e "TZ=${TZ}" \
             "${OWLIABOT_IMAGE}" \

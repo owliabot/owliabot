@@ -15,8 +15,9 @@ services:
     restart: unless-stopped
 
     # Port mapping for gateway HTTP
+    # 默认绑定 127.0.0.1 仅本机访问，如需公网访问改为 "0.0.0.0:8787:8787"
     ports:
-      - "8787:8787"
+      - "127.0.0.1:8787:8787"
 
     # Volume mounts
     volumes:
@@ -60,6 +61,8 @@ services:
       start_period: 10s
 
     # Resource limits (adjust based on your needs)
+    # 注意: deploy.resources 仅在 Swarm 模式 (docker stack deploy) 下生效
+    # 普通 docker-compose up 请使用 mem_limit 或 docker run --memory
     deploy:
       resources:
         limits:
