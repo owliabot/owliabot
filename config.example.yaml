@@ -105,11 +105,21 @@ heartbeat:
 # system:
 #   exec:
 #     commandAllowList:        # Only these commands may be executed
+#       # Read commands (safe)
 #       - ls
 #       - cat
 #       - grep
 #       - find
+#       - head
+#       - tail
+#       - wc
 #       - echo
+#       # Write commands (require confirmation when WriteGate is enabled)
+#       - rm
+#       - mkdir
+#       - touch
+#       - mv
+#       - cp
 #     envAllowList:            # Only these env vars may be passed through
 #       - PATH
 #       - HOME

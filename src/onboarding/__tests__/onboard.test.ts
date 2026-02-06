@@ -7,11 +7,18 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 let answers: string[] = [];
+let promptLog: string[] = [];
 
 vi.mock("node:readline", () => ({
   createInterface: () => ({
-    question: (_q: string, cb: (ans: string) => void) => {
-      const next = answers.shift() ?? "";
+    question: (q: string, cb: (ans: string) => void) => {
+      promptLog.push(q);
+      const next = answers.shift();
+      if (next === undefined) {
+        // Debug: show what prompts we've seen
+        console.error("Ran out of answers! Prompts so far:", promptLog);
+        throw new Error(`Ran out of answers at prompt: "${q}"`);
+      }
       cb(next);
     },
     close: () => {},
@@ -35,6 +42,7 @@ describe("onboarding", () => {
 
   afterEach(async () => {
     answers = [];
+    promptLog = [];
     if (dir) {
       await rm(dir, { recursive: true, force: true });
     }
