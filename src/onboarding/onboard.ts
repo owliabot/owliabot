@@ -1,6 +1,6 @@
 import { createInterface } from "node:readline";
 import { createLogger } from "../utils/logger.js";
-import type { AppConfig, ProviderConfig, LLMProviderId } from "./types.js";
+import type { AppConfig, ProviderConfig, LLMProviderId, MemorySearchConfig, SystemCapabilityConfig } from "./types.js";
 import { saveAppConfig, DEV_APP_CONFIG_PATH } from "./storage.js";
 import { startOAuthFlow } from "../auth/oauth.js";
 import { saveSecrets, type SecretsConfig } from "./secrets.js";
@@ -199,9 +199,53 @@ export async function runOnboarding(options: OnboardOptions = {}): Promise<void>
       priority: 1,
     } as ProviderConfig;
 
+    // Default memory search config
+    const memorySearchConfig: MemorySearchConfig = {
+      enabled: true,
+      provider: "sqlite",
+      fallback: "naive",
+      store: {
+        path: "~/.owliabot/memory/{agentId}.sqlite",
+      },
+      extraPaths: [],
+      sources: ["files"],
+      indexing: {
+        autoIndex: true,
+        minIntervalMs: 5 * 60 * 1000, // 5 minutes
+      },
+    };
+
+    // Default system capability config
+    const systemConfig: SystemCapabilityConfig = {
+      exec: {
+        commandAllowList: [
+          "ls", "cat", "head", "tail", "grep", "find", "echo", "pwd", "wc",
+          "date", "env", "which", "file", "stat", "du", "df", "curl",
+        ],
+        envAllowList: ["PATH", "HOME", "USER", "LANG", "LC_ALL"],
+        timeoutMs: 60_000,
+        maxOutputBytes: 256 * 1024,
+      },
+      web: {
+        domainAllowList: [], // Empty = allow all public domains
+        domainDenyList: [],
+        allowPrivateNetworks: false,
+        timeoutMs: 15_000,
+        maxResponseBytes: 512 * 1024,
+        blockOnSecret: true,
+      },
+      webSearch: {
+        defaultProvider: "duckduckgo",
+        timeoutMs: 15_000,
+        maxResults: 10,
+      },
+    };
+
     const config: AppConfig = {
       workspace,
       providers: [providerConfig],
+      memorySearch: memorySearchConfig,
+      system: systemConfig,
     };
 
     if (channels.includes("discord")) {

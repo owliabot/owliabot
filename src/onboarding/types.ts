@@ -40,6 +40,45 @@ export type ProviderConfig =
       priority: number;
     };
 
+/** Memory search configuration */
+export interface MemorySearchConfig {
+  enabled: boolean;
+  provider: "sqlite" | "naive";
+  fallback: "sqlite" | "naive" | "none";
+  store: {
+    path: string;
+  };
+  extraPaths: string[];
+  sources: Array<"files" | "transcripts">;
+  indexing: {
+    autoIndex: boolean;
+    minIntervalMs: number;
+  };
+}
+
+/** System capability configuration */
+export interface SystemCapabilityConfig {
+  exec: {
+    commandAllowList: string[];
+    envAllowList: string[];
+    timeoutMs: number;
+    maxOutputBytes: number;
+  };
+  web: {
+    domainAllowList: string[];
+    domainDenyList: string[];
+    allowPrivateNetworks: boolean;
+    timeoutMs: number;
+    maxResponseBytes: number;
+    blockOnSecret: boolean;
+  };
+  webSearch: {
+    defaultProvider: "brave" | "duckduckgo";
+    timeoutMs: number;
+    maxResults: number;
+  };
+}
+
 export interface AppConfig {
   // Workspace path (can be relative to the config file location)
   workspace: string;
@@ -65,4 +104,10 @@ export interface AppConfig {
   notifications?: {
     channel: string;
   };
+
+  // Memory search
+  memorySearch?: MemorySearchConfig;
+
+  // System capabilities (exec / web.fetch / web.search)
+  system?: SystemCapabilityConfig;
 }
