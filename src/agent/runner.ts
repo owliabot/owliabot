@@ -4,7 +4,7 @@
  */
 
 import {
-  complete,
+  completeSimple,
   getEnvApiKey,
   getOAuthApiKey,
   type Model,
@@ -27,6 +27,8 @@ import {
   type OpenAICompatibleConfig,
 } from "./openai-compatible.js";
 import { resolveModel, type ModelConfig } from "./models.js";
+import { isCliProvider, parseCliModelString, type ConfigWithCliBackends } from "./cli/cli-provider.js";
+import { runCliAgent, type CliAgentResult } from "./cli/cli-runner.js";
 import {
   loadOAuthCredentials,
   saveOAuthCredentials,
@@ -304,12 +306,12 @@ export async function runLLM(
 
   log.info(`Calling ${model.provider}/${model.id}`);
 
-  const response = await complete(model, context, {
+  const response = await completeSimple(model, context, {
     apiKey,
     maxTokens: options?.maxTokens ?? 4096,
     temperature: options?.temperature,
     reasoning: options?.reasoning,
-  } as Parameters<typeof complete>[2]);
+  } as Parameters<typeof completeSimple>[2]);
 
   // Handle different stop reasons
   switch (response.stopReason) {
@@ -334,11 +336,17 @@ export async function runLLM(
 /**
  * Call LLM with failover support (for backward compatibility)
  * Now passes provider to runLLM for openai-compatible detection
+ * Also supports CLI providers (claude-cli, codex-cli)
  */
 export async function callWithFailover(
   providers: LLMProvider[],
   messages: Message[],
-  options?: RunnerOptions
+  options?: RunnerOptions,
+  config?: ConfigWithCliBackends,
+  cliContext?: {
+    sessionId?: string;
+    workdir?: string;
+  }
 ): Promise<LLMResponse> {
   const sorted = [...providers].sort((a, b) => a.priority - b.priority);
 
@@ -347,6 +355,13 @@ export async function callWithFailover(
   for (const provider of sorted) {
     try {
       log.info(`Trying provider: ${provider.id}`);
+
+      // Check if this is a CLI provider
+      if (isCliProvider(provider.id, config)) {
+        log.info(`Using CLI provider: ${provider.id}`);
+        return await runCliAgentWrapper(provider, messages, config, cliContext);
+      }
+
       return await runLLM(
         { provider: provider.id, model: provider.model, apiKey: provider.apiKey },
         messages,
@@ -361,4 +376,80 @@ export async function callWithFailover(
   }
 
   throw lastError ?? new Error("All providers failed");
+}
+
+// CLI session ID storage (in-memory, keyed by internal session key)
+const cliSessionMap = new Map<string, string>();
+
+/**
+ * Get stored CLI session ID for an internal session key
+ */
+export function getCliSessionId(internalKey: string): string | undefined {
+  return cliSessionMap.get(internalKey);
+}
+
+/**
+ * Store CLI session ID for an internal session key
+ */
+export function setCliSessionId(internalKey: string, cliSessionId: string): void {
+  cliSessionMap.set(internalKey, cliSessionId);
+}
+
+/**
+ * Run a CLI agent and convert result to LLMResponse format
+ */
+async function runCliAgentWrapper(
+  provider: LLMProvider,
+  messages: Message[],
+  config?: ConfigWithCliBackends,
+  cliContext?: {
+    sessionId?: string;
+    workdir?: string;
+  }
+): Promise<LLMResponse> {
+  // Extract the latest user message as the prompt
+  const userMessages = messages.filter((m) => m.role === "user" && !m.toolResults);
+  const latestMessage = userMessages[userMessages.length - 1];
+  if (!latestMessage) {
+    throw new Error("No user message found for CLI agent");
+  }
+
+  // Build system prompt from system messages
+  const systemMessages = messages.filter((m) => m.role === "system");
+  const systemPrompt = systemMessages.map((m) => m.content).join("\n\n");
+
+  // Determine if this is the first message
+  const isFirstMessage = !cliContext?.sessionId;
+
+  // Run the CLI agent
+  const result = await runCliAgent({
+    provider: provider.id,
+    model: provider.model,
+    prompt: latestMessage.content,
+    systemPrompt: systemPrompt || undefined,
+    sessionId: cliContext?.sessionId,
+    isFirstMessage,
+    workdir: cliContext?.workdir ?? process.cwd(),
+    timeoutMs: 120_000,
+    config,
+  });
+
+  // Convert CLI result to LLMResponse
+  const response: LLMResponse = {
+    content: result.text,
+    toolCalls: undefined, // CLI handles tools internally
+    usage: {
+      promptTokens: 0, // CLI doesn't report usage
+      completionTokens: 0,
+    },
+    provider: provider.id,
+    model: provider.model,
+  };
+
+  // Attach session ID to response for caller to track
+  if (result.sessionId) {
+    (response as LLMResponse & { cliSessionId?: string }).cliSessionId = result.sessionId;
+  }
+
+  return response;
 }

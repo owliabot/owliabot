@@ -18,6 +18,7 @@ const DEFAULT_MODELS: Record<LLMProviderId, string> = {
   anthropic: "claude-sonnet-4-5",
   openai: "gpt-4o",
   "openai-codex": "gpt-5.2",
+  "claude-cli": "opus",
 };
 
 export interface OnboardOptions {
@@ -45,30 +46,33 @@ export async function runOnboarding(options: OnboardOptions = {}): Promise<void>
 
     // Provider selection
     log.info("\nAvailable LLM providers:");
-    log.info("  1. anthropic     - Anthropic Claude (setup-token or API Key)");
-    log.info("  2. openai        - OpenAI (API Key)");
-    log.info("  3. openai-codex  - OpenAI Codex (ChatGPT Plus/Pro OAuth)");
+    log.info("  1. claude-cli    - Claude CLI (setup-token, Claude Pro/Max)");
+    log.info("  2. anthropic     - Anthropic API (API Key)");
+    log.info("  3. openai        - OpenAI (API Key)");
+    log.info("  4. openai-codex  - OpenAI Codex (ChatGPT Plus/Pro OAuth)");
 
     const providerAns = await ask(
       rl,
-      "\nSelect provider (1-3 or name) [anthropic]: "
+      "\nSelect provider (1-4 or name) [claude-cli]: "
     );
 
     // Map numeric input to provider ID
     const providerMap: Record<string, LLMProviderId> = {
-      "1": "anthropic",
-      "2": "openai",
-      "3": "openai-codex",
+      "1": "claude-cli",
+      "2": "anthropic",
+      "3": "openai",
+      "4": "openai-codex",
       "anthropic": "anthropic",
       "openai": "openai",
       "openai-codex": "openai-codex",
+      "claude-cli": "claude-cli",
     };
 
     let providerId: LLMProviderId =
-      providerMap[providerAns] ?? providerMap[providerAns.toLowerCase()] ?? "anthropic";
+      providerMap[providerAns] ?? providerMap[providerAns.toLowerCase()] ?? "claude-cli";
 
     if (!providerAns) {
-      providerId = "anthropic";
+      providerId = "claude-cli";
     } else if (!providerMap[providerAns] && !providerMap[providerAns.toLowerCase()]) {
       log.warn(`Unknown provider: ${providerAns}, defaulting to anthropic`);
       providerId = "anthropic";
@@ -95,42 +99,36 @@ export async function runOnboarding(options: OnboardOptions = {}): Promise<void>
         apiKeyValue = "env"; // indicates to load from env
       }
     } else if (providerId === "anthropic") {
-      // Anthropic uses setup-token (from `claude setup-token` CLI command) or API key
+      // Anthropic supports both setup-token and standard API key
       log.info("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-      log.info("  Anthropic authentication");
+      log.info("  Anthropic API");
       log.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
       log.info("");
-      log.info("  Option 1: Setup-token (Claude Pro/Max subscription)");
-      log.info("    Run `claude setup-token` in your terminal,");
-      log.info("    then paste the generated token below.");
-      log.info("");
-      log.info("  Option 2: API Key");
-      log.info("    Paste your Anthropic API key (sk-ant-api...)");
-      log.info("    or leave empty to use ANTHROPIC_API_KEY env var.");
+      log.info("  Option 1: Setup-token (Claude Pro/Max) - run `claude setup-token`");
+      log.info("  Option 2: Standard API key from console.anthropic.com");
       log.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n");
 
       const tokenAns = await ask(
         rl,
-        "Paste token (setup-token or API key, empty=env): "
+        "Paste setup-token or API key (leave empty to set via ANTHROPIC_API_KEY env): "
       );
-
       if (tokenAns) {
-        // Auto-detect token type
         if (isSetupToken(tokenAns)) {
-          // Validate setup-token
+          // Setup-token (sk-ant-oat01-...)
           const error = validateAnthropicSetupToken(tokenAns);
           if (error) {
             log.warn(`Setup-token validation warning: ${error}`);
           }
           secrets.anthropic = { token: tokenAns };
-          apiKeyValue = "secrets";
+          log.info("✓ Setup-token saved");
         } else {
-          // Treat as standard API key
+          // Standard API key
           secrets.anthropic = { apiKey: tokenAns };
-          apiKeyValue = "secrets";
+          log.info("✓ API key saved");
         }
+        apiKeyValue = "secrets";
       } else {
-        apiKeyValue = "env"; // indicates to load from env
+        apiKeyValue = "env";
       }
     } else if (providerId === "openai-codex") {
       // OpenAI Codex only supports OAuth
@@ -149,6 +147,48 @@ export async function runOnboarding(options: OnboardOptions = {}): Promise<void>
         );
       }
       apiKeyValue = "oauth";
+    } else if (providerId === "claude-cli") {
+      // Claude CLI uses setup-token for authentication
+      log.info("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+      log.info("  Claude CLI (setup-token)");
+      log.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+      log.info("");
+      log.info("  Requires Claude Pro/Max subscription.");
+      log.info("  Run `claude setup-token` to generate a token.");
+      log.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n");
+
+      // Check if claude command is available
+      const { execSync } = await import("node:child_process");
+      try {
+        execSync("which claude", { stdio: "ignore" });
+        log.info("✓ claude command found\n");
+      } catch {
+        log.warn("⚠ claude command not found. Install: npm i -g @anthropic-ai/claude-code\n");
+      }
+
+      const tokenAns = await ask(
+        rl,
+        "Paste setup-token (or leave empty to run `claude setup-token` later): "
+      );
+
+      if (tokenAns) {
+        if (isSetupToken(tokenAns)) {
+          const error = validateAnthropicSetupToken(tokenAns);
+          if (error) {
+            log.warn(`Setup-token validation warning: ${error}`);
+          }
+          // Store in anthropic secrets (claude CLI reads from same location)
+          secrets.anthropic = { token: tokenAns };
+          log.info("✓ Setup-token saved");
+        } else {
+          log.warn("This doesn't look like a setup-token. Use option 1 for API keys.");
+          secrets.anthropic = { token: tokenAns }; // Store anyway
+        }
+      } else {
+        log.info("Run `claude setup-token` before starting the bot.");
+      }
+
+      apiKeyValue = ""; // CLI providers don't need apiKey in provider config
     }
 
     // Build provider config

@@ -30,6 +30,8 @@ describe("createBuiltinTools", () => {
     expect(names).toContain("memory_search");
     expect(names).toContain("memory_get");
     expect(names).toContain("list_files");
+    expect(names).toContain("read_text_file");
+    expect(names).not.toContain("read_file");
     // Write tools should be excluded by default
     expect(names).not.toContain("edit_file");
   });

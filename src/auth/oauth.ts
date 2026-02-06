@@ -192,10 +192,13 @@ export async function getOAuthStatus(
     return { authenticated: false };
   }
 
+  const email =
+    typeof credentials.email === "string" ? credentials.email : undefined;
+
   return {
     authenticated: true,
     expiresAt: credentials.expires,
-    email: credentials.email,
+    email,
   };
 }
 

@@ -92,7 +92,7 @@ describe("runner", () => {
       };
 
       vi.mocked(piAi.getEnvApiKey).mockReturnValue("test-key");
-      vi.mocked(piAi.complete).mockResolvedValue(mockResponse as any);
+      vi.mocked(piAi.completeSimple).mockResolvedValue(mockResponse as any);
 
       const messages = [
         { role: "user" as const, content: "Hi", timestamp: Date.now() },
@@ -135,7 +135,7 @@ describe("runner", () => {
       };
 
       vi.mocked(piAi.getEnvApiKey).mockReturnValue("test-key");
-      vi.mocked(piAi.complete).mockResolvedValue(mockResponse as any);
+      vi.mocked(piAi.completeSimple).mockResolvedValue(mockResponse as any);
 
       const messages = [
         { role: "user" as const, content: "Test", timestamp: Date.now() },
@@ -169,7 +169,7 @@ describe("runner", () => {
       };
 
       vi.mocked(piAi.getEnvApiKey).mockReturnValue("test-key");
-      vi.mocked(piAi.complete).mockResolvedValue(mockResponse as any);
+      vi.mocked(piAi.completeSimple).mockResolvedValue(mockResponse as any);
 
       const messages = [
         { role: "user" as const, content: "Long query", timestamp: Date.now() },
@@ -201,7 +201,7 @@ describe("runner", () => {
       };
 
       vi.mocked(piAi.getEnvApiKey).mockReturnValue("test-key");
-      vi.mocked(piAi.complete).mockResolvedValue(mockResponse as any);
+      vi.mocked(piAi.completeSimple).mockResolvedValue(mockResponse as any);
 
       const messages = [
         { role: "user" as const, content: "Test", timestamp: Date.now() },
@@ -257,7 +257,7 @@ describe("runner", () => {
         timestamp: Date.now(),
       };
 
-      vi.mocked(piAi.complete).mockResolvedValue(mockResponse as any);
+      vi.mocked(piAi.completeSimple).mockResolvedValue(mockResponse as any);
 
       const messages = [
         { role: "user" as const, content: "Test", timestamp: Date.now() },
@@ -291,7 +291,7 @@ describe("runner", () => {
       };
 
       vi.mocked(piAi.getEnvApiKey).mockReturnValue("test-key");
-      vi.mocked(piAi.complete).mockResolvedValue(mockResponse as any);
+      vi.mocked(piAi.completeSimple).mockResolvedValue(mockResponse as any);
 
       const providers = [
         { id: "anthropic", model: "claude-sonnet-4-5", apiKey: "key1", priority: 1 },
@@ -311,7 +311,7 @@ describe("runner", () => {
       vi.mocked(piAi.getEnvApiKey).mockReturnValue("test-key");
       
       // First call fails, second succeeds
-      vi.mocked(piAi.complete)
+      vi.mocked(piAi.completeSimple)
         .mockRejectedValueOnce(new Error("First provider failed"))
         .mockResolvedValueOnce({
           role: "assistant" as const,
@@ -348,7 +348,7 @@ describe("runner", () => {
 
     it("should throw last error when all providers fail", async () => {
       vi.mocked(piAi.getEnvApiKey).mockReturnValue("test-key");
-      vi.mocked(piAi.complete).mockRejectedValue(new Error("All failed"));
+      vi.mocked(piAi.completeSimple).mockRejectedValue(new Error("All failed"));
 
       const providers = [
         { id: "anthropic", model: "claude-sonnet-4-5", apiKey: "key1", priority: 1 },
@@ -360,6 +360,25 @@ describe("runner", () => {
       ];
 
       await expect(callWithFailover(providers, messages)).rejects.toThrow("All failed");
+    });
+
+    it("should not fallback to claude-cli when anthropic rejects Claude Code credential", async () => {
+      vi.mocked(piAi.completeSimple).mockRejectedValue(
+        new Error(
+          '400 {"type":"error","error":{"type":"invalid_request_error","message":"This credential is only authorized for use with Claude Code and cannot be used for other API requests."}}'
+        )
+      );
+
+      const providers = [
+        { id: "anthropic", model: "claude-sonnet-4-5", apiKey: "setup-token", priority: 1 },
+      ];
+      const messages = [
+        { role: "user" as const, content: "Test", timestamp: Date.now() },
+      ];
+
+      await expect(callWithFailover(providers, messages)).rejects.toThrow(
+        /only authorized for use with Claude Code/i
+      );
     });
   });
 

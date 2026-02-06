@@ -8,6 +8,9 @@ import { createLogger } from "../../utils/logger.js";
 import type { ToolDefinition } from "./interface.js";
 
 const log = createLogger("tools");
+const TOOL_ALIASES: Record<string, string> = {
+  read_file: "read_text_file",
+};
 
 export class ToolRegistry {
   private tools = new Map<string, ToolDefinition>();
@@ -21,7 +24,7 @@ export class ToolRegistry {
   }
 
   get(name: string): ToolDefinition | undefined {
-    return this.tools.get(name);
+    return this.tools.get(name) ?? this.tools.get(TOOL_ALIASES[name] ?? "");
   }
 
   getAll(): ToolDefinition[] {

@@ -137,7 +137,7 @@ function resolveAuthToken(clawletConfig?: WalletFactoryConfig["clawlet"]): strin
  * - **Core tools** (always available): echo
  * - **Session tools**: clear_session
  * - **Memory tools**: memory_search, memory_get
- * - **FS read tools**: list_files, read_file
+ * - **FS read tools**: list_files, read_text_file
  * - **FS write tools** (gated by allowWrite): edit_file, write_file, apply_patch
  * - **System tools** (require system config): exec, web_fetch, web_search
  * - **Wallet tools** (require wallet config): wallet_balance, wallet_transfer

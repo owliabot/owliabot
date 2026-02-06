@@ -4,6 +4,7 @@
  */
 
 import { z } from "zod";
+import { CliBackendsSchema } from "../agent/cli/cli-schema.js";
 
 export const providerSchema = z
   .object({
@@ -242,6 +243,12 @@ const infraSchema = z
 const agentsSchema = z
   .object({
     defaultId: z.string().default("main"),
+    defaults: z
+      .object({
+        /** CLI backends configuration */
+        cliBackends: CliBackendsSchema,
+      })
+      .optional(),
   })
   .default({ defaultId: "main" });
 

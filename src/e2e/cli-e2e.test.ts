@@ -24,9 +24,9 @@ async function runOnboardCli(opts: { cwd: string; appYamlPath: string; answers: 
   const prompts = [
     "Enable channels (discord/telegram) [discord]: ",
     "Workspace path [./workspace]: ",
-    "Select provider (1-3 or name) [anthropic]: ",
+    "Select provider (1-4 or name) [claude-cli]: ",
     "Model [claude-sonnet-4-5]: ",
-    "Paste token (setup-token or API key, empty=env): ",
+    "Paste setup-token or API key (leave empty to set via ANTHROPIC_API_KEY env): ",
     "In guild, require @mention unless channel allowlisted? (y/n) [y]: ",
     "Discord guild channelAllowList (comma-separated channel IDs) [1467915124764573736]: ",
     "Discord bot token (leave empty to set later via `owliabot token set discord`) [skip]: ",

@@ -176,7 +176,6 @@ describe("summarizeAndSave", () => {
     });
 
     await summarizeAndSave({
-      summaryModel: { provider: "anthropic", model: "claude-sonnet-4-5" },
       sessionId: "sess-6",
       transcripts,
       workspacePath: "/tmp/workspace",
@@ -185,6 +184,39 @@ describe("summarizeAndSave", () => {
 
     expect(mockRunLLM).toHaveBeenCalledWith(
       { provider: "anthropic", model: "claude-sonnet-4-5" },
+      expect.any(Array),
+      expect.any(Object),
+    );
+  });
+
+  it("should pass apiKey through summaryModel when provided", async () => {
+    const messages = makeMessages(4);
+    const transcripts = createMockTranscripts(messages);
+
+    mockRunLLM.mockResolvedValue({
+      content: "- Summary",
+      usage: { promptTokens: 50, completionTokens: 10 },
+      provider: "anthropic",
+      model: "claude-sonnet-4-5",
+    });
+
+    await summarizeAndSave({
+      summaryModel: {
+        provider: "anthropic",
+        model: "claude-sonnet-4-5",
+        apiKey: "test-summary-key",
+      },
+      sessionId: "sess-api-key",
+      transcripts,
+      workspacePath: "/tmp/workspace",
+    });
+
+    expect(mockRunLLM).toHaveBeenCalledWith(
+      {
+        provider: "anthropic",
+        model: "claude-sonnet-4-5",
+        apiKey: "test-summary-key",
+      },
       expect.any(Array),
       expect.any(Object),
     );

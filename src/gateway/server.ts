@@ -476,9 +476,14 @@ async function handleMessage(
       ? {
           provider: config.providers?.[0]?.id,
           model: config.session.summaryModel,
+          apiKey: config.providers?.[0]?.apiKey,
         }
       : config.providers?.[0]
-        ? { provider: config.providers[0].id, model: config.providers[0].model }
+        ? {
+            provider: config.providers[0].id,
+            model: config.providers[0].model,
+            apiKey: config.providers[0].apiKey,
+          }
         : undefined,
     summarizeOnReset: config.session?.summarizeOnReset,
     timezone: config.timezone,

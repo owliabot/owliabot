@@ -134,7 +134,8 @@ async function resolveWorkspacePath(
 
 export function createReadFileTool(workspacePath: string): ToolDefinition {
   return {
-    name: "read_file",
+    // Avoid collision with Claude Code builtin "Read" when using setup-token.
+    name: "read_text_file",
     description:
       "Read the contents of a text file. Supports offset and limit for large files. " +
       "Use this to view source code, configuration, documentation, or any text file. " +

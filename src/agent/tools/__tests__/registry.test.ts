@@ -75,6 +75,19 @@ describe("ToolRegistry", () => {
       const tool = registry.get("non-existent");
       expect(tool).toBeUndefined();
     });
+
+    it("should resolve read_file alias to read_text_file", () => {
+      const readTextFileTool: ToolDefinition = {
+        name: "read_text_file",
+        description: "Read text file",
+        parameters: { type: "object", properties: {} },
+        security: { level: "read" },
+        execute: vi.fn(async () => ({ success: true })),
+      };
+      registry.register(readTextFileTool);
+
+      expect(registry.get("read_file")).toBe(readTextFileTool);
+    });
   });
 
   describe("getAll", () => {
