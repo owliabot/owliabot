@@ -113,7 +113,7 @@ describe.sequential("E2E: CLI onboard -> config/secrets -> gateway-http", () => 
           workspacePath, // Workspace path
           "anthropic", // Provider selection
           "", // Model (default claude-sonnet-4-5)
-          "", // Token (empty = use ANTHROPIC_API_KEY env var)
+          "sk-ant-api-test-e2e-fake-key", // Fake API key for testing
           "", // requireMentionInGuild (default y)
           "", // channelAllowList (default)
           "test-discord-token-e2e", // Discord token
@@ -130,7 +130,7 @@ describe.sequential("E2E: CLI onboard -> config/secrets -> gateway-http", () => 
 
       expect(app.workspace).toBe(workspacePath);
       expect(Array.isArray(app.providers)).toBe(true);
-      expect(app.providers[0]).toMatchObject({ id: "anthropic", apiKey: "env" });
+      expect(app.providers[0]).toMatchObject({ id: "anthropic", apiKey: "secrets" });
 
       expect(app.discord).toBeTruthy();
       expect(app.discord.requireMentionInGuild).toBe(true);
