@@ -1,16 +1,61 @@
 import { createInterface } from "node:readline";
+import { existsSync, readFileSync } from "node:fs";
+import { join, dirname } from "node:path";
+import { homedir } from "node:os";
+import { randomBytes } from "node:crypto";
 import { createLogger } from "../utils/logger.js";
 import type { AppConfig, ProviderConfig, LLMProviderId, MemorySearchConfig, SystemCapabilityConfig } from "./types.js";
 import { saveAppConfig, DEV_APP_CONFIG_PATH } from "./storage.js";
 import { startOAuthFlow } from "../auth/oauth.js";
-import { saveSecrets, type SecretsConfig } from "./secrets.js";
+import { saveSecrets, loadSecrets, type SecretsConfig } from "./secrets.js";
 import { ensureWorkspaceInitialized } from "../workspace/init.js";
 import { validateAnthropicSetupToken, isSetupToken } from "../auth/setup-token.js";
 
 const log = createLogger("onboard");
 
+// Colors (ANSI escape codes)
+const RED = "\x1b[0;31m";
+const GREEN = "\x1b[0;32m";
+const YELLOW = "\x1b[1;33m";
+const BLUE = "\x1b[0;34m";
+const CYAN = "\x1b[0;36m";
+const NC = "\x1b[0m";
+
+function info(msg: string) { console.log(`${BLUE}ℹ${NC} ${msg}`); }
+function success(msg: string) { console.log(`${GREEN}✓${NC} ${msg}`); }
+function warn(msg: string) { console.log(`${YELLOW}!${NC} ${msg}`); }
+
+function header(title: string) {
+  console.log("");
+  console.log(`${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}`);
+  console.log(`${CYAN}  ${title}${NC}`);
+  console.log(`${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}`);
+  console.log("");
+}
+
 function ask(rl: ReturnType<typeof createInterface>, q: string): Promise<string> {
   return new Promise((resolve) => rl.question(q, (ans) => resolve(ans.trim())));
+}
+
+async function askYN(rl: ReturnType<typeof createInterface>, q: string, defaultYes = false): Promise<boolean> {
+  const suffix = defaultYes ? "[Y/n]" : "[y/N]";
+  const ans = await ask(rl, `${q} ${suffix}: `);
+  if (!ans) return defaultYes;
+  return ans.toLowerCase().startsWith("y");
+}
+
+async function selectOption(rl: ReturnType<typeof createInterface>, prompt: string, options: string[]): Promise<number> {
+  console.log(prompt);
+  options.forEach((opt, i) => console.log(`  ${i + 1}. ${opt}`));
+  
+  while (true) {
+    const ans = await ask(rl, `Select [1-${options.length}]: `);
+    const n = parseInt(ans, 10);
+    if (!isNaN(n) && n >= 1 && n <= options.length) {
+      return n - 1;
+    }
+    warn(`Please enter a number between 1 and ${options.length}`);
+  }
 }
 
 /** Default models for each provider */
@@ -21,6 +66,49 @@ const DEFAULT_MODELS: Record<LLMProviderId, string> = {
   "openai-compatible": "llama3.2",
 };
 
+interface ExistingConfig {
+  anthropicKey?: string;
+  anthropicToken?: string;
+  openaiKey?: string;
+  discordToken?: string;
+  telegramToken?: string;
+}
+
+async function detectExistingConfig(appConfigPath: string): Promise<ExistingConfig | null> {
+  try {
+    const existing = await loadSecrets(appConfigPath);
+    if (!existing) return null;
+    
+    const result: ExistingConfig = {};
+    let hasAny = false;
+    
+    if (existing.anthropic?.apiKey) {
+      result.anthropicKey = existing.anthropic.apiKey;
+      hasAny = true;
+    }
+    if (existing.anthropic?.token) {
+      result.anthropicToken = existing.anthropic.token;
+      hasAny = true;
+    }
+    if (existing.openai?.apiKey) {
+      result.openaiKey = existing.openai.apiKey;
+      hasAny = true;
+    }
+    if (existing.discord?.token) {
+      result.discordToken = existing.discord.token;
+      hasAny = true;
+    }
+    if (existing.telegram?.token) {
+      result.telegramToken = existing.telegram.token;
+      hasAny = true;
+    }
+    
+    return hasAny ? result : null;
+  } catch {
+    return null;
+  }
+}
+
 export interface OnboardOptions {
   appConfigPath?: string;
 }
@@ -30,136 +118,270 @@ export async function runOnboarding(options: OnboardOptions = {}): Promise<void>
 
   const rl = createInterface({ input: process.stdin, output: process.stdout });
   try {
-    log.info("OwliaBot onboarding (dev)");
+    console.log("");
+    console.log(`${CYAN}   ____          ___       ____        _   ${NC}`);
+    console.log(`${CYAN}  / __ \\        / (_)     |  _ \\      | |  ${NC}`);
+    console.log(`${CYAN} | |  | |_      _| |_  __ _| |_) | ___ | |_ ${NC}`);
+    console.log(`${CYAN} | |  | \\ \\ /\\ / / | |/ _\` |  _ < / _ \\| __|${NC}`);
+    console.log(`${CYAN} | |__| |\\ V  V /| | | (_| | |_) | (_) | |_ ${NC}`);
+    console.log(`${CYAN}  \\____/  \\_/\\_/ |_|_|\\__,_|____/ \\___/ \\__|${NC}`);
+    console.log("");
+    console.log("  OwliaBot Interactive Setup");
+    console.log("");
 
-    const channelsAns = await ask(
-      rl,
-      "Enable channels (discord/telegram) [discord]: "
-    );
-    const channels = (channelsAns || "discord")
-      .split(",")
-      .map((s) => s.trim())
-      .filter(Boolean);
+    // Check for existing config
+    const existing = await detectExistingConfig(appConfigPath);
+    let reuseExisting = false;
+    const secrets: SecretsConfig = {};
+    
+    if (existing) {
+      header("Existing configuration found");
+      info(`Found existing config at: ${dirname(appConfigPath)}`);
+      
+      if (existing.anthropicKey) info(`Found Anthropic API key: ${existing.anthropicKey.slice(0, 15)}...`);
+      if (existing.anthropicToken) info("Found Anthropic setup-token");
+      if (existing.openaiKey) info(`Found OpenAI API key: ${existing.openaiKey.slice(0, 10)}...`);
+      if (existing.discordToken) info(`Found Discord token: ${existing.discordToken.slice(0, 20)}...`);
+      if (existing.telegramToken) info(`Found Telegram token: ${existing.telegramToken.slice(0, 10)}...`);
+      
+      reuseExisting = await askYN(rl, "Do you want to reuse existing configuration?", true);
+      if (reuseExisting) {
+        success("Will reuse existing configuration");
+        // Copy existing values to secrets
+        if (existing.anthropicKey) secrets.anthropic = { apiKey: existing.anthropicKey };
+        if (existing.anthropicToken) secrets.anthropic = { ...secrets.anthropic, token: existing.anthropicToken };
+        if (existing.openaiKey) secrets.openai = { apiKey: existing.openaiKey };
+        if (existing.discordToken) secrets.discord = { token: existing.discordToken };
+        if (existing.telegramToken) secrets.telegram = { token: existing.telegramToken };
+      } else {
+        info("Will configure new credentials");
+      }
+    }
 
-    const workspace =
-      (await ask(rl, "Workspace path [./workspace]: ")) || "./workspace";
+    // Channels
+    header("Chat platforms");
+    
+    let discordEnabled = false;
+    let telegramEnabled = false;
+    
+    if (reuseExisting && (existing?.discordToken || existing?.telegramToken)) {
+      discordEnabled = !!existing.discordToken;
+      telegramEnabled = !!existing.telegramToken;
+      success("Reusing existing chat platform configuration:");
+      if (discordEnabled) info("  - Discord");
+      if (telegramEnabled) info("  - Telegram");
+    } else {
+      const chatChoice = await selectOption(rl, "Choose platform(s):", [
+        "Discord",
+        "Telegram",
+        "Both",
+      ]);
+      
+      discordEnabled = chatChoice === 0 || chatChoice === 2;
+      telegramEnabled = chatChoice === 1 || chatChoice === 2;
+      
+      if (discordEnabled && !secrets.discord?.token) {
+        console.log("");
+        info("Discord developer portal: https://discord.com/developers/applications");
+        const token = await ask(rl, "Discord bot token (leave empty to set later): ");
+        if (token) {
+          secrets.discord = { token };
+          success("Discord token set");
+        }
+      }
+      
+      if (telegramEnabled && !secrets.telegram?.token) {
+        console.log("");
+        info("Telegram BotFather: https://t.me/BotFather");
+        const token = await ask(rl, "Telegram bot token (leave empty to set later): ");
+        if (token) {
+          secrets.telegram = { token };
+          success("Telegram token set");
+        }
+      }
+    }
+
+    // Workspace
+    header("Workspace");
+    const workspace = (await ask(rl, "Workspace path [./workspace]: ")) || "./workspace";
+    success(`Workspace: ${workspace}`);
 
     // Provider selection
-    log.info("\nAvailable LLM providers:");
-    log.info("  1. anthropic     - Anthropic (API Key or setup-token)");
-    log.info("  2. openai        - OpenAI (API Key)");
-    log.info("  3. openai-codex  - OpenAI Codex (ChatGPT Plus/Pro OAuth)");
-
-    const providerAns = await ask(
-      rl,
-      "\nSelect provider (1-3 or name) [anthropic]: "
-    );
-
-    // Map numeric input to provider ID
-    const providerMap: Record<string, LLMProviderId> = {
-      "1": "anthropic",
-      "2": "openai",
-      "3": "openai-codex",
-      "anthropic": "anthropic",
-      "openai": "openai",
-      "openai-codex": "openai-codex",
-    };
-
-    let providerId: LLMProviderId =
-      providerMap[providerAns] ?? providerMap[providerAns.toLowerCase()] ?? "anthropic";
-
-    if (!providerAns) {
-      providerId = "anthropic";
-    } else if (!providerMap[providerAns] && !providerMap[providerAns.toLowerCase()]) {
-      log.warn(`Unknown provider: ${providerAns}, defaulting to anthropic`);
-      providerId = "anthropic";
-    }
-
-    const defaultModel = DEFAULT_MODELS[providerId];
-    const model =
-      (await ask(rl, `Model [${defaultModel}]: `)) || defaultModel;
-
-    const secrets: SecretsConfig = {};
-    let apiKeyValue: string = "oauth";
-
-    // Auth method depends on provider
-    if (providerId === "openai") {
-      // OpenAI only supports API key
-      const apiKeyAns = await ask(
-        rl,
-        "OpenAI API key (leave empty to set via OPENAI_API_KEY env): "
-      );
-      if (apiKeyAns) {
-        secrets.openai = { apiKey: apiKeyAns };
-        apiKeyValue = "secrets"; // indicates to load from secrets
-      } else {
-        apiKeyValue = "env"; // indicates to load from env
+    header("AI provider setup");
+    
+    const providers: ProviderConfig[] = [];
+    let priority = 1;
+    
+    // Check if we already have provider credentials from reuse
+    const hasExistingProvider = reuseExisting && (existing?.anthropicKey || existing?.anthropicToken || existing?.openaiKey);
+    
+    if (hasExistingProvider) {
+      success("Reusing existing AI provider configuration");
+      
+      if (existing?.anthropicKey || existing?.anthropicToken) {
+        providers.push({
+          id: "anthropic",
+          model: DEFAULT_MODELS.anthropic,
+          apiKey: existing.anthropicToken ? "secrets" : (existing.anthropicKey ? "secrets" : "env"),
+          priority: priority++,
+        } as ProviderConfig);
       }
-    } else if (providerId === "anthropic") {
-      // Anthropic supports both setup-token and standard API key
-      log.info("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-      log.info("  Anthropic Authentication");
-      log.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-      log.info("");
-      log.info("  Supports two authentication methods:");
-      log.info("");
-      log.info("  • Setup-token (Claude Pro/Max subscription)");
-      log.info("    Run `claude setup-token` to generate one");
-      log.info("    Format: sk-ant-oat01-...");
-      log.info("");
-      log.info("  • API Key (pay-as-you-go)");
-      log.info("    Get from console.anthropic.com");
-      log.info("    Format: sk-ant-api03-...");
-      log.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n");
-
-      const tokenAns = await ask(
-        rl,
-        "Paste setup-token or API key (leave empty to set via ANTHROPIC_API_KEY env): "
-      );
-      if (tokenAns) {
-        if (isSetupToken(tokenAns)) {
-          // Setup-token (sk-ant-oat01-...)
-          const error = validateAnthropicSetupToken(tokenAns);
-          if (error) {
-            log.warn(`Setup-token validation warning: ${error}`);
+      if (existing?.openaiKey) {
+        providers.push({
+          id: "openai",
+          model: DEFAULT_MODELS.openai,
+          apiKey: "secrets",
+          priority: priority++,
+        } as ProviderConfig);
+      }
+    } else {
+      const aiChoice = await selectOption(rl, "Choose your AI provider(s):", [
+        "Anthropic (Claude) - API Key or setup-token",
+        "OpenAI (API key)",
+        "OpenAI Codex (ChatGPT Plus/Pro OAuth)",
+        "OpenAI-compatible (Ollama / vLLM / LM Studio)",
+        "Multiple providers (fallback chain)",
+      ]);
+      
+      // Anthropic
+      if (aiChoice === 0 || aiChoice === 4) {
+        console.log("");
+        header("Anthropic Authentication");
+        info("Supports two authentication methods:");
+        info("");
+        info("  • Setup-token (Claude Pro/Max subscription)");
+        info("    Run `claude setup-token` to generate one");
+        info("    Format: sk-ant-oat01-...");
+        info("");
+        info("  • API Key (pay-as-you-go)");
+        info("    Get from console.anthropic.com");
+        info("    Format: sk-ant-api03-...");
+        console.log("");
+        
+        const tokenAns = await ask(rl, "Paste setup-token or API key (leave empty for env var): ");
+        
+        if (tokenAns) {
+          if (isSetupToken(tokenAns)) {
+            const error = validateAnthropicSetupToken(tokenAns);
+            if (error) warn(`Setup-token validation warning: ${error}`);
+            secrets.anthropic = { token: tokenAns };
+            success("Setup-token saved (Claude Pro/Max)");
+          } else {
+            secrets.anthropic = { apiKey: tokenAns };
+            success("API key saved");
           }
-          secrets.anthropic = { token: tokenAns };
-          log.info("✓ Setup-token saved (Claude Pro/Max)");
-        } else {
-          // Standard API key
-          secrets.anthropic = { apiKey: tokenAns };
-          log.info("✓ API key saved");
         }
-        apiKeyValue = "secrets";
-      } else {
-        apiKeyValue = "env";
+        
+        const model = (await ask(rl, `Model [${DEFAULT_MODELS.anthropic}]: `)) || DEFAULT_MODELS.anthropic;
+        providers.push({
+          id: "anthropic",
+          model,
+          apiKey: tokenAns ? "secrets" : "env",
+          priority: priority++,
+        } as ProviderConfig);
       }
-    } else if (providerId === "openai-codex") {
-      // OpenAI Codex only supports OAuth
-      const useOauthAns = await ask(
-        rl,
-        "Start OpenAI Codex OAuth now? (y/n) [n=skip for now]: "
-      );
-      const useOauth = useOauthAns.toLowerCase().startsWith("y");
-
-      if (useOauth) {
-        log.info("Starting OpenAI Codex OAuth flow...");
-        await startOAuthFlow("openai-codex");
-      } else {
-        log.info(
-          "Skipping OAuth. Run `owliabot auth setup openai-codex` later."
-        );
+      
+      // OpenAI
+      if (aiChoice === 1 || aiChoice === 4) {
+        console.log("");
+        info("OpenAI API keys: https://platform.openai.com/api-keys");
+        const apiKey = await ask(rl, "OpenAI API key (leave empty for env var): ");
+        
+        if (apiKey) {
+          secrets.openai = { apiKey };
+          success("OpenAI API key saved");
+        }
+        
+        const model = (await ask(rl, `Model [${DEFAULT_MODELS.openai}]: `)) || DEFAULT_MODELS.openai;
+        providers.push({
+          id: "openai",
+          model,
+          apiKey: apiKey ? "secrets" : "env",
+          priority: priority++,
+        } as ProviderConfig);
       }
-      apiKeyValue = "oauth";
+      
+      // OpenAI Codex (OAuth)
+      if (aiChoice === 2 || aiChoice === 4) {
+        console.log("");
+        info("OpenAI Codex uses your ChatGPT Plus/Pro subscription via OAuth.");
+        const runOAuth = await askYN(rl, "Start OAuth flow now?", false);
+        
+        if (runOAuth) {
+          info("Starting OpenAI Codex OAuth flow...");
+          await startOAuthFlow("openai-codex");
+          success("OAuth completed");
+        } else {
+          info("Run `owliabot auth setup openai-codex` later to authenticate.");
+        }
+        
+        providers.push({
+          id: "openai-codex",
+          model: DEFAULT_MODELS["openai-codex"],
+          apiKey: "oauth",
+          priority: priority++,
+        } as ProviderConfig);
+      }
+      
+      // OpenAI-compatible
+      if (aiChoice === 3 || aiChoice === 4) {
+        console.log("");
+        info("OpenAI-compatible supports any server with the OpenAI v1 API:");
+        info("  - Ollama:    http://localhost:11434/v1");
+        info("  - vLLM:      http://localhost:8000/v1");
+        info("  - LM Studio: http://localhost:1234/v1");
+        info("  - LocalAI:   http://localhost:8080/v1");
+        console.log("");
+        
+        const baseUrl = await ask(rl, "API base URL: ");
+        if (baseUrl) {
+          const model = (await ask(rl, `Model [${DEFAULT_MODELS["openai-compatible"]}]: `)) || DEFAULT_MODELS["openai-compatible"];
+          const apiKey = await ask(rl, "API key (optional, leave empty if not required): ");
+          
+          providers.push({
+            id: "openai-compatible",
+            model,
+            baseUrl,
+            apiKey: apiKey || "none",
+            priority: priority++,
+          } as ProviderConfig);
+          
+          success(`OpenAI-compatible configured: ${baseUrl}`);
+        }
+      }
+    }
+    
+    if (providers.length === 0) {
+      warn("No provider configured. Add one later in the config file.");
+      providers.push({
+        id: "anthropic",
+        model: DEFAULT_MODELS.anthropic,
+        apiKey: "env",
+        priority: 1,
+      } as ProviderConfig);
     }
 
-    // Build provider config
-    const providerConfig: ProviderConfig = {
-      id: providerId,
-      model,
-      apiKey: apiKeyValue,
-      priority: 1,
-    } as ProviderConfig;
+    // Gateway HTTP (optional)
+    header("Gateway HTTP (optional)");
+    info("Gateway HTTP provides a REST API for health checks and integrations.");
+    
+    const enableGateway = await askYN(rl, "Enable Gateway HTTP?", false);
+    let gatewayConfig: { http?: { host: string; port: number; token?: string } } | undefined;
+    
+    if (enableGateway) {
+      const port = parseInt(await ask(rl, "Port [8787]: ") || "8787", 10);
+      const token = randomBytes(16).toString("hex");
+      info(`Generated gateway token: ${token.slice(0, 8)}...`);
+      
+      gatewayConfig = {
+        http: {
+          host: "127.0.0.1",
+          port,
+          token,
+        },
+      };
+      success(`Gateway HTTP enabled on port ${port}`);
+    }
 
     // Default memory search config
     const memorySearchConfig: MemorySearchConfig = {
@@ -173,7 +395,7 @@ export async function runOnboarding(options: OnboardOptions = {}): Promise<void>
       sources: ["files"],
       indexing: {
         autoIndex: true,
-        minIntervalMs: 5 * 60 * 1000, // 5 minutes
+        minIntervalMs: 5 * 60 * 1000,
       },
     };
 
@@ -192,7 +414,7 @@ export async function runOnboarding(options: OnboardOptions = {}): Promise<void>
         maxOutputBytes: 256 * 1024,
       },
       web: {
-        domainAllowList: [], // Empty = allow all public domains
+        domainAllowList: [],
         domainDenyList: [],
         allowPrivateNetworks: false,
         timeoutMs: 15_000,
@@ -206,124 +428,69 @@ export async function runOnboarding(options: OnboardOptions = {}): Promise<void>
       },
     };
 
+    // Build config
     const config: AppConfig = {
       workspace,
-      providers: [providerConfig],
+      providers,
       memorySearch: memorySearchConfig,
       system: systemConfig,
     };
 
-    if (channels.includes("discord")) {
-      const requireMentionAns =
-        (await ask(
-          rl,
-          "In guild, require @mention unless channel allowlisted? (y/n) [y]: "
-        )) || "y";
-      const requireMentionInGuild = requireMentionAns
-        .toLowerCase()
-        .startsWith("y");
-
-      const channelIds = await ask(
-        rl,
-        "Discord guild channelAllowList (comma-separated channel IDs) [1467915124764573736]: "
-      );
-      const channelAllowList = (channelIds || "1467915124764573736")
-        .split(",")
-        .map((s) => s.trim())
-        .filter(Boolean);
-
-      const memberIds = await ask(
-        rl,
-        "Discord memberAllowList (comma-separated user IDs, empty = allow all): "
-      );
-      const memberAllowList = memberIds
-        .split(",")
-        .map((s) => s.trim())
-        .filter(Boolean);
-
-      const discordToken = await ask(
-        rl,
-        "Discord bot token (leave empty to set later via `owliabot token set discord`) [skip]: "
-      );
-      if (discordToken) {
-        secrets.discord = { token: discordToken };
-      }
-
-      // Write non-sensitive settings to app.yaml; token is stored in secrets.yaml
+    if (discordEnabled) {
       config.discord = {
-        requireMentionInGuild,
-        channelAllowList,
-        ...(memberAllowList.length > 0 && { memberAllowList }),
+        requireMentionInGuild: true,
+        channelAllowList: [],
       };
     }
 
-    if (channels.includes("telegram")) {
-      const telegramIds = await ask(
-        rl,
-        "Telegram allowList (comma-separated user IDs, empty = allow all): "
-      );
-      const telegramAllowList = telegramIds
-        .split(",")
-        .map((s) => s.trim())
-        .filter(Boolean);
-
-      const telegramToken = await ask(
-        rl,
-        "Telegram bot token (leave empty to set later via `owliabot token set telegram`) [skip]: "
-      );
-      if (telegramToken) {
-        secrets.telegram = { token: telegramToken };
-      }
-
-      // Always include telegram section so token can be set later via env/secrets
-      config.telegram = {
-        ...(telegramAllowList.length > 0 && { allowList: telegramAllowList }),
-      };
+    if (telegramEnabled) {
+      config.telegram = {};
     }
 
-    // Save app config (non-sensitive)
+    if (gatewayConfig) {
+      config.gateway = gatewayConfig;
+    }
+
+    // Save config
+    header("Saving configuration");
+    
     await saveAppConfig(config, appConfigPath);
+    success(`Saved config to: ${appConfigPath}`);
 
-    // Save secrets (sensitive) - includes channel tokens and API keys
-    const hasSecrets =
-      secrets.discord?.token ||
-      secrets.telegram?.token ||
-      secrets.openai?.apiKey ||
-      secrets.anthropic?.apiKey ||
-      secrets.anthropic?.token;
-
+    // Save secrets if any
+    const hasSecrets = Object.keys(secrets).length > 0;
     if (hasSecrets) {
       await saveSecrets(appConfigPath, secrets);
+      success(`Saved secrets to: ${dirname(appConfigPath)}/secrets.yaml`);
     }
 
-    const workspaceInit = await ensureWorkspaceInitialized({
-      workspacePath: workspace,
-    });
+    // Initialize workspace
+    const workspaceInit = await ensureWorkspaceInitialized({ workspacePath: workspace });
     if (workspaceInit.wroteBootstrap) {
-      log.info("Created BOOTSTRAP.md for first-run setup.");
+      success("Created BOOTSTRAP.md for first-run setup");
     }
 
-    log.info(`Saved app config to: ${appConfigPath}`);
-    log.info("\nNext steps:");
-
-    // Channel token instructions
-    if (channels.includes("discord") && !secrets.discord?.token) {
-      log.info("• Set Discord token: owliabot token set discord");
+    // Next steps
+    header("Done!");
+    console.log("Next steps:");
+    
+    if (discordEnabled && !secrets.discord?.token) {
+      console.log("  • Set Discord token: owliabot token set discord");
     }
-    if (channels.includes("telegram") && !secrets.telegram?.token) {
-      log.info("• Set Telegram token: owliabot token set telegram");
+    if (telegramEnabled && !secrets.telegram?.token) {
+      console.log("  • Set Telegram token: owliabot token set telegram");
     }
-
-    // Provider auth instructions
-    if (apiKeyValue === "oauth") {
-      log.info(`• If you skipped OAuth: owliabot auth setup ${providerId}`);
-    } else if (apiKeyValue === "env") {
-      const envVar =
-        providerId === "openai" ? "OPENAI_API_KEY" : "ANTHROPIC_API_KEY";
-      log.info(`• Set ${envVar} environment variable`);
+    if (providers.some(p => p.apiKey === "env")) {
+      console.log("  • Set API key env var (ANTHROPIC_API_KEY or OPENAI_API_KEY)");
     }
+    if (providers.some(p => p.apiKey === "oauth" && p.id === "openai-codex")) {
+      console.log("  • Complete OAuth: owliabot auth setup openai-codex");
+    }
+    
+    console.log("  • Start the bot: owliabot start");
+    console.log("");
+    success("All set!");
 
-    log.info("• Start the bot: owliabot start");
   } finally {
     rl.close();
   }

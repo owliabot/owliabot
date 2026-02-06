@@ -104,4 +104,13 @@ export interface AppConfig {
 
   // System capabilities (exec / web.fetch / web.search)
   system?: SystemCapabilityConfig;
+
+  // Gateway HTTP configuration
+  gateway?: {
+    http?: {
+      host: string;
+      port: number;
+      token?: string;
+    };
+  };
 }
