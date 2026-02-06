@@ -82,6 +82,21 @@ export class MCPToolAdapter {
     this.toolsCache = null;
   }
 
+  /**
+   * Get cached tools synchronously (returns empty array if not cached)
+   * Use getTools() for async loading with cache population.
+   */
+  getCachedTools(): ToolDefinition[] {
+    return this.toolsCache ?? [];
+  }
+
+  /**
+   * Check if tools are cached
+   */
+  hasCache(): boolean {
+    return this.toolsCache !== null;
+  }
+
   // ==========================================================================
   // Private Methods
   // ==========================================================================

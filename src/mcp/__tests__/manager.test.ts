@@ -121,6 +121,7 @@ describe.sequential("MCPManager", () => {
       expect(servers[0].connected).toBe(true);
       expect(servers[0].toolCount).toBe(4);
       expect(servers[0].tools).toContain("mock__echo");
+      expect(servers[0].transport).toBe("stdio");
       expect(servers[0].addedAt).toBeInstanceOf(Date);
     });
 
@@ -181,6 +182,37 @@ describe.sequential("MCPManager", () => {
 
       expect(tools1).not.toBe(tools2);
       expect(tools2.length).toBe(4);
+    });
+  });
+
+  describe("getToolsAsync", () => {
+    it("returns empty array when no servers", async () => {
+      const tools = await manager.getToolsAsync();
+      expect(tools).toHaveLength(0);
+    });
+
+    it("returns all tools from all servers", async () => {
+      await manager.addServer({ ...mockServerConfig, name: "server1" });
+      await manager.addServer({ ...mockServerConfig, name: "server2" });
+
+      const tools = await manager.getToolsAsync();
+      expect(tools).toHaveLength(8); // 4 tools × 2 servers
+    });
+
+    it("populates cache for getTools()", async () => {
+      await manager.addServer(mockServerConfig);
+      
+      // First call sync getTools - should be empty or cached from addServer
+      const syncTools1 = manager.getTools();
+      
+      // Call async version
+      const asyncTools = await manager.getToolsAsync();
+      
+      // Now sync should return same data
+      const syncTools2 = manager.getTools();
+      
+      expect(asyncTools.length).toBe(4);
+      expect(syncTools2.length).toBe(4);
     });
   });
 

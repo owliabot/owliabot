@@ -35,10 +35,16 @@ export interface MCPServerInfo {
   toolCount: number;
   /** Tool names provided by this server */
   tools: string[];
-  /** Server configuration (command/url hidden for security) */
+  /** Transport type */
   transport: "stdio" | "sse";
   /** When the server was added */
   addedAt: Date;
+}
+
+/** Stored server metadata */
+interface ServerMetadata {
+  addedAt: Date;
+  transport: "stdio" | "sse";
 }
 
 /** Callback for tool changes */
@@ -59,11 +65,14 @@ export type ToolsChangedCallback = (tools: ToolDefinition[]) => void;
  * const tools = await manager.addServer({
  *   name: "playwright",
  *   command: "npx",
- *   args: ["@anthropic/mcp-server-playwright"],
+ *   args: ["@playwright/mcp"],
  * });
  *
- * // Get all tools
- * const allTools = manager.getTools();
+ * // Get all tools (async, ensures cache is populated)
+ * const allTools = await manager.getToolsAsync();
+ *
+ * // Get cached tools (sync, returns empty if not yet loaded)
+ * const cachedTools = manager.getTools();
  *
  * // Remove a server
  * await manager.removeServer("playwright");
@@ -75,7 +84,7 @@ export type ToolsChangedCallback = (tools: ToolDefinition[]) => void;
 export class MCPManager {
   private clients = new Map<string, MCPClient>();
   private adapters = new Map<string, MCPToolAdapter>();
-  private serverInfos = new Map<string, { addedAt: Date }>();
+  private serverInfos = new Map<string, ServerMetadata>();
   private toolsCache: ToolDefinition[] | null = null;
   private toolsChangedCallbacks = new Set<ToolsChangedCallback>();
   private defaults?: MCPDefaults;
@@ -123,8 +132,12 @@ export class MCPManager {
       });
       this.adapters.set(validatedConfig.name, adapter);
 
-      // Store server info
-      this.serverInfos.set(validatedConfig.name, { addedAt: new Date() });
+      // Store server info with transport type
+      const transport = validatedConfig.transport ?? "stdio";
+      this.serverInfos.set(validatedConfig.name, { 
+        addedAt: new Date(),
+        transport: transport as "stdio" | "sse",
+      });
 
       // Get tools and invalidate cache
       const tools = await adapter.getTools();
@@ -225,7 +238,7 @@ export class MCPManager {
         connected: client.isConnected(),
         toolCount: tools.length,
         tools: tools.map((t) => t.name),
-        transport: client.capabilities ? "stdio" : "stdio", // Default to stdio
+        transport: info?.transport ?? "stdio",
         addedAt: info?.addedAt ?? new Date(),
       });
     }
@@ -234,7 +247,10 @@ export class MCPManager {
   }
 
   /**
-   * Get all tools from all connected servers
+   * Get all tools from all connected servers (sync, uses cache)
+   * 
+   * Note: Returns cached tools only. Use getToolsAsync() to ensure
+   * tools are loaded from servers that haven't been queried yet.
    */
   getTools(): ToolDefinition[] {
     if (this.toolsCache) {
@@ -244,9 +260,46 @@ export class MCPManager {
     const allTools: ToolDefinition[] = [];
     const seenNames = new Set<string>();
 
-    for (const [name, adapter] of this.adapters) {
+    for (const [name] of this.adapters) {
       try {
         const tools = this.getToolsForServer(name);
+        for (const tool of tools) {
+          if (!seenNames.has(tool.name)) {
+            seenNames.add(tool.name);
+            allTools.push(tool);
+          } else {
+            log.warn(`Duplicate tool name: ${tool.name}, skipping`);
+          }
+        }
+      } catch (err) {
+        log.error(
+          `Failed to get tools from server "${name}": ${
+            err instanceof Error ? err.message : String(err)
+          }`
+        );
+      }
+    }
+
+    this.toolsCache = allTools;
+    return allTools;
+  }
+
+  /**
+   * Get all tools from all connected servers (async, populates cache)
+   * 
+   * This method ensures all adapters have loaded their tools before returning.
+   * Prefer this over getTools() when you need guaranteed fresh/complete results.
+   */
+  async getToolsAsync(): Promise<ToolDefinition[]> {
+    // Invalidate cache to force refresh
+    this.toolsCache = null;
+
+    const allTools: ToolDefinition[] = [];
+    const seenNames = new Set<string>();
+
+    for (const [name] of this.adapters) {
+      try {
+        const tools = await this.getToolsForServerAsync(name);
         for (const tool of tools) {
           if (!seenNames.has(tool.name)) {
             seenNames.add(tool.name);
@@ -411,11 +464,18 @@ export class MCPManager {
     const adapter = this.adapters.get(name);
     if (!adapter) return [];
 
-    // Access the adapter's cache directly (it's synchronous if cached)
-    // This is a bit hacky but avoids async in getTools()
-    // The adapter caches tools after first getTools() call
-    const cachedTools = (adapter as unknown as { toolsCache: ToolDefinition[] | null }).toolsCache;
-    return cachedTools ?? [];
+    // Use the public getCachedTools() method
+    return adapter.getCachedTools();
+  }
+
+  /**
+   * Get tools for a specific server (async, populates cache if needed)
+   */
+  private async getToolsForServerAsync(name: string): Promise<ToolDefinition[]> {
+    const adapter = this.adapters.get(name);
+    if (!adapter) return [];
+
+    return adapter.getTools();
   }
 }
 

@@ -61,6 +61,10 @@ describe.sequential("mcp_manage tool", () => {
       expect(tool.security.level).toBe("write");
     });
 
+    it("requires confirmation for security", () => {
+      expect(tool.security.confirmRequired).toBe(true);
+    });
+
     it("has required parameters", () => {
       expect(tool.parameters.required).toContain("action");
     });

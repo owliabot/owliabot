@@ -101,7 +101,7 @@ Use this to dynamically add specialized tools like Playwright, databases, etc.`,
         },
         args: {
           type: "array",
-          description: "Command arguments (e.g., ['@anthropic/mcp-server-playwright'])",
+          description: "Command arguments (e.g., ['@playwright/mcp'])",
           items: { type: "string" },
         },
         env: {
@@ -127,7 +127,7 @@ Use this to dynamically add specialized tools like Playwright, databases, etc.`,
 
     security: {
       level: "write",
-      confirmRequired: false, // Server management doesn't require confirmation
+      confirmRequired: true, // Requires confirmation as it can spawn arbitrary processes
     },
 
     execute: async (
