@@ -28,14 +28,18 @@ export class PolicyEngine {
   }
 
   /**
-   * Get loaded policy thresholds for building EscalationContext
+   * Get loaded policy thresholds for building EscalationContext.
+   * Returns undefined if thresholds are not configured (escalation disabled).
    */
   async getThresholds(): Promise<{
     tier3MaxUsd: number;
     tier2MaxUsd: number;
     tier2DailyUsd: number;
-  }> {
+  } | undefined> {
     const config = await this.loader.load();
+    if (!config.thresholds) {
+      return undefined;
+    }
     return {
       tier3MaxUsd: config.thresholds.tier3MaxUsd,
       tier2MaxUsd: config.thresholds.tier2MaxUsd,
@@ -98,27 +102,30 @@ export class PolicyEngine {
         };
       }
 
-      if (effectiveTier === 3 && context.amountUsd > context.thresholds.tier3MaxUsd) {
-        effectiveTier = 2;
-        log.info(`Amount exceeds Tier 3 limit, escalating ${toolName} to Tier 2`);
-      }
+      // Tier-based escalation (only if thresholds are configured)
+      if (context.thresholds) {
+        if (effectiveTier === 3 && context.amountUsd > context.thresholds.tier3MaxUsd) {
+          effectiveTier = 2;
+          log.info(`Amount exceeds Tier 3 limit, escalating ${toolName} to Tier 2`);
+        }
 
-      // Enforce global Tier 2 max amount threshold
-      if (
-        effectiveTier === 2 &&
-        context.amountUsd > context.thresholds.tier2MaxUsd
-      ) {
-        effectiveTier = 1;
-        log.info(
-          `Amount exceeds Tier 2 max (${context.thresholds.tier2MaxUsd}), escalating ${toolName} to Tier 1`
-        );
-        return {
-          action: "escalate",
-          tier: policy.tier,
-          effectiveTier: 1,
-          reason: "tier2-max-exceeded",
-          confirmationChannel: "companion-app",
-        };
+        // Enforce global Tier 2 max amount threshold
+        if (
+          effectiveTier === 2 &&
+          context.amountUsd > context.thresholds.tier2MaxUsd
+        ) {
+          effectiveTier = 1;
+          log.info(
+            `Amount exceeds Tier 2 max (${context.thresholds.tier2MaxUsd}), escalating ${toolName} to Tier 1`
+          );
+          return {
+            action: "escalate",
+            tier: policy.tier,
+            effectiveTier: 1,
+            reason: "tier2-max-exceeded",
+            confirmationChannel: "companion-app",
+          };
+        }
       }
 
       // Per-tool escalateAbove override
@@ -141,22 +148,24 @@ export class PolicyEngine {
       }
     }
 
-    // 2. Daily limit check (include pending amount)
-    const effectiveDailySpent = context.dailySpentUsd + (context.amountUsd ?? 0);
-    if (
-      effectiveTier === 2 &&
-      effectiveDailySpent > context.thresholds.tier2DailyUsd
-    ) {
-      log.warn(
-        `Daily spending limit exceeded, escalating ${toolName} to Tier 1`
-      );
-      return {
-        action: "escalate",
-        tier: policy.tier,
-        effectiveTier: 1,
-        reason: "daily-limit-exceeded",
-        confirmationChannel: "companion-app",
-      };
+    // 2. Daily limit check (include pending amount) - only if thresholds configured
+    if (context.thresholds) {
+      const effectiveDailySpent = context.dailySpentUsd + (context.amountUsd ?? 0);
+      if (
+        effectiveTier === 2 &&
+        effectiveDailySpent > context.thresholds.tier2DailyUsd
+      ) {
+        log.warn(
+          `Daily spending limit exceeded, escalating ${toolName} to Tier 1`
+        );
+        return {
+          action: "escalate",
+          tier: policy.tier,
+          effectiveTier: 1,
+          reason: "daily-limit-exceeded",
+          confirmationChannel: "companion-app",
+        };
+      }
     }
 
     // 3. Consecutive denials check

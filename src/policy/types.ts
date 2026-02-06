@@ -99,7 +99,8 @@ export interface CooldownState {
 /** Escalation context for decision making */
 export interface EscalationContext {
   amountUsd?: number;
-  thresholds: {
+  /** Threshold limits - if not provided, tier-based escalation is disabled */
+  thresholds?: {
     tier3MaxUsd: number;
     tier2MaxUsd: number;
     tier2DailyUsd: number;

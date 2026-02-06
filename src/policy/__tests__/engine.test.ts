@@ -7,7 +7,9 @@ describe("PolicyEngine", () => {
   let context: EscalationContext;
 
   beforeEach(() => {
-    engine = new PolicyEngine("workspace/policy.yml");
+    // Use test fixture instead of workspace/policy.yml to avoid breaking tests
+    // when production policy changes
+    engine = new PolicyEngine("src/policy/__tests__/fixtures/test-policy.yml");
     context = {
       thresholds: {
         tier3MaxUsd: 5,
