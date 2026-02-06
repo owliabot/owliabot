@@ -126,7 +126,7 @@ async function executeCliAgent(
   const effectiveSessionId = sessionId ?? generateSessionId();
 
   // Build command arguments
-  const args = buildCliArgs(backend, {
+  const { args, useStdinForPrompt } = buildCliArgs(backend, {
     model: resolvedModel,
     prompt,
     systemPrompt,
@@ -146,11 +146,18 @@ async function executeCliAgent(
     cwd: workdir,
     env,
     timeoutMs,
-    stdin: backend.input === "stdin" ? prompt : undefined,
+    stdin: useStdinForPrompt ? prompt : undefined,
   });
 
   // Parse output based on format
   return parseOutput(result, backend);
+}
+
+/** Result from building CLI args */
+interface BuildArgsResult {
+  args: string[];
+  /** If true, prompt should be sent via stdin instead of args */
+  useStdinForPrompt: boolean;
 }
 
 /**
@@ -166,9 +173,10 @@ function buildCliArgs(
     isResume: boolean;
     isFirstMessage: boolean;
   }
-): string[] {
+): BuildArgsResult {
   const { model, prompt, systemPrompt, sessionId, isResume, isFirstMessage } = options;
   const args: string[] = [];
+  let useStdinForPrompt = backend.input === "stdin";
 
   // Base args or resume args
   if (isResume && backend.resumeArgs) {
@@ -210,18 +218,19 @@ function buildCliArgs(
   }
 
   // Add prompt as argument (if not using stdin)
-  if (backend.input !== "stdin") {
+  if (!useStdinForPrompt) {
     // Check if prompt is too long for arg
     const maxChars = backend.maxPromptArgChars ?? 32_000;
     if (prompt.length <= maxChars) {
       args.push(prompt);
     } else {
-      // Will use stdin instead
+      // Fall back to stdin for long prompts
       log.debug(`Prompt too long for arg (${prompt.length} > ${maxChars}), using stdin`);
+      useStdinForPrompt = true;
     }
   }
 
-  return args;
+  return { args, useStdinForPrompt };
 }
 
 /**
@@ -484,26 +493,34 @@ async function serializeExecution<T>(
 ): Promise<T> {
   const currentQueue = serializationQueues.get(command) ?? Promise.resolve();
 
+  // Use a deferred pattern: create a promise that resolves when fn() completes
+  let resolve: (value: T) => void;
+  let reject: (reason: unknown) => void;
+  const resultPromise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+
+  // Chain onto the queue - fn() is only called once here
   const newQueue = currentQueue.then(async () => {
     try {
-      await fn();
-    } catch {
-      // Errors are handled by the caller
+      const result = await fn();
+      resolve!(result);
+    } catch (err) {
+      reject!(err);
     }
   });
 
   serializationQueues.set(command, newQueue);
 
-  try {
-    // Wait for previous executions to complete, then run ours
-    await currentQueue;
-    return await fn();
-  } finally {
-    // Clean up if we're the last in queue
+  // Clean up when done
+  newQueue.finally(() => {
     if (serializationQueues.get(command) === newQueue) {
       serializationQueues.delete(command);
     }
-  }
+  });
+
+  return resultPromise;
 }
 
 /**
