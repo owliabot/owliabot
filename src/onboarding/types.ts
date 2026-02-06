@@ -1,5 +1,5 @@
 /** Supported LLM provider identifiers */
-export type LLMProviderId = "anthropic" | "openai" | "openai-codex";
+export type LLMProviderId = "anthropic" | "openai" | "openai-codex" | "openai-compatible";
 
 /** Provider configuration with OAuth or API key auth */
 export type ProviderConfig =
@@ -104,4 +104,13 @@ export interface AppConfig {
 
   // System capabilities (exec / web.fetch / web.search)
   system?: SystemCapabilityConfig;
+
+  // Gateway HTTP configuration
+  gateway?: {
+    http?: {
+      host: string;
+      port: number;
+      token?: string;
+    };
+  };
 }

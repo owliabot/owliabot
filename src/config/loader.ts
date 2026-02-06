@@ -79,6 +79,10 @@ export async function loadConfig(path: string): Promise<Config> {
             secrets?.anthropic?.apiKey ??
             process.env.ANTHROPIC_API_KEY ??
             undefined;
+        } else if (provider.id === "openai-compatible") {
+          // OpenAI-compatible can also use secrets.yaml
+          provider.apiKey =
+            secrets?.["openai-compatible"]?.apiKey ?? undefined;
         }
       } else if (provider.apiKey === "env") {
         // Only use env vars (user explicitly chose env-based auth)
@@ -89,6 +93,12 @@ export async function loadConfig(path: string): Promise<Config> {
         }
       }
     }
+  }
+
+  // Merge gateway token from secrets/env
+  if (raw?.gateway?.http?.token === "secrets") {
+    raw.gateway.http.token =
+      secrets?.gateway?.token ?? process.env.OWLIABOT_GATEWAY_TOKEN ?? undefined;
   }
 
   // Expand environment variables

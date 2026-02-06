@@ -3,12 +3,25 @@ import { dirname, join } from "node:path";
 import { parse, stringify } from "yaml";
 import type { AppConfig } from "./types.js";
 
-export const DEV_APP_DIR = join(
-  process.env.HOME ?? process.env.USERPROFILE ?? ".",
-  ".owlia_dev"
-);
+const HOME = process.env.HOME ?? process.env.USERPROFILE ?? ".";
 
-export const DEV_APP_CONFIG_PATH = join(DEV_APP_DIR, "app.yaml");
+/** Check if running in dev mode (OWLIABOT_DEV=1 or OWLIABOT_DEV=true) */
+export const IS_DEV_MODE = ["1", "true"].includes(process.env.OWLIABOT_DEV?.toLowerCase() ?? "");
+
+/** Production config directory (~/.owliabot) */
+export const PROD_APP_DIR = join(HOME, ".owliabot");
+
+/** Dev config directory (~/.owlia_dev) - only used when OWLIABOT_DEV=1 */
+export const DEV_APP_DIR = join(HOME, ".owlia_dev");
+
+/** Default config directory (production unless OWLIABOT_DEV=1) */
+export const DEFAULT_APP_DIR = IS_DEV_MODE ? DEV_APP_DIR : PROD_APP_DIR;
+
+/** Default app config path */
+export const DEFAULT_APP_CONFIG_PATH = join(DEFAULT_APP_DIR, "app.yaml");
+
+/** @deprecated Use DEFAULT_APP_CONFIG_PATH instead */
+export const DEV_APP_CONFIG_PATH = DEFAULT_APP_CONFIG_PATH;
 
 export async function loadAppConfig(
   path: string = DEV_APP_CONFIG_PATH
