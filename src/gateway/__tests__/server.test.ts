@@ -1,5 +1,7 @@
-import { describe, it, expect, vi } from "vitest";
-import type { GatewayOptions } from "../server.js";
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import { configSchema } from "../../config/schema.js";
+import { startGateway, type GatewayOptions } from "../server.js";
+import { startGatewayHttp } from "../http/server.js";
 
 // Mock all dependencies before importing
 vi.mock("../../utils/logger.js", () => ({
@@ -29,7 +31,29 @@ vi.mock("../../skills/index.js", () => ({
   initializeSkills: vi.fn(async () => {}),
 }));
 
+vi.mock("../http/server.js", () => ({
+  startGatewayHttp: vi.fn(),
+}));
+
+vi.mock("../../agent/tools/builtin/index.js", () => ({
+  createBuiltinTools: vi.fn(() => []),
+  createHelpTool: vi.fn(() => ({
+    name: "help",
+    description: "help",
+    parameters: { type: "object", properties: {} },
+    security: { level: "read" },
+    execute: vi.fn(),
+  })),
+  createExecTool: vi.fn(),
+  createWebFetchTool: vi.fn(),
+  createWebSearchTool: vi.fn(),
+}));
+
 describe("gateway server", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
   it("should allow importing GatewayOptions type", () => {
     const options: GatewayOptions = {
       config: {
@@ -106,5 +130,61 @@ describe("gateway server", () => {
 
     expect(options.workspace.soul).toBe("Personality");
     expect(options.workspace.tools).toBe("Tool notes");
+  });
+
+  it("starts gateway HTTP when enabled", async () => {
+    const stopHttp = vi.fn(async () => {});
+    vi.mocked(startGatewayHttp).mockResolvedValue({
+      baseUrl: "http://127.0.0.1:9999",
+      stop: stopHttp,
+      store: {} as any,
+    });
+
+    const config = configSchema.parse({
+      providers: [{ id: "test", model: "m", apiKey: "k", priority: 1 }],
+      workspace: "/tmp/workspace",
+      gateway: { http: { enabled: true } },
+      infra: { enabled: false },
+      skills: { enabled: false },
+      heartbeat: { enabled: false },
+      cron: { enabled: false },
+    });
+
+    const stopGateway = await startGateway({
+      config,
+      workspace: {},
+      sessionsDir: "/tmp/sessions",
+    });
+
+    expect(startGatewayHttp).toHaveBeenCalledTimes(1);
+    expect(startGatewayHttp).toHaveBeenCalledWith({
+      config: config.gateway!.http!,
+      workspacePath: config.workspace,
+      system: config.system,
+    });
+
+    await stopGateway();
+    expect(stopHttp).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not start gateway HTTP when disabled", async () => {
+    const config = configSchema.parse({
+      providers: [{ id: "test", model: "m", apiKey: "k", priority: 1 }],
+      workspace: "/tmp/workspace",
+      gateway: { http: { enabled: false } },
+      infra: { enabled: false },
+      skills: { enabled: false },
+      heartbeat: { enabled: false },
+      cron: { enabled: false },
+    });
+
+    const stopGateway = await startGateway({
+      config,
+      workspace: {},
+      sessionsDir: "/tmp/sessions",
+    });
+
+    expect(startGatewayHttp).not.toHaveBeenCalled();
+    await stopGateway();
   });
 });

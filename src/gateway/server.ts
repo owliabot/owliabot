@@ -41,6 +41,7 @@ import { createCronTool } from "../agent/tools/builtin/cron.js";
 import { createNotificationService } from "../notifications/service.js";
 import { initializeSkills, type SkillsInitResult } from "../skills/index.js";
 import { createInfraStore, hashMessage, type InfraStore } from "../infra/index.js";
+import { startGatewayHttp } from "./http/server.js";
 import { join, dirname, resolve } from "node:path";
 import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
@@ -302,6 +303,18 @@ export async function startGateway(
   await channels.startAll();
   log.info("Gateway started");
 
+  // Start Gateway HTTP if enabled
+  let stopHttp: (() => Promise<void>) | undefined;
+  if (config.gateway?.http?.enabled) {
+    const httpGateway = await startGatewayHttp({
+      config: config.gateway.http,
+      workspacePath: config.workspace,
+      system: config.system,
+    });
+    stopHttp = httpGateway.stop;
+    log.info(`Gateway HTTP server listening on ${httpGateway.baseUrl}`);
+  }
+
   // Create notification service
   const notifications = createNotificationService({
     defaultChannel: config.notifications?.channel,
@@ -361,6 +374,9 @@ export async function startGateway(
     if (infraStore) {
       infraStore.cleanup(Date.now());
       infraStore.close();
+    }
+    if (stopHttp) {
+      await stopHttp();
     }
     cronIntegration.stop();
     legacyCron.stopAll();

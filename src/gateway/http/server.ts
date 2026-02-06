@@ -8,6 +8,7 @@ import { executeSystemRequest } from "../../system/executor.js";
 import type { SystemCapabilityConfig } from "../../system/interface.js";
 
 export interface GatewayHttpConfig {
+  enabled?: boolean;
   host: string;
   port: number;
   token?: string;

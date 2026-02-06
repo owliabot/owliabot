@@ -8,7 +8,6 @@ import { join } from "node:path";
 import { loadConfig } from "./config/loader.js";
 import { loadWorkspace } from "./workspace/loader.js";
 import { startGateway } from "./gateway/server.js";
-import { startGatewayHttp } from "./gateway/http/server.js";
 import { logger } from "./utils/logger.js";
 import {
   startOAuthFlow,
@@ -65,29 +64,9 @@ program
         sessionsDir,
       });
 
-      // Start HTTP gateway if configured
-      let stopHttp: (() => Promise<void>) | undefined;
-      if (config.gateway?.http) {
-        const httpGateway = await startGatewayHttp({
-          config: config.gateway.http,
-          workspacePath: config.workspace,
-          system: config.system,
-        });
-        stopHttp = httpGateway.stop;
-        log.info(`Gateway HTTP server listening on ${httpGateway.baseUrl}`);
-      }
-
       // Handle shutdown
       const shutdown = async () => {
         log.info("Shutting down...");
-        // Wrap each stop in try/catch to ensure all cleanup runs
-        if (stopHttp) {
-          try {
-            await stopHttp();
-          } catch (err) {
-            log.error("Error stopping HTTP gateway", err);
-          }
-        }
         try {
           await stopGateway();
         } catch (err) {

@@ -169,6 +169,7 @@ export const toolsConfigSchema = z
   .default({ allowWrite: false });
 
 const gatewayHttpSchema = z.object({
+  enabled: z.boolean().default(true),
   host: z.string().default("127.0.0.1"),
   port: z.number().int().default(8787),
   token: z.string().optional(),
