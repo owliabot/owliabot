@@ -31,6 +31,7 @@ vi.mock("../models.js", () => {
       "gemini": { provider: "google", id: "gemini-2.5-pro", api: "google" },
       "gemini-2.5-pro": { provider: "google", id: "gemini-2.5-pro", api: "google" },
       "gemini-2.5-flash": { provider: "google", id: "gemini-2.5-flash", api: "google" },
+      "gpt-5.2": { provider: "openai-codex", id: "gpt-5.2", api: "openai" },
     };
 
     if (aliasMap[config.model]) {
@@ -210,8 +211,10 @@ describe("runner", () => {
       await expect(runLLM({ model: "sonnet" }, messages)).rejects.toThrow("API error");
     });
 
-    it("should use OAuth credentials when env key not available", async () => {
-      delete process.env.ANTHROPIC_API_KEY;
+    it("should use OAuth credentials for openai-codex when env key not available", async () => {
+      // Note: Anthropic no longer supports OAuth (removed in favor of API key only)
+      // This test verifies OAuth still works for openai-codex provider
+      delete process.env.OPENAI_API_KEY;
 
       const mockCredentials = { access_token: "oauth-token", refresh_token: "refresh" };
       vi.mocked(piAi.getEnvApiKey).mockReturnValue(undefined);
@@ -224,9 +227,9 @@ describe("runner", () => {
       const mockResponse = {
         role: "assistant" as const,
         content: [{ type: "text" as const, text: "OAuth works!" }],
-        api: "anthropic-messages" as const,
-        provider: "anthropic",
-        model: "claude-sonnet-4-5",
+        api: "openai" as const,
+        provider: "openai-codex",
+        model: "gpt-5.2",
         usage: {
           input: 10,
           output: 5,
@@ -245,10 +248,10 @@ describe("runner", () => {
         { role: "user" as const, content: "Test", timestamp: Date.now() },
       ];
 
-      const result = await runLLM({ model: "claude-sonnet-4-5" }, messages);
+      const result = await runLLM({ provider: "openai-codex", model: "gpt-5.2" }, messages);
 
       expect(result.content).toBe("OAuth works!");
-      expect(oauth.loadOAuthCredentials).toHaveBeenCalled();
+      expect(oauth.loadOAuthCredentials).toHaveBeenCalledWith("openai-codex");
     });
   });
 

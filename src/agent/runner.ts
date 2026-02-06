@@ -101,8 +101,8 @@ async function resolveApiKey(provider: string, configApiKey?: string): Promise<s
     return envKey;
   }
 
-  // Try OAuth for supported providers
-  const oauthProviders: SupportedOAuthProvider[] = ["anthropic", "openai-codex"];
+  // Try OAuth for supported providers (Anthropic removed, use API key instead)
+  const oauthProviders: SupportedOAuthProvider[] = ["openai-codex"];
   if (oauthProviders.includes(provider as SupportedOAuthProvider)) {
     const oauthProvider = provider as SupportedOAuthProvider;
     const credentials = await loadOAuthCredentials(oauthProvider);

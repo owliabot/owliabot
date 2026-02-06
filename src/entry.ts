@@ -162,17 +162,25 @@ const auth = program.command("auth").description("Manage authentication");
 
 auth
   .command("setup [provider]")
-  .description("Setup OAuth authentication (anthropic or openai-codex)")
+  .description("Setup OAuth authentication (openai-codex only; for Anthropic use API key)")
   .action(async (provider?: string) => {
     try {
-      const validProviders: SupportedOAuthProvider[] = ["anthropic", "openai-codex"];
+      const validProviders: SupportedOAuthProvider[] = ["openai-codex"];
+
+      // Handle deprecated anthropic OAuth request
+      if (provider === "anthropic") {
+        log.warn("Anthropic OAuth is no longer supported. Use API key instead.");
+        log.info("Set ANTHROPIC_API_KEY env var or provide it during onboarding.");
+        process.exit(1);
+      }
+
       const selectedProvider: SupportedOAuthProvider =
         provider && validProviders.includes(provider as SupportedOAuthProvider)
           ? (provider as SupportedOAuthProvider)
-          : "anthropic";
+          : "openai-codex";
 
       if (provider && !validProviders.includes(provider as SupportedOAuthProvider)) {
-        log.warn(`Unknown provider: ${provider}, defaulting to anthropic`);
+        log.warn(`Unknown provider: ${provider}, defaulting to openai-codex`);
       }
 
       log.info(`Starting ${selectedProvider} OAuth setup...`);
@@ -190,10 +198,17 @@ auth
 
 auth
   .command("status [provider]")
-  .description("Check authentication status (anthropic, openai-codex, or all)")
+  .description("Check OAuth authentication status (openai-codex or all)")
   .action(async (provider?: string) => {
+    // Handle deprecated anthropic OAuth status request
+    if (provider === "anthropic") {
+      log.info("Anthropic: Uses API key (OAuth no longer supported)");
+      log.info("  Set ANTHROPIC_API_KEY env var or provide it during onboarding.");
+      return;
+    }
+
     if (!provider || provider === "all") {
-      // Show status for all providers
+      // Show status for all OAuth providers
       const statuses = await getAllOAuthStatus();
       for (const [prov, status] of Object.entries(statuses)) {
         if (status.authenticated) {
@@ -208,12 +223,14 @@ auth
           log.info(`${prov}: Not authenticated`);
         }
       }
+      // Also mention Anthropic uses API key
+      log.info("anthropic: Uses API key (set ANTHROPIC_API_KEY env var)");
     } else {
-      const validProviders: SupportedOAuthProvider[] = ["anthropic", "openai-codex"];
+      const validProviders: SupportedOAuthProvider[] = ["openai-codex"];
       const selectedProvider: SupportedOAuthProvider =
         validProviders.includes(provider as SupportedOAuthProvider)
           ? (provider as SupportedOAuthProvider)
-          : "anthropic";
+          : "openai-codex";
 
       const status = await getOAuthStatus(selectedProvider);
 
@@ -234,20 +251,27 @@ auth
 
 auth
   .command("logout [provider]")
-  .description("Clear stored authentication (anthropic, openai-codex, or all)")
+  .description("Clear stored OAuth authentication (openai-codex or all)")
   .action(async (provider?: string) => {
-    const validProviders: SupportedOAuthProvider[] = ["anthropic", "openai-codex"];
+    const validProviders: SupportedOAuthProvider[] = ["openai-codex"];
+
+    // Handle deprecated anthropic OAuth logout request
+    if (provider === "anthropic") {
+      log.info("Anthropic uses API key, not OAuth. No logout needed.");
+      log.info("To change API key, update ANTHROPIC_API_KEY env var or secrets.yaml.");
+      return;
+    }
 
     if (!provider || provider === "all") {
       for (const prov of validProviders) {
         await clearOAuthCredentials(prov);
       }
-      log.info("Logged out from all providers");
+      log.info("Logged out from all OAuth providers");
     } else {
       const selectedProvider: SupportedOAuthProvider =
         validProviders.includes(provider as SupportedOAuthProvider)
           ? (provider as SupportedOAuthProvider)
-          : "anthropic";
+          : "openai-codex";
       await clearOAuthCredentials(selectedProvider);
       log.info(`Logged out from ${selectedProvider}`);
     }

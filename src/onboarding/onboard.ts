@@ -44,7 +44,7 @@ export async function runOnboarding(options: OnboardOptions = {}): Promise<void>
 
     // Provider selection
     log.info("\nAvailable LLM providers:");
-    log.info("  1. anthropic     - Anthropic Claude (OAuth or API Key)");
+    log.info("  1. anthropic     - Anthropic Claude (API Key)");
     log.info("  2. openai        - OpenAI (API Key)");
     log.info("  3. openai-codex  - OpenAI Codex (ChatGPT Plus/Pro OAuth)");
 
@@ -94,40 +94,16 @@ export async function runOnboarding(options: OnboardOptions = {}): Promise<void>
         apiKeyValue = "env"; // indicates to load from env
       }
     } else if (providerId === "anthropic") {
-      // Anthropic supports both OAuth and API key
-      const authMethodAns = await ask(
+      // Anthropic only supports API key (OAuth removed for simplicity)
+      const apiKeyAns = await ask(
         rl,
-        "Auth method: (1) OAuth (Claude Pro/Max subscription), (2) API Key [1]: "
+        "Anthropic API key (leave empty to set via ANTHROPIC_API_KEY env): "
       );
-      const authMethod = authMethodAns === "2" ? "apikey" : "oauth";
-
-      if (authMethod === "oauth") {
-        const useOauthAns = await ask(
-          rl,
-          "Start Anthropic OAuth now? (y/n) [n=skip for now]: "
-        );
-        const useOauth = useOauthAns.toLowerCase().startsWith("y");
-
-        if (useOauth) {
-          log.info("Starting Anthropic OAuth flow...");
-          await startOAuthFlow("anthropic");
-        } else {
-          log.info(
-            "Skipping OAuth. Run `owliabot auth setup anthropic` later."
-          );
-        }
-        apiKeyValue = "oauth";
+      if (apiKeyAns) {
+        secrets.anthropic = { apiKey: apiKeyAns };
+        apiKeyValue = "secrets";
       } else {
-        const apiKeyAns = await ask(
-          rl,
-          "Anthropic API key (leave empty to set via ANTHROPIC_API_KEY env): "
-        );
-        if (apiKeyAns) {
-          secrets.anthropic = { apiKey: apiKeyAns };
-          apiKeyValue = "secrets";
-        } else {
-          apiKeyValue = "env";
-        }
+        apiKeyValue = "env";
       }
     } else if (providerId === "openai-codex") {
       // OpenAI Codex only supports OAuth

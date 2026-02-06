@@ -41,17 +41,17 @@ describe("onboarding", () => {
     vi.clearAllMocks();
   });
 
-  it("writes config with anthropic oauth and separates secrets", async () => {
+  it("writes config with anthropic api key (OAuth removed)", async () => {
     const appConfigPath = join(dir, "app.yaml");
     const workspacePath = join(dir, "workspace");
 
+    // Anthropic now only supports API key (no OAuth prompt)
     answers = [
       "discord,telegram", // channels
       workspacePath,       // workspace
       "anthropic",         // provider
       "",                  // model (default)
-      "1",                 // auth method: OAuth
-      "n",                 // skip OAuth for now
+      "sk-ant-test-key",   // Anthropic API key (directly asked now)
       "y",                 // require mention
       "111,222",           // channel allowlist
       "discord-secret",    // discord token
@@ -65,7 +65,7 @@ describe("onboarding", () => {
 
     expect(config?.workspace).toBe(workspacePath);
     expect(config?.providers?.[0]?.id).toBe("anthropic");
-    expect(config?.providers?.[0]?.apiKey).toBe("oauth");
+    expect(config?.providers?.[0]?.apiKey).toBe("secrets");
     expect(config?.providers?.[0]?.model).toBe("claude-sonnet-4-5");
     expect(config?.discord?.requireMentionInGuild).toBe(true);
     expect(config?.discord?.channelAllowList).toEqual(["111", "222"]);
@@ -74,6 +74,31 @@ describe("onboarding", () => {
 
     expect(secrets?.discord?.token).toBe("discord-secret");
     expect(secrets?.telegram?.token).toBe("telegram-secret");
+    expect(secrets?.anthropic?.apiKey).toBe("sk-ant-test-key");
+  });
+
+  it("writes config with anthropic env-based api key", async () => {
+    const appConfigPath = join(dir, "app.yaml");
+    const workspacePath = join(dir, "workspace");
+
+    // Empty API key means use env var
+    answers = [
+      "discord",           // channels
+      workspacePath,       // workspace
+      "anthropic",         // provider
+      "",                  // model (default)
+      "",                  // Anthropic API key (empty = use env)
+      "y",                 // require mention
+      "",                  // channel allowlist (default)
+      "",                  // discord token (skip)
+    ];
+
+    await runOnboarding({ appConfigPath });
+
+    const config = await loadAppConfig(appConfigPath);
+
+    expect(config?.providers?.[0]?.id).toBe("anthropic");
+    expect(config?.providers?.[0]?.apiKey).toBe("env");
   });
 
   it("writes config with openai api key", async () => {
@@ -125,33 +150,6 @@ describe("onboarding", () => {
     expect(config?.providers?.[0]?.id).toBe("openai-codex");
     expect(config?.providers?.[0]?.model).toBe("gpt-5.2");
     expect(config?.providers?.[0]?.apiKey).toBe("oauth");
-  });
-
-  it("writes config with anthropic api key", async () => {
-    const appConfigPath = join(dir, "app.yaml");
-    const workspacePath = join(dir, "workspace");
-
-    answers = [
-      "discord",           // channels
-      workspacePath,       // workspace
-      "anthropic",         // provider
-      "",                  // model (default)
-      "2",                 // auth method: API Key
-      "sk-ant-test-key",   // Anthropic API key
-      "y",                 // require mention
-      "",                  // channel allowlist (default)
-      "",                  // discord token (skip)
-    ];
-
-    await runOnboarding({ appConfigPath });
-
-    const config = await loadAppConfig(appConfigPath);
-    const secrets = await loadSecrets(appConfigPath);
-
-    expect(config?.providers?.[0]?.id).toBe("anthropic");
-    expect(config?.providers?.[0]?.apiKey).toBe("secrets");
-
-    expect(secrets?.anthropic?.apiKey).toBe("sk-ant-test-key");
   });
 
   it("supports env-based api key for openai", async () => {

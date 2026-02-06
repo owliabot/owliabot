@@ -1,12 +1,11 @@
 /**
  * OAuth flow for LLM providers using pi-ai
- * Supports: Anthropic (Claude Pro/Max), OpenAI Codex (ChatGPT Plus/Pro)
+ * Supports: OpenAI Codex (ChatGPT Plus/Pro)
+ * Note: Anthropic OAuth was removed in favor of API key only (simpler setup)
  * @see design.md DR-007
  */
 
 import {
-  loginAnthropic,
-  refreshAnthropicToken,
   loginOpenAICodex,
   refreshOpenAICodexToken,
   type OAuthCredentials,
@@ -20,7 +19,7 @@ import { createLogger } from "../utils/logger.js";
 const log = createLogger("oauth");
 
 /** Supported OAuth provider types for owliabot */
-export type SupportedOAuthProvider = "anthropic" | "openai-codex";
+export type SupportedOAuthProvider = "openai-codex";
 
 const AUTH_DIR = join(
   process.env.HOME ?? process.env.USERPROFILE ?? ".",
@@ -35,39 +34,16 @@ function getAuthFile(provider: SupportedOAuthProvider): string {
 
 /**
  * Start OAuth flow for a provider
- * @param provider - 'anthropic' or 'openai-codex'
+ * @param provider - 'openai-codex' (Anthropic OAuth removed, use API key instead)
  */
 export async function startOAuthFlow(
-  provider: SupportedOAuthProvider = "anthropic"
+  provider: SupportedOAuthProvider = "openai-codex"
 ): Promise<OAuthCredentials> {
   log.info(`Starting ${provider} OAuth flow...`);
 
   let credentials: OAuthCredentials;
 
-  if (provider === "anthropic") {
-    credentials = await loginAnthropic(
-      // Open browser with auth URL
-      (url: string) => {
-        log.info("Opening browser for Anthropic authentication...");
-        log.info(`If browser doesn't open, visit: ${url}`);
-        open(url);
-      },
-      // Prompt for authorization code
-      async () => {
-        const rl = createInterface({
-          input: process.stdin,
-          output: process.stdout,
-        });
-
-        return new Promise<string>((resolve) => {
-          rl.question("Paste authorization code: ", (code) => {
-            rl.close();
-            resolve(code.trim());
-          });
-        });
-      }
-    );
-  } else if (provider === "openai-codex") {
+  if (provider === "openai-codex") {
     credentials = await loginOpenAICodex({
       onAuth: (info) => {
         log.info("Opening browser for OpenAI Codex authentication...");
@@ -95,7 +71,7 @@ export async function startOAuthFlow(
       },
     });
   } else {
-    throw new Error(`Unsupported OAuth provider: ${provider}`);
+    throw new Error(`Unsupported OAuth provider: ${provider}. Only 'openai-codex' is supported.`);
   }
 
   // Save credentials
@@ -110,18 +86,16 @@ export async function startOAuthFlow(
  */
 export async function refreshOAuthCredentials(
   credentials: OAuthCredentials,
-  provider: SupportedOAuthProvider = "anthropic"
+  provider: SupportedOAuthProvider = "openai-codex"
 ): Promise<OAuthCredentials> {
   log.info(`Refreshing ${provider} OAuth token...`);
 
   let newCredentials: OAuthCredentials;
 
-  if (provider === "anthropic") {
-    newCredentials = await refreshAnthropicToken(credentials.refresh);
-  } else if (provider === "openai-codex") {
+  if (provider === "openai-codex") {
     newCredentials = await refreshOpenAICodexToken(credentials.refresh);
   } else {
-    throw new Error(`Unsupported OAuth provider: ${provider}`);
+    throw new Error(`Unsupported OAuth provider: ${provider}. Only 'openai-codex' is supported.`);
   }
 
   // Save new credentials
@@ -135,7 +109,7 @@ export async function refreshOAuthCredentials(
  * Load saved OAuth credentials for a provider
  */
 export async function loadOAuthCredentials(
-  provider: SupportedOAuthProvider = "anthropic"
+  provider: SupportedOAuthProvider = "openai-codex"
 ): Promise<OAuthCredentials | null> {
   const authFile = getAuthFile(provider);
 
@@ -169,7 +143,7 @@ export async function loadOAuthCredentials(
  */
 export async function saveOAuthCredentials(
   credentials: OAuthCredentials,
-  provider: SupportedOAuthProvider = "anthropic"
+  provider: SupportedOAuthProvider = "openai-codex"
 ): Promise<void> {
   const authFile = getAuthFile(provider);
   await mkdir(dirname(authFile), { recursive: true });
@@ -181,7 +155,7 @@ export async function saveOAuthCredentials(
  * Clear saved OAuth credentials for a provider
  */
 export async function clearOAuthCredentials(
-  provider: SupportedOAuthProvider = "anthropic"
+  provider: SupportedOAuthProvider = "openai-codex"
 ): Promise<void> {
   const { unlink } = await import("node:fs/promises");
   const authFile = getAuthFile(provider);
@@ -201,7 +175,7 @@ export async function clearOAuthCredentials(
  * Check OAuth status for a provider
  */
 export async function getOAuthStatus(
-  provider: SupportedOAuthProvider = "anthropic"
+  provider: SupportedOAuthProvider = "openai-codex"
 ): Promise<{
   authenticated: boolean;
   expiresAt?: number;
@@ -229,7 +203,7 @@ export async function getAllOAuthStatus(): Promise<
     { authenticated: boolean; expiresAt?: number; email?: string }
   >
 > {
-  const providers: SupportedOAuthProvider[] = ["anthropic", "openai-codex"];
+  const providers: SupportedOAuthProvider[] = ["openai-codex"];
   const result = {} as Record<
     SupportedOAuthProvider,
     { authenticated: boolean; expiresAt?: number; email?: string }
