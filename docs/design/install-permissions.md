@@ -124,6 +124,15 @@ WantedBy=multi-user.target
 #### 用户与组
 
 ```bash
+# 创建 clawlet 主组 (GID 399)
+sudo dscl . -create /Groups/clawlet
+sudo dscl . -create /Groups/clawlet PrimaryGroupID 399
+
+# 创建授权组 (允许连接 IPC)
+sudo dscl . -create /Groups/clawlet-users
+sudo dscl . -create /Groups/clawlet-users PrimaryGroupID 398
+sudo dscl . -append /Groups/clawlet-users GroupMembership $(whoami)
+
 # 创建系统用户 (UID 在 200-400 范围，隐藏用户)
 sudo dscl . -create /Users/clawlet
 sudo dscl . -create /Users/clawlet UniqueID 399
@@ -131,11 +140,6 @@ sudo dscl . -create /Users/clawlet PrimaryGroupID 399
 sudo dscl . -create /Users/clawlet UserShell /usr/bin/false
 sudo dscl . -create /Users/clawlet NFSHomeDirectory /var/lib/clawlet
 sudo dscl . -create /Users/clawlet IsHidden 1
-
-# 创建组
-sudo dscl . -create /Groups/clawlet-users
-sudo dscl . -create /Groups/clawlet-users PrimaryGroupID 398
-sudo dscl . -append /Groups/clawlet-users GroupMembership $(whoami)
 ```
 
 #### 目录结构
@@ -461,7 +465,12 @@ install_linux() {
     if [[ "$INSTALL_CLAWLET" == "true" ]]; then
         info "Creating clawlet user and group..."
         
-        # 创建组
+        # 创建 clawlet 主组
+        if ! getent group clawlet >/dev/null; then
+            sudo groupadd --system clawlet
+        fi
+        
+        # 创建授权组 (允许连接 IPC)
         if ! getent group clawlet-users >/dev/null; then
             sudo groupadd --system clawlet-users
         fi
@@ -473,7 +482,6 @@ install_linux() {
                 --create-home \
                 --shell /usr/sbin/nologin \
                 --gid clawlet \
-                --groups clawlet \
                 clawlet
         fi
         
@@ -565,7 +573,13 @@ install_macos() {
     if [[ "$INSTALL_CLAWLET" == "true" ]]; then
         info "Creating clawlet user and group..."
         
-        # 创建组
+        # 创建 clawlet 主组 (GID 399)
+        if ! dscl . -read /Groups/clawlet &>/dev/null; then
+            sudo dscl . -create /Groups/clawlet
+            sudo dscl . -create /Groups/clawlet PrimaryGroupID 399
+        fi
+        
+        # 创建授权组 (允许连接 IPC)
         if ! dscl . -read /Groups/clawlet-users &>/dev/null; then
             sudo dscl . -create /Groups/clawlet-users
             sudo dscl . -create /Groups/clawlet-users PrimaryGroupID 398
