@@ -113,4 +113,14 @@ export interface AppConfig {
       token?: string;
     };
   };
+
+  // Security configuration
+  security?: {
+    /** User IDs allowed to trigger write-level tools */
+    writeToolAllowList?: string[];
+    /** Whether to require interactive confirmation for write tools (default: true) */
+    writeToolConfirmation?: boolean;
+    /** Timeout in ms for write tool confirmation */
+    writeToolConfirmationTimeoutMs?: number;
+  };
 }

@@ -65,6 +65,10 @@ describe("onboarding", () => {
       setupToken,          // Setup-token
       "",                  // Model (default: claude-sonnet-4-5)
       "n",                 // Gateway: no
+      "111,222",           // Discord channelAllowList
+      "123456789",         // Discord memberAllowList
+      "539066683",         // Telegram allowList
+      "",                  // writeToolAllowList (use default from channels)
     ];
 
     await runOnboarding({ appConfigPath });
@@ -77,9 +81,13 @@ describe("onboarding", () => {
     expect(config?.providers?.[0]?.apiKey).toBe("secrets");
     expect(config?.providers?.[0]?.model).toBe("claude-sonnet-4-5");
     expect(config?.discord?.requireMentionInGuild).toBe(true);
-    expect(config?.discord?.channelAllowList).toEqual([]);
+    expect(config?.discord?.channelAllowList).toEqual(["111", "222"]);
+    expect(config?.discord?.memberAllowList).toEqual(["123456789"]);
     expect(config?.discord && "token" in config.discord).toBe(false);
+    expect(config?.telegram?.allowList).toEqual(["539066683"]);
     expect(config?.telegram && "token" in config.telegram).toBe(false);
+    expect(config?.security?.writeToolAllowList).toEqual(["123456789", "539066683"]);
+    expect(config?.security?.writeToolConfirmation).toBe(false);
 
     expect(secrets?.discord?.token).toBe("discord-secret");
     expect(secrets?.telegram?.token).toBe("telegram-secret");
@@ -98,6 +106,8 @@ describe("onboarding", () => {
       "sk-test-key",       // OpenAI API key
       "gpt-4o-mini",       // Model
       "n",                 // Gateway: no
+      "",                  // Discord channelAllowList (empty)
+      "",                  // Discord memberAllowList (empty)
     ];
 
     await runOnboarding({ appConfigPath });
@@ -123,6 +133,8 @@ describe("onboarding", () => {
       "3",                 // AI provider: 3 = openai-codex
       "n",                 // Skip OAuth for now
       "n",                 // Gateway: no
+      "",                  // Discord channelAllowList (empty)
+      "",                  // Discord memberAllowList (empty)
     ];
 
     await runOnboarding({ appConfigPath });
@@ -146,6 +158,8 @@ describe("onboarding", () => {
       "sk-ant-api03-test-key",  // Anthropic standard API key
       "",                  // Model (default)
       "n",                 // Gateway: no
+      "",                  // Discord channelAllowList (empty)
+      "",                  // Discord memberAllowList (empty)
     ];
 
     await runOnboarding({ appConfigPath });
@@ -173,6 +187,8 @@ describe("onboarding", () => {
       "",                  // API key (empty = use env var)
       "",                  // Model (default)
       "n",                 // Gateway: no
+      "",                  // Discord channelAllowList (empty)
+      "",                  // Discord memberAllowList (empty)
     ];
 
     await runOnboarding({ appConfigPath });
@@ -195,6 +211,8 @@ describe("onboarding", () => {
       "",                  // OpenAI API key (empty = use env)
       "",                  // Model (default)
       "n",                 // Gateway: no
+      "",                  // Discord channelAllowList (empty)
+      "",                  // Discord memberAllowList (empty)
     ];
 
     await runOnboarding({ appConfigPath });
@@ -218,6 +236,9 @@ describe("onboarding", () => {
       "",                  // API key (env)
       "",                  // Model (default)
       "n",                 // Gateway: no
+      "",                  // Discord channelAllowList (empty)
+      "",                  // Discord memberAllowList (empty)
+      "",                  // Telegram allowList (empty)
     ];
 
     await runOnboarding({ appConfigPath });
