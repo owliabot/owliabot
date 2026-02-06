@@ -34,7 +34,6 @@ describe("memory-search tool (__tests__)", () => {
         {
           sessionKey: "test",
           agentId: "main",
-          signer: null,
           config: {
             memorySearch: {
               enabled: true,
@@ -71,7 +70,6 @@ describe("memory-search tool (__tests__)", () => {
         {
           sessionKey: "test",
           agentId: "main",
-          signer: null,
           config: {
             memorySearch: {
               enabled: true,
@@ -106,7 +104,6 @@ describe("memory-search tool (__tests__)", () => {
         {
           sessionKey: "test",
           agentId: "main",
-          signer: null,
           config: {
             memorySearch: {
               enabled: true,
@@ -140,7 +137,6 @@ describe("memory-search tool (__tests__)", () => {
         {
           sessionKey: "test",
           agentId: "main",
-          signer: null,
           config: {
             memorySearch: {
               enabled: true,
@@ -175,7 +171,6 @@ describe("memory-search tool (__tests__)", () => {
         {
           sessionKey: "test",
           agentId: "main",
-          signer: null,
           config: {
             memorySearch: {
               enabled: true,
@@ -212,7 +207,6 @@ describe("memory-search tool (__tests__)", () => {
         {
           sessionKey: "test",
           agentId: "main",
-          signer: null,
           config: {
             memorySearch: {
               enabled: false,

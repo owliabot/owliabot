@@ -9,7 +9,6 @@ describe("cron tool", () => {
   const mockCtx: ToolContext = {
     sessionKey: "test",
     agentId: "test",
-    signer: null,
     config: {},
   };
 
