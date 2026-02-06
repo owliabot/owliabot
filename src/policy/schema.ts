@@ -53,7 +53,7 @@ export const policySchema = z.object({
     tier2MaxUsd: z.number(),
     tier2DailyUsd: z.number(),
     tier3MaxUsd: z.number(),
-  }),
+  }).optional(),
   tools: z.record(z.string(), toolPolicySchema),
   wildcards: z
     .array(toolPolicySchema.extend({ pattern: z.string() }))

@@ -1,0 +1,63 @@
+# Test fixture policy - DO NOT use in production
+# Used by engine.test.ts to test PolicyEngine behavior
+
+version: "1"
+
+defaults:
+  tier: none
+  requireConfirmation: false
+  allowedUsers: assignee-only
+  timeout: 120
+
+thresholds:
+  tier2MaxUsd: 50
+  tier2DailyUsd: 200
+  tier3MaxUsd: 5
+
+emergencyStop:
+  enabled: true
+  commands:
+    - "/stop"
+  channels:
+    - telegram
+    - discord
+
+tools:
+  "echo":
+    tier: none
+
+  "edit_file":
+    tier: 3
+    requireConfirmation: false
+
+  "gas__refuel":
+    tier: 3
+    requireConfirmation: false
+    maxAmount:
+      usd: 5
+    cooldown:
+      maxPerHour: 10
+      maxPerDay: 50
+
+  "dex-swap__swap":
+    tier: 2
+    requireConfirmation: true
+    confirmationChannel: inline
+    maxAmount:
+      usd: 50
+    cooldown:
+      maxPerHour: 5
+      maxPerDay: 20
+    escalateAbove:
+      usd: 50
+
+wildcards:
+  - pattern: "*__get_*"
+    tier: none
+  - pattern: "*__list_*"
+    tier: none
+
+fallback:
+  tier: 1
+  requireConfirmation: true
+  confirmationChannel: companion-app
