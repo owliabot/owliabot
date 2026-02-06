@@ -9,7 +9,6 @@
  * - cronTool: Needs CronService which is created after initial setup
  */
 
-import { readFileSync, existsSync } from "node:fs";
 import type { ToolDefinition } from "../interface.js";
 import type { SessionStore } from "../../session-store.js";
 import type { SessionTranscriptStore } from "../../session-transcript.js";
@@ -50,18 +49,18 @@ const log = createLogger("builtin-tools");
 
 /**
  * Wallet configuration subset needed by factory
+ * Structure: wallet.clawlet.* (all settings nested under clawlet)
  */
 export interface WalletFactoryConfig {
-  enabled?: boolean;
-  provider?: "clawlet";
   clawlet?: {
+    enabled?: boolean;
     socketPath?: string;
-    authTokenFile?: string;
-    authToken?: string;
+    token?: string;
     connectTimeout?: number;
     requestTimeout?: number;
+    defaultChainId?: number;
+    defaultAddress?: string;
   };
-  defaultChainId?: number;
 }
 
 /**
@@ -102,32 +101,11 @@ export interface BuiltinToolsOptions {
 }
 
 /**
- * Resolve auth token from file or direct config
- * Reads authTokenFile if specified, otherwise uses authToken
+ * Get auth token from clawlet config
+ * Token is now directly in config (loaded from secrets/env by config loader)
  */
-function resolveAuthToken(clawletConfig?: WalletFactoryConfig["clawlet"]): string | undefined {
-  if (!clawletConfig) return undefined;
-
-  // Prefer authTokenFile over authToken for security
-  if (clawletConfig.authTokenFile) {
-    const tokenPath = clawletConfig.authTokenFile.replace(/^~/, process.env.HOME ?? ".");
-    if (existsSync(tokenPath)) {
-      try {
-        const token = readFileSync(tokenPath, "utf-8").trim();
-        if (token) {
-          log.debug(`Loaded auth token from ${tokenPath}`);
-          return token;
-        }
-      } catch (err) {
-        log.warn(`Failed to read auth token file ${tokenPath}: ${err instanceof Error ? err.message : String(err)}`);
-      }
-    } else {
-      log.warn(`Auth token file not found: ${tokenPath}`);
-    }
-  }
-
-  // Fallback to direct authToken
-  return clawletConfig.authToken;
+function getClawletToken(clawletConfig?: WalletFactoryConfig["clawlet"]): string | undefined {
+  return clawletConfig?.token;
 }
 
 /**
@@ -230,17 +208,18 @@ export function createBuiltinTools(
   ];
 
   // ─────────────────────────────────────────────────────────────────────────
-  // Wallet tools (gated by wallet.enabled)
+  // Wallet tools (gated by wallet.clawlet.enabled)
   // ─────────────────────────────────────────────────────────────────────────
-  if (walletConfig?.enabled && walletConfig.provider === "clawlet") {
-    const authToken = resolveAuthToken(walletConfig.clawlet);
+  if (walletConfig?.clawlet?.enabled) {
+    const authToken = getClawletToken(walletConfig.clawlet);
     const clawletClientConfig: ClawletClientConfig = {
-      socketPath: walletConfig.clawlet?.socketPath,
+      socketPath: walletConfig.clawlet.socketPath,
       authToken,
-      connectTimeout: walletConfig.clawlet?.connectTimeout,
-      requestTimeout: walletConfig.clawlet?.requestTimeout,
+      connectTimeout: walletConfig.clawlet.connectTimeout,
+      requestTimeout: walletConfig.clawlet.requestTimeout,
     };
-    const defaultChainId = walletConfig.defaultChainId ?? 8453;
+    const defaultChainId = walletConfig.clawlet.defaultChainId ?? 8453;
+    const defaultAddress = walletConfig.clawlet.defaultAddress;
 
     log.info(`Wallet tools enabled (chain: ${defaultChainId}, socket: ${clawletClientConfig.socketPath ?? "default"})`);
 
@@ -248,6 +227,7 @@ export function createBuiltinTools(
       createWalletBalanceTool({
         clawletConfig: clawletClientConfig,
         defaultChainId,
+        defaultAddress,
       }),
       createWalletTransferTool({
         clawletConfig: clawletClientConfig,

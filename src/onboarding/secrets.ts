@@ -17,6 +17,10 @@ export interface SecretsConfig {
     token?: string;
     apiKey?: string;
   };
+  /** Clawlet wallet auth */
+  clawlet?: {
+    token?: string;
+  };
 }
 
 export function getSecretsPath(appConfigPath: string): string {

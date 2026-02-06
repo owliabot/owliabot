@@ -5,6 +5,7 @@ import { saveAppConfig, DEV_APP_CONFIG_PATH } from "./storage.js";
 import { startOAuthFlow } from "../auth/oauth.js";
 import { saveSecrets, type SecretsConfig } from "./secrets.js";
 import { ensureWorkspaceInitialized } from "../workspace/init.js";
+import { runClawletOnboarding } from "./clawlet-onboard.js";
 import { validateAnthropicSetupToken, isSetupToken } from "../auth/setup-token.js";
 
 const log = createLogger("onboard");
@@ -280,6 +281,9 @@ export async function runOnboarding(options: OnboardOptions = {}): Promise<void>
       };
     }
 
+    // Optional Clawlet wallet setup
+    await runClawletOnboarding(rl, secrets);
+
     // Save app config (non-sensitive)
     await saveAppConfig(config, appConfigPath);
 
@@ -289,7 +293,8 @@ export async function runOnboarding(options: OnboardOptions = {}): Promise<void>
       secrets.telegram?.token ||
       secrets.openai?.apiKey ||
       secrets.anthropic?.apiKey ||
-      secrets.anthropic?.token;
+      secrets.anthropic?.token ||
+      secrets.clawlet?.token;
 
     if (hasSecrets) {
       await saveSecrets(appConfigPath, secrets);
