@@ -13,167 +13,59 @@ import { homedir } from "node:os";
 import { stringify as yamlStringify } from "yaml";
 import type { ProviderConfig, LLMProviderId } from "./types.js";
 import type { SecretsConfig } from "./secrets.js";
+import {
+  COLORS,
+  info,
+  success,
+  warn,
+  error,
+  header,
+  ask,
+  askYN,
+  selectOption,
+  printBanner,
+  detectExistingConfig as detectExistingConfigBase,
+  type ExistingConfig as ExistingConfigBase,
+} from "./shared.js";
 
-// Colors (ANSI escape codes)
-const RED = "\x1b[0;31m";
-const GREEN = "\x1b[0;32m";
-const YELLOW = "\x1b[1;33m";
-const BLUE = "\x1b[0;34m";
-const CYAN = "\x1b[0;36m";
-const NC = "\x1b[0m"; // No Color
-
-function info(msg: string) { console.log(`${BLUE}i${NC} ${msg}`); }
-function success(msg: string) { console.log(`${GREEN}✓${NC} ${msg}`); }
-function warn(msg: string) { console.log(`${YELLOW}!${NC} ${msg}`); }
-function error(msg: string) { console.log(`${RED}✗${NC} ${msg}`); }
-
-function header(title: string) {
-  console.log("");
-  console.log(`${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}`);
-  console.log(`${CYAN}  ${title}${NC}`);
-  console.log(`${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}`);
-  console.log("");
-}
-
-function ask(rl: ReturnType<typeof createInterface>, q: string, secret = false): Promise<string> {
-  return new Promise((resolve) => {
-    if (secret) {
-      // Hide input for secrets with proper cleanup
-      process.stdout.write(q);
-      const stdin = process.stdin;
-      const oldRawMode = stdin.isRaw;
-      
-      const restoreMode = () => {
-        try {
-          if (stdin.isTTY) stdin.setRawMode(oldRawMode ?? false);
-        } catch {
-          // Ignore errors during cleanup
-        }
-      };
-      
-      if (stdin.isTTY) {
-        try {
-          stdin.setRawMode(true);
-        } catch {
-          // Fall back to non-secret mode if raw mode fails
-          rl.question("", (ans) => resolve(ans.trim()));
-          return;
-        }
-      }
-      
-      let input = "";
-      const onData = (char: Buffer) => {
-        const c = char.toString();
-        if (c === "\n" || c === "\r") {
-          stdin.removeListener("data", onData);
-          restoreMode();
-          console.log("");
-          resolve(input.trim());
-        } else if (c === "\x03") { // Ctrl+C
-          stdin.removeListener("data", onData);
-          restoreMode();
-          console.log("");
-          process.exit(130); // Standard exit code for Ctrl+C
-        } else if (c === "\x7f" || c === "\b") { // Backspace
-          input = input.slice(0, -1);
-        } else if (c.charCodeAt(0) >= 32 && c.charCodeAt(0) < 127) {
-          // Only accept printable ASCII (filter out arrow keys, escape sequences, etc.)
-          input += c;
-        }
-        // Silently ignore non-printable characters (arrow keys, escape sequences, etc.)
-      };
-      stdin.on("data", onData);
-    } else {
-      rl.question(q, (ans) => resolve(ans.trim()));
-    }
-  });
-}
-
-async function askYN(rl: ReturnType<typeof createInterface>, q: string, defaultYes = false): Promise<boolean> {
-  const suffix = defaultYes ? "[Y/n]" : "[y/N]";
-  const ans = await ask(rl, `${q} ${suffix}: `);
-  if (!ans) return defaultYes;
-  return ans.toLowerCase().startsWith("y");
-}
-
-async function selectOption(rl: ReturnType<typeof createInterface>, prompt: string, options: string[]): Promise<number> {
-  console.log(prompt);
-  options.forEach((opt, i) => console.log(`  ${i + 1}. ${opt}`));
-  
-  while (true) {
-    const ans = await ask(rl, `Select [1-${options.length}]: `);
-    const n = parseInt(ans, 10);
-    if (!isNaN(n) && n >= 1 && n <= options.length) {
-      return n - 1;
-    }
-    warn(`Please enter a number between 1 and ${options.length}`);
-  }
-}
-
-interface ExistingConfig {
-  anthropicKey?: string;
-  anthropicOAuth?: boolean;
-  openaiKey?: string;
-  openaiOAuth?: boolean;
-  discordToken?: string;
-  telegramToken?: string;
-  gatewayToken?: string;
+// Extended config for Docker mode (includes openaiCompatKey and OAuth flags)
+interface ExistingConfig extends ExistingConfigBase {
   openaiCompatKey?: string;
+  anthropicOAuth?: boolean;
+  openaiOAuth?: boolean;
 }
 
 function detectExistingConfig(): ExistingConfig | null {
   const home = homedir();
-  const secretsPath = join(home, ".owliabot", "secrets.yaml");
-  const authDir = join(home, ".owliabot", "auth");
+  const configDir = join(home, ".owliabot");
+  const secretsPath = join(configDir, "secrets.yaml");
   
-  const result: ExistingConfig = {};
-  let hasAny = false;
+  // Use shared detection for standard fields
+  const baseConfig = detectExistingConfigBase(configDir);
+  if (!baseConfig && !existsSync(secretsPath)) {
+    return null;
+  }
   
+  const result: ExistingConfig = baseConfig ? { ...baseConfig } : {};
+  
+  // Check for openai-compatible key (Docker-specific)
   if (existsSync(secretsPath)) {
     const content = readFileSync(secretsPath, "utf-8");
-    
-    // Simple YAML parsing for known fields
-    const anthropicMatch = content.match(/^anthropic:\s*\n\s+apiKey:\s*"?([^"\n]+)"?/m);
-    if (anthropicMatch?.[1] && anthropicMatch[1] !== '""') {
-      result.anthropicKey = anthropicMatch[1];
-      hasAny = true;
-    }
-    
-    const openaiMatch = content.match(/^openai:\s*\n\s+apiKey:\s*"?([^"\n]+)"?/m);
-    if (openaiMatch?.[1] && openaiMatch[1] !== '""') {
-      result.openaiKey = openaiMatch[1];
-      hasAny = true;
-    }
-    
-    const discordMatch = content.match(/^discord:\s*\n\s+token:\s*"?([^"\n]+)"?/m);
-    if (discordMatch?.[1] && discordMatch[1] !== '""') {
-      result.discordToken = discordMatch[1];
-      hasAny = true;
-    }
-    
-    const telegramMatch = content.match(/^telegram:\s*\n\s+token:\s*"?([^"\n]+)"?/m);
-    if (telegramMatch?.[1] && telegramMatch[1] !== '""') {
-      result.telegramToken = telegramMatch[1];
-      hasAny = true;
-    }
-    
-    const gatewayMatch = content.match(/^gateway:\s*\n\s+token:\s*"?([^"\n]+)"?/m);
-    if (gatewayMatch?.[1] && gatewayMatch[1] !== '""') {
-      result.gatewayToken = gatewayMatch[1];
-      hasAny = true;
+    const compatMatch = content.match(/^openai-compatible:\s*\n\s+apiKey:\s*"?([^"\n]+)"?/m);
+    if (compatMatch?.[1] && compatMatch[1] !== '""') {
+      result.openaiCompatKey = compatMatch[1];
     }
   }
   
-  if (existsSync(join(authDir, "anthropic.json"))) {
+  // Map OAuth fields from base to Docker-specific names
+  if (baseConfig?.hasOAuthAnthro) {
     result.anthropicOAuth = true;
-    hasAny = true;
   }
-  if (existsSync(join(authDir, "openai-codex.json"))) {
+  if (baseConfig?.hasOAuthCodex) {
     result.openaiOAuth = true;
-    hasAny = true;
   }
   
-  return hasAny ? result : null;
+  return Object.keys(result).length > 0 ? result : null;
 }
 
 export interface DockerOnboardOptions {
@@ -209,18 +101,7 @@ export async function runDockerOnboarding(options: DockerOnboardOptions = {}): P
   
   try {
     // Banner
-    console.log("");
-    console.log(`${CYAN}`);
-    console.log("   ____          ___       ____        _   ");
-    console.log("  / __ \\        / (_)     |  _ \\      | |  ");
-    console.log(" | |  | |_      _| |_  __ _| |_) | ___ | |_ ");
-    console.log(" | |  | \\ \\ /\\ / / | |/ _\` |  _ < / _ \\| __|");
-    console.log(" | |__| |\\ V  V /| | | (_| | |_) | (_) | |_ ");
-    console.log("  \\____/  \\_/\\_/ |_|_|\\__,_|____/ \\___/ \\__|");
-    console.log(`${NC}`);
-    console.log("");
-    console.log("  OwliaBot Docker Configuration");
-    console.log("");
+    printBanner("(Docker)");
     
     // Ensure config directory exists
     mkdirSync(configDir, { recursive: true });

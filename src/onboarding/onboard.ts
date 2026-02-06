@@ -1,80 +1,30 @@
 import { createInterface } from "node:readline";
-import { existsSync, readFileSync } from "node:fs";
-import { join, dirname } from "node:path";
-import { homedir } from "node:os";
+import { dirname } from "node:path";
 import { randomBytes } from "node:crypto";
 import { createLogger } from "../utils/logger.js";
-import type { AppConfig, ProviderConfig, LLMProviderId, MemorySearchConfig, SystemCapabilityConfig } from "./types.js";
+import type { AppConfig, ProviderConfig, MemorySearchConfig, SystemCapabilityConfig } from "./types.js";
 import { saveAppConfig, DEFAULT_APP_CONFIG_PATH, IS_DEV_MODE } from "./storage.js";
 import { startOAuthFlow } from "../auth/oauth.js";
 import { saveSecrets, loadSecrets, type SecretsConfig } from "./secrets.js";
 import { ensureWorkspaceInitialized } from "../workspace/init.js";
 import { validateAnthropicSetupToken, isSetupToken } from "../auth/setup-token.js";
+import {
+  COLORS,
+  info,
+  success,
+  warn,
+  header,
+  ask,
+  askYN,
+  selectOption,
+  printBanner,
+  DEFAULT_MODELS,
+  type ExistingConfig,
+} from "./shared.js";
 
 const log = createLogger("onboard");
 
-// Colors (ANSI escape codes)
-const RED = "\x1b[0;31m";
-const GREEN = "\x1b[0;32m";
-const YELLOW = "\x1b[1;33m";
-const BLUE = "\x1b[0;34m";
-const CYAN = "\x1b[0;36m";
-const NC = "\x1b[0m";
-
-function info(msg: string) { console.log(`${BLUE}ℹ${NC} ${msg}`); }
-function success(msg: string) { console.log(`${GREEN}✓${NC} ${msg}`); }
-function warn(msg: string) { console.log(`${YELLOW}!${NC} ${msg}`); }
-
-function header(title: string) {
-  console.log("");
-  console.log(`${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}`);
-  console.log(`${CYAN}  ${title}${NC}`);
-  console.log(`${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}`);
-  console.log("");
-}
-
-function ask(rl: ReturnType<typeof createInterface>, q: string): Promise<string> {
-  return new Promise((resolve) => rl.question(q, (ans) => resolve(ans.trim())));
-}
-
-async function askYN(rl: ReturnType<typeof createInterface>, q: string, defaultYes = false): Promise<boolean> {
-  const suffix = defaultYes ? "[Y/n]" : "[y/N]";
-  const ans = await ask(rl, `${q} ${suffix}: `);
-  if (!ans) return defaultYes;
-  return ans.toLowerCase().startsWith("y");
-}
-
-async function selectOption(rl: ReturnType<typeof createInterface>, prompt: string, options: string[]): Promise<number> {
-  console.log(prompt);
-  options.forEach((opt, i) => console.log(`  ${i + 1}. ${opt}`));
-  
-  while (true) {
-    const ans = await ask(rl, `Select [1-${options.length}]: `);
-    const n = parseInt(ans, 10);
-    if (!isNaN(n) && n >= 1 && n <= options.length) {
-      return n - 1;
-    }
-    warn(`Please enter a number between 1 and ${options.length}`);
-  }
-}
-
-/** Default models for each provider */
-const DEFAULT_MODELS: Record<LLMProviderId, string> = {
-  anthropic: "claude-sonnet-4-5",
-  openai: "gpt-4o",
-  "openai-codex": "gpt-5.2",
-  "openai-compatible": "llama3.2",
-};
-
-interface ExistingConfig {
-  anthropicKey?: string;
-  anthropicToken?: string;
-  openaiKey?: string;
-  discordToken?: string;
-  telegramToken?: string;
-}
-
-async function detectExistingConfig(appConfigPath: string): Promise<ExistingConfig | null> {
+async function detectExistingConfigFromSecrets(appConfigPath: string): Promise<ExistingConfig | null> {
   try {
     const existing = await loadSecrets(appConfigPath);
     if (!existing) return null;
@@ -118,22 +68,13 @@ export async function runOnboarding(options: OnboardOptions = {}): Promise<void>
 
   const rl = createInterface({ input: process.stdin, output: process.stdout });
   try {
-    console.log("");
-    console.log(`${CYAN}   ____          ___       ____        _   ${NC}`);
-    console.log(`${CYAN}  / __ \\        / (_)     |  _ \\      | |  ${NC}`);
-    console.log(`${CYAN} | |  | |_      _| |_  __ _| |_) | ___ | |_ ${NC}`);
-    console.log(`${CYAN} | |  | \\ \\ /\\ / / | |/ _\` |  _ < / _ \\| __|${NC}`);
-    console.log(`${CYAN} | |__| |\\ V  V /| | | (_| | |_) | (_) | |_ ${NC}`);
-    console.log(`${CYAN}  \\____/  \\_/\\_/ |_|_|\\__,_|____/ \\___/ \\__|${NC}`);
-    console.log("");
-    console.log(`  OwliaBot Interactive Setup ${IS_DEV_MODE ? "(dev mode)" : ""}`);
+    printBanner(IS_DEV_MODE ? "(dev mode)" : "");
     if (IS_DEV_MODE) {
       info("Dev mode enabled (OWLIABOT_DEV=1). Config will be saved to ~/.owlia_dev/");
     }
-    console.log("");
 
     // Check for existing config
-    const existing = await detectExistingConfig(appConfigPath);
+    const existing = await detectExistingConfigFromSecrets(appConfigPath);
     let reuseExisting = false;
     const secrets: SecretsConfig = {};
     
