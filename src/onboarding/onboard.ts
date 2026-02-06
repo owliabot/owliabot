@@ -18,6 +18,7 @@ const DEFAULT_MODELS: Record<LLMProviderId, string> = {
   anthropic: "claude-sonnet-4-5",
   openai: "gpt-4o",
   "openai-codex": "gpt-5.2",
+  "claude-cli": "opus",
 };
 
 export interface OnboardOptions {
@@ -48,10 +49,11 @@ export async function runOnboarding(options: OnboardOptions = {}): Promise<void>
     log.info("  1. anthropic     - Anthropic Claude (setup-token or API Key)");
     log.info("  2. openai        - OpenAI (API Key)");
     log.info("  3. openai-codex  - OpenAI Codex (ChatGPT Plus/Pro OAuth)");
+    log.info("  4. claude-cli    - Claude CLI (local `claude` command)");
 
     const providerAns = await ask(
       rl,
-      "\nSelect provider (1-3 or name) [anthropic]: "
+      "\nSelect provider (1-4 or name) [anthropic]: "
     );
 
     // Map numeric input to provider ID
@@ -59,9 +61,11 @@ export async function runOnboarding(options: OnboardOptions = {}): Promise<void>
       "1": "anthropic",
       "2": "openai",
       "3": "openai-codex",
+      "4": "claude-cli",
       "anthropic": "anthropic",
       "openai": "openai",
       "openai-codex": "openai-codex",
+      "claude-cli": "claude-cli",
     };
 
     let providerId: LLMProviderId =
@@ -149,6 +153,28 @@ export async function runOnboarding(options: OnboardOptions = {}): Promise<void>
         );
       }
       apiKeyValue = "oauth";
+    } else if (providerId === "claude-cli") {
+      // Claude CLI uses local `claude` command - check if it's available
+      log.info("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+      log.info("  Claude CLI provider");
+      log.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+      log.info("");
+      log.info("  This uses the local `claude` CLI command.");
+      log.info("  Install: npm install -g @anthropic-ai/claude-code");
+      log.info("  Auth:    claude login (or claude setup-token)");
+      log.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+      log.info("");
+
+      // Check if claude command is available
+      const { execSync } = await import("node:child_process");
+      try {
+        execSync("which claude", { stdio: "ignore" });
+        log.info("✓ claude command found");
+      } catch {
+        log.warn("⚠ claude command not found. Install it before starting the bot.");
+      }
+
+      apiKeyValue = ""; // CLI providers don't need API key
     }
 
     // Build provider config

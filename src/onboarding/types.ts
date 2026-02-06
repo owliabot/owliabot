@@ -1,5 +1,5 @@
 /** Supported LLM provider identifiers */
-export type LLMProviderId = "anthropic" | "openai" | "openai-codex";
+export type LLMProviderId = "anthropic" | "openai" | "openai-codex" | "claude-cli";
 
 /** Provider configuration with OAuth or API key auth */
 export type ProviderConfig =
@@ -25,6 +25,12 @@ export type ProviderConfig =
       id: "anthropic";
       model: string;
       apiKey: string; // Anthropic API key (from secrets or env)
+      priority: number;
+    }
+  | {
+      id: "claude-cli";
+      model: string;
+      apiKey: ""; // CLI providers don't need API key
       priority: number;
     }
   | {
