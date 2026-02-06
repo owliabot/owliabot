@@ -18,6 +18,7 @@ import {
   type SupportedOAuthProvider,
 } from "./auth/oauth.js";
 import { runOnboarding } from "./onboarding/onboard.js";
+import { runDockerOnboarding } from "./onboarding/onboard-docker.js";
 import { DEV_APP_CONFIG_PATH } from "./onboarding/storage.js";
 
 const log = logger;
@@ -107,11 +108,21 @@ program
 
 program
   .command("onboard")
-  .description("Interactive onboarding (dev): writes ~/.owlia_dev/app.yaml and guides OAuth")
-  .option("--path <path>", "App config output path", DEV_APP_CONFIG_PATH)
+  .description("Interactive onboarding: configure providers, channels, and generate config files")
+  .option("--path <path>", "App config output path (dev mode)", DEV_APP_CONFIG_PATH)
+  .option("--docker", "Docker-aware mode: generates docker-compose.yml and full secrets")
+  .option("--config-dir <path>", "Config output directory (docker mode)", "./config")
+  .option("--output-dir <path>", "Output directory for docker-compose.yml", ".")
   .action(async (options) => {
     try {
-      await runOnboarding({ appConfigPath: options.path });
+      if (options.docker) {
+        await runDockerOnboarding({
+          configDir: options.configDir,
+          outputDir: options.outputDir,
+        });
+      } else {
+        await runOnboarding({ appConfigPath: options.path });
+      }
     } catch (err) {
       log.error("Onboarding failed", err);
       process.exit(1);

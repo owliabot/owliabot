@@ -18,6 +18,7 @@ const DEFAULT_MODELS: Record<LLMProviderId, string> = {
   anthropic: "claude-sonnet-4-5",
   openai: "gpt-4o",
   "openai-codex": "gpt-5.2",
+  "openai-compatible": "llama3.2",
 };
 
 export interface OnboardOptions {
