@@ -13,15 +13,35 @@ import { readFileSync, existsSync } from "node:fs";
 import type { ToolDefinition } from "../interface.js";
 import type { SessionStore } from "../../session-store.js";
 import type { SessionTranscriptStore } from "../../session-transcript.js";
+import type { SystemCapabilityConfig } from "../../../system/interface.js";
 import { filterToolsByPolicy, type ToolPolicy } from "../policy.js";
 import { createLogger } from "../../../utils/logger.js";
 
+// Core tools
 import { echoTool } from "./echo.js";
+
+// Session tools
 import { createClearSessionTool } from "./clear-session.js";
+
+// Memory tools
 import { createMemorySearchTool } from "./memory-search.js";
 import { createMemoryGetTool } from "./memory-get.js";
+
+// FS read tools
 import { createListFilesTool } from "./list-files.js";
+import { createReadFileTool } from "./read-file.js";
+
+// FS write tools (gated by allowWrite)
 import { createEditFileTool } from "./edit-file.js";
+import { createWriteFileTool } from "./write-file.js";
+import { createApplyPatchTool } from "./apply-patch.js";
+
+// System tools (require capability config)
+import { createExecTool, type ExecToolDeps } from "./exec.js";
+import { createWebFetchTool, type WebFetchToolDeps } from "./web-fetch.js";
+import { createWebSearchTool, type WebSearchToolDeps } from "./web-search.js";
+
+// Wallet tools (require wallet config)
 import { createWalletBalanceTool } from "./wallet-balance.js";
 import { createWalletTransferTool } from "./wallet-transfer.js";
 import type { ClawletClientConfig } from "../../../wallet/index.js";
@@ -59,11 +79,23 @@ export interface BuiltinToolsOptions {
 
   /** Tool configuration */
   tools?: {
-    /** Enable write tools (edit_file). Default: false */
+    /** Enable write tools (edit_file, write_file, apply_patch). Default: false */
     allowWrite?: boolean;
     /** Policy for filtering tools */
     policy?: ToolPolicy;
   };
+
+  /**
+   * System capability configuration for exec/web tools.
+   * If not provided, exec and web tools will not be created.
+   */
+  system?: SystemCapabilityConfig;
+
+  /**
+   * Optional fetch implementation for web tools.
+   * Defaults to global fetch.
+   */
+  fetchImpl?: typeof fetch;
 
   /** Wallet configuration (Clawlet integration) */
   wallet?: WalletFactoryConfig;
@@ -101,6 +133,15 @@ function resolveAuthToken(clawletConfig?: WalletFactoryConfig["clawlet"]): strin
 /**
  * Create all builtin tools (except help and cron).
  *
+ * Tools are organized by category:
+ * - **Core tools** (always available): echo
+ * - **Session tools**: clear_session
+ * - **Memory tools**: memory_search, memory_get
+ * - **FS read tools**: list_files, read_file
+ * - **FS write tools** (gated by allowWrite): edit_file, write_file, apply_patch
+ * - **System tools** (require system config): exec, web_fetch, web_search
+ * - **Wallet tools** (require wallet config): wallet_balance, wallet_transfer
+ *
  * Usage:
  * ```ts
  * const tools = new ToolRegistry();
@@ -118,21 +159,79 @@ function resolveAuthToken(clawletConfig?: WalletFactoryConfig["clawlet"]): strin
 export function createBuiltinTools(
   opts: BuiltinToolsOptions,
 ): ToolDefinition[] {
-  const { workspace, sessionStore, transcripts, tools: toolsConfig, wallet: walletConfig } = opts;
+  const {
+    workspace,
+    sessionStore,
+    transcripts,
+    tools: toolsConfig,
+    system,
+    fetchImpl,
+    wallet: walletConfig,
+  } = opts;
+
+  const allowWrite = toolsConfig?.allowWrite ?? false;
 
   const builtins: (ToolDefinition | null)[] = [
+    // ─────────────────────────────────────────────────────────────────────────
     // Core tools (always available)
+    // ─────────────────────────────────────────────────────────────────────────
     echoTool,
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Session tools
+    // ─────────────────────────────────────────────────────────────────────────
     createClearSessionTool({ sessionStore, transcripts }),
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Memory tools
+    // ─────────────────────────────────────────────────────────────────────────
     createMemorySearchTool({ workspace }),
     createMemoryGetTool({ workspace }),
-    createListFilesTool({ workspace }),
 
-    // Write tools (gated by config)
-    toolsConfig?.allowWrite ? createEditFileTool({ workspace }) : null,
+    // ─────────────────────────────────────────────────────────────────────────
+    // FS read tools (always available)
+    // ─────────────────────────────────────────────────────────────────────────
+    createListFilesTool({ workspace }),
+    createReadFileTool(workspace),
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // FS write tools (gated by allowWrite)
+    // ─────────────────────────────────────────────────────────────────────────
+    allowWrite ? createEditFileTool({ workspace }) : null,
+    allowWrite ? createWriteFileTool(workspace) : null,
+    allowWrite ? createApplyPatchTool(workspace) : null,
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // System tools (require capability config)
+    // ─────────────────────────────────────────────────────────────────────────
+    system?.exec
+      ? createExecTool({
+          workspacePath: workspace,
+          config: system.exec,
+        })
+      : null,
+
+    system?.web
+      ? createWebFetchTool({
+          config: system.web,
+          fetchImpl,
+        })
+      : null,
+
+    // web_search needs the full SystemCapabilityConfig (for API keys, etc.)
+    // Gate on webSearch or web config to avoid unintentionally exposing search
+    // when only exec is configured
+    system?.webSearch || system?.web
+      ? createWebSearchTool({
+          config: system,
+          fetchImpl,
+        })
+      : null,
   ];
 
+  // ─────────────────────────────────────────────────────────────────────────
   // Wallet tools (gated by wallet.enabled)
+  // ─────────────────────────────────────────────────────────────────────────
   if (walletConfig?.enabled && walletConfig.provider === "clawlet") {
     const authToken = resolveAuthToken(walletConfig.clawlet);
     const clawletClientConfig: ClawletClientConfig = {
@@ -157,9 +256,12 @@ export function createBuiltinTools(
     );
   }
 
-  // Filter out null entries
+  // Filter out null entries (disabled tools)
   const tools = builtins.filter((t): t is ToolDefinition => t !== null);
 
   // Apply policy filtering
   return filterToolsByPolicy(tools, toolsConfig?.policy);
 }
+
+// Re-export tool deps types for consumers
+export type { ExecToolDeps, WebFetchToolDeps, WebSearchToolDeps };
