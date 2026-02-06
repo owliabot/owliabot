@@ -8,6 +8,24 @@
 import { createInterface } from "node:readline";
 import { existsSync, readFileSync, mkdirSync, writeFileSync, chmodSync } from "node:fs";
 import { join } from "node:path";
+
+/**
+ * Safely chmod a path, ignoring EPERM errors from bind-mounted volumes.
+ * When running in Docker with host-mounted volumes, the container user (uid 1001)
+ * may not have permission to chmod directories owned by the host user.
+ * install.sh already sets proper permissions on the host side.
+ */
+function safeChmod(path: string, mode: number): void {
+  try {
+    chmodSync(path, mode);
+  } catch (err: unknown) {
+    if ((err as NodeJS.ErrnoException).code === "EPERM") {
+      // Ignore EPERM - likely a bind-mounted volume with host ownership
+      return;
+    }
+    throw err;
+  }
+}
 import { randomBytes } from "node:crypto";
 import { homedir } from "node:os";
 import { stringify as yamlStringify } from "yaml";
@@ -363,7 +381,7 @@ export async function runDockerOnboarding(options: DockerOnboardOptions = {}): P
     const home = homedir();
     const owliabotHome = join(home, ".owliabot");
     mkdirSync(owliabotHome, { recursive: true });
-    chmodSync(owliabotHome, 0o700);
+    safeChmod(owliabotHome, 0o700);
     mkdirSync(join(owliabotHome, "auth"), { recursive: true });
     
     // Write secrets.yaml using YAML serializer (safe escaping)
@@ -385,7 +403,7 @@ ${yamlStringify(secretsData, { indent: 2 })}`;
     
     const secretsPath = join(owliabotHome, "secrets.yaml");
     writeFileSync(secretsPath, secretsYaml);
-    chmodSync(secretsPath, 0o600);
+    safeChmod(secretsPath, 0o600);
     success(`Wrote ${secretsPath} (chmod 600)`);
     
     // Write app.yaml
