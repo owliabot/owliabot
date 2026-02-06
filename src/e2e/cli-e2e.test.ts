@@ -21,16 +21,20 @@ async function run(cmd: string, args: string[], opts?: { cwd?: string }) {
 }
 
 async function runOnboardCli(opts: { cwd: string; appYamlPath: string; answers: string[] }) {
+  // Updated prompts to match refactored onboard.ts with selectOption
   const prompts = [
-    "Enable channels (discord/telegram) [discord]: ",
-    "Workspace path [./workspace]: ",
-    "Select provider (1-3 or name) [anthropic]: ",
-    "Model [claude-sonnet-4-5]: ",
-    "Paste setup-token or API key (leave empty to set via ANTHROPIC_API_KEY env): ",
-    "In guild, require @mention unless channel allowlisted? (y/n) [y]: ",
-    "Discord guild channelAllowList (comma-separated channel IDs) [1467915124764573736]: ",
-    "Discord bot token (leave empty to set later via `owliabot token set discord`) [skip]: ",
-    "Telegram bot token (leave empty to set later via `owliabot token set telegram`) [skip]: ",
+    "Select [1-3]: ",                                    // Chat platform: 3 = Both
+    "Discord bot token (leave empty to set later): ",    // Discord token
+    "Telegram bot token (leave empty to set later): ",   // Telegram token
+    "Workspace path [./workspace]: ",                    // Workspace
+    "Select [1-5]: ",                                    // AI provider: 1 = Anthropic
+    "Paste setup-token or API key (leave empty for env var): ", // Anthropic key
+    "Model [claude-sonnet-4-5]: ",                       // Model
+    "Enable Gateway HTTP? [y/N]: ",                      // Gateway
+    "In guild, require @mention unless channel allowlisted? (y/n) [y]: ", // Discord mention
+    "Discord guild channelAllowList (comma-separated channel IDs, empty = none): ", // Channel list
+    "Discord memberAllowList (comma-separated user IDs, empty = allow all): ", // Member list
+    "Telegram allowList (comma-separated user IDs, empty = allow all): ", // Telegram allowlist
   ];
 
   const child = spawn("node", ["dist/entry.js", "onboard", "--path", opts.appYamlPath], {
@@ -105,19 +109,23 @@ describe.sequential("E2E: CLI onboard -> config/secrets -> gateway-http", () => 
     "runs onboarding, validates generated config, starts gateway, and exercises pairing + tool + events",
     async () => {
       // Step 2 + 3 — Execute onboard (simulate stdin, no real tokens)
+      // Answers match the new refactored prompts order
       await runOnboardCli({
         cwd: repoRoot,
         appYamlPath,
         answers: [
-          "discord,telegram", // Enable channels
-          workspacePath, // Workspace path
-          "anthropic", // Provider selection
-          "", // Model (default claude-sonnet-4-5)
-          "sk-ant-api-test-e2e-fake-key", // Fake API key for testing
-          "", // requireMentionInGuild (default y)
-          "", // channelAllowList (default)
-          "test-discord-token-e2e", // Discord token
-          "test-telegram-token-e2e", // Telegram token
+          "3",                             // Chat platform: 3 = Both (Discord + Telegram)
+          "test-discord-token-e2e",        // Discord token
+          "test-telegram-token-e2e",       // Telegram token
+          workspacePath,                   // Workspace path
+          "1",                             // AI provider: 1 = Anthropic
+          "sk-ant-api-test-e2e-fake-key",  // Anthropic API key
+          "",                              // Model (default claude-sonnet-4-5)
+          "n",                             // Gateway HTTP: no
+          "y",                             // requireMentionInGuild: yes
+          "1467915124764573736",           // channelAllowList
+          "",                              // memberAllowList (empty = allow all)
+          "",                              // Telegram allowList (empty = allow all)
         ],
       });
 
