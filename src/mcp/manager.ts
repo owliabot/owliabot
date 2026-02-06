@@ -144,10 +144,18 @@ export class MCPManager {
       this.invalidateToolsCache();
 
       // Set up tools changed listener
+      // Note: We fetch tools async first to repopulate cache before notifying
       client.onToolsChanged(() => {
         adapter.invalidateCache();
         this.invalidateToolsCache();
-        this.notifyToolsChanged();
+        // Fetch tools async to repopulate cache, then notify
+        adapter.getTools().then(() => {
+          this.notifyToolsChanged();
+        }).catch((err) => {
+          log.warn(`Failed to refresh tools after list_changed: ${err}`);
+          // Still notify even on error so listeners know something changed
+          this.notifyToolsChanged();
+        });
       });
 
       log.info(
@@ -159,7 +167,15 @@ export class MCPManager {
 
       return tools.map((t) => t.name);
     } catch (err) {
-      // Clean up on failure
+      // Clean up on failure - close client first if it was created
+      const client = this.clients.get(validatedConfig.name);
+      if (client) {
+        try {
+          await client.close();
+        } catch (closeErr) {
+          log.warn(`Failed to close client during cleanup: ${closeErr}`);
+        }
+      }
       this.clients.delete(validatedConfig.name);
       this.adapters.delete(validatedConfig.name);
       this.serverInfos.delete(validatedConfig.name);
