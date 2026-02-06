@@ -22,6 +22,8 @@ async function run(cmd: string, args: string[], opts?: { cwd?: string }) {
 
 async function runOnboardCli(opts: { cwd: string; appYamlPath: string; answers: string[] }) {
   // Updated prompts to match refactored onboard.ts with selectOption
+  // Note: requireMentionInGuild, channelAllowList, memberAllowList, and Telegram allowList
+  // now use defaults and are no longer prompted during onboarding
   const prompts = [
     "Select [1-3]: ",                                    // Chat platform: 3 = Both
     "Discord bot token (leave empty to set later): ",    // Discord token
@@ -31,10 +33,6 @@ async function runOnboardCli(opts: { cwd: string; appYamlPath: string; answers: 
     "Paste setup-token or API key (leave empty for env var): ", // Anthropic key
     "Model [claude-sonnet-4-5]: ",                       // Model
     "Enable Gateway HTTP? [y/N]: ",                      // Gateway
-    "In guild, require @mention unless channel allowlisted? (y/n) [y]: ", // Discord mention
-    "Discord guild channelAllowList (comma-separated channel IDs, empty = none): ", // Channel list
-    "Discord memberAllowList (comma-separated user IDs, empty = allow all): ", // Member list
-    "Telegram allowList (comma-separated user IDs, empty = allow all): ", // Telegram allowlist
   ];
 
   const child = spawn("node", ["dist/entry.js", "onboard", "--path", opts.appYamlPath], {
@@ -110,6 +108,7 @@ describe.sequential("E2E: CLI onboard -> config/secrets -> gateway-http", () => 
     async () => {
       // Step 2 + 3 — Execute onboard (simulate stdin, no real tokens)
       // Answers match the new refactored prompts order
+      // Note: requireMentionInGuild defaults to true, channelAllowList defaults to []
       await runOnboardCli({
         cwd: repoRoot,
         appYamlPath,
@@ -122,10 +121,6 @@ describe.sequential("E2E: CLI onboard -> config/secrets -> gateway-http", () => 
           "sk-ant-api-test-e2e-fake-key",  // Anthropic API key
           "",                              // Model (default claude-sonnet-4-5)
           "n",                             // Gateway HTTP: no
-          "y",                             // requireMentionInGuild: yes
-          "1467915124764573736",           // channelAllowList
-          "",                              // memberAllowList (empty = allow all)
-          "",                              // Telegram allowList (empty = allow all)
         ],
       });
 
@@ -142,7 +137,7 @@ describe.sequential("E2E: CLI onboard -> config/secrets -> gateway-http", () => 
 
       expect(app.discord).toBeTruthy();
       expect(app.discord.requireMentionInGuild).toBe(true);
-      expect(app.discord.channelAllowList).toContain("1467915124764573736");
+      expect(app.discord.channelAllowList).toEqual([]);
 
       // Onboarding only writes telegram section if token was provided
       expect(app.telegram).toEqual({});
