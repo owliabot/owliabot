@@ -44,7 +44,6 @@ describe("interface", () => {
     const context: ToolContext = {
       sessionKey: "test:session",
       agentId: "agent-1",
-      signer: null,
       config: {},
     };
 

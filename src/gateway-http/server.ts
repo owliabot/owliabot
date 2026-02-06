@@ -303,7 +303,6 @@ export async function startGatewayHttp(opts: {
         context: {
           sessionKey: `gateway:${deviceId}`,
           agentId: "gateway-http",
-          signer: null,
           config: {},
         },
       });

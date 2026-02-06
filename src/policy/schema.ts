@@ -1,6 +1,9 @@
 /**
  * Zod schema for policy.yml validation
  * @see docs/design/tier-policy.md Section 3.2
+ *
+ * Note: Wallet signing (session keys) is delegated to Clawlet.
+ * This policy handles tool execution tiers and confirmations.
  */
 
 import { z } from "zod";
@@ -50,14 +53,6 @@ export const policySchema = z.object({
     tier2MaxUsd: z.number(),
     tier2DailyUsd: z.number(),
     tier3MaxUsd: z.number(),
-    sessionKeyTtlHours: z.number(),
-    sessionKeyMaxBalance: z.string(),
-  }),
-  emergencyStop: z.object({
-    enabled: z.boolean(),
-    commands: z.array(z.string()),
-    channels: z.array(z.string()),
-    action: z.enum(["revoke-all-session-keys", "pause-all", "shutdown"]),
   }),
   tools: z.record(z.string(), toolPolicySchema),
   wildcards: z

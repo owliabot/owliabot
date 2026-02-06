@@ -42,7 +42,6 @@ describe("memory_search tool (sqlite)", () => {
         {
           sessionKey: "test",
           agentId: "main",
-          signer: null,
           config: {
             memorySearch: {
               enabled: true,
@@ -83,7 +82,6 @@ describe("memory_search tool (sqlite)", () => {
         {
           sessionKey: "test",
           agentId: "main",
-          signer: null,
           config: {
             memorySearch: {
               enabled: true,
@@ -127,7 +125,6 @@ describe("memory_search tool (sqlite)", () => {
         {
           sessionKey: "test",
           agentId: "main",
-          signer: null,
           config: {
             memorySearch: {
               enabled: true,
@@ -177,7 +174,6 @@ describe("memory_search tool (sqlite)", () => {
         {
           sessionKey: "test",
           agentId: "main",
-          signer: null,
           config: {
             memorySearch: {
               enabled: true,
@@ -235,7 +231,6 @@ describe("memory_search tool (sqlite)", () => {
         {
           sessionKey: "test",
           agentId: "main",
-          signer: null,
           config: {
             memorySearch: {
               enabled: true,
@@ -278,7 +273,6 @@ describe("memory_search tool (sqlite)", () => {
         {
           sessionKey: "test",
           agentId: "main",
-          signer: null,
           config: {
             memorySearch: {
               enabled: true,
@@ -335,7 +329,6 @@ describe("memory_search tool (sqlite, transcripts source)", () => {
         {
           sessionKey: "test",
           agentId: "main",
-          signer: null,
           config: {
             memorySearch: {
               enabled: true,
@@ -388,7 +381,6 @@ describe("memory_search tool (sqlite, transcripts source)", () => {
         {
           sessionKey: "test",
           agentId: "main",
-          signer: null,
           config: {
             memorySearch: {
               enabled: true,
@@ -444,7 +436,6 @@ describe("memory_search tool (sqlite, transcripts source)", () => {
         {
           sessionKey: "test",
           agentId: "main",
-          signer: null,
           config: {
             memorySearch: {
               enabled: true,
@@ -501,7 +492,6 @@ describe("memory_search tool (sqlite, transcripts source)", () => {
         {
           sessionKey: "test",
           agentId: "main",
-          signer: null,
           config: {
             memorySearch: {
               enabled: true,
@@ -564,7 +554,6 @@ describe("memory_search tool (sqlite, transcripts source)", () => {
         {
           sessionKey: "test",
           agentId: "main",
-          signer: null,
           config: {
             memorySearch: {
               enabled: true,
@@ -608,7 +597,6 @@ describe("memory_search tool (provider fallback)", () => {
         {
           sessionKey: "test",
           agentId: "main",
-          signer: null,
           config: {
             memorySearch: {
               enabled: true,
@@ -645,7 +633,6 @@ describe("memory_search tool (provider fallback)", () => {
         {
           sessionKey: "test",
           agentId: "main",
-          signer: null,
           config: {
             memorySearch: {
               enabled: true,
@@ -683,7 +670,6 @@ describe("memory_search tool (provider fallback)", () => {
         {
           sessionKey: "test",
           agentId: "main",
-          signer: null,
           config: {
             memorySearch: {
               enabled: true,

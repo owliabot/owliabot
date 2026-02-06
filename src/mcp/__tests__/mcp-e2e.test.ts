@@ -152,7 +152,7 @@ describe.sequential("MCP E2E: Adapter", () => {
 
     const result = await echoTool.execute(
       { message: "Adapter test" },
-      { sessionKey: "test", agentId: "e2e", signer: null, config: {} }
+      { sessionKey: "test", agentId: "e2e", config: {} }
     );
 
     expect(result.success).toBe(true);
@@ -165,7 +165,7 @@ describe.sequential("MCP E2E: Adapter", () => {
 
     const result = await failTool.execute(
       {},
-      { sessionKey: "test", agentId: "e2e", signer: null, config: {} }
+      { sessionKey: "test", agentId: "e2e", config: {} }
     );
 
     expect(result.success).toBe(false);
@@ -297,7 +297,7 @@ describe.sequential("MCP E2E: Timeout handling", () => {
     // Request 500ms delay, but timeout is 100ms
     const result = await slowTool.execute(
       { delayMs: 500 },
-      { sessionKey: "test", agentId: "e2e", signer: null, config: {} }
+      { sessionKey: "test", agentId: "e2e", config: {} }
     );
 
     expect(result.success).toBe(false);
@@ -317,7 +317,7 @@ describe.sequential("MCP E2E: Timeout handling", () => {
     // Request 100ms delay, timeout is 2s
     const result = await slowTool.execute(
       { delayMs: 100 },
-      { sessionKey: "test", agentId: "e2e", signer: null, config: {} }
+      { sessionKey: "test", agentId: "e2e", config: {} }
     );
 
     expect(result.success).toBe(true);

@@ -2,6 +2,9 @@
  * Tool executor - runs tools with tier-based policy and audit
  * @see design.md Section 5.2
  * @see docs/design/tier-policy.md
+ *
+ * Note: Wallet signing is delegated to Clawlet. This module handles
+ * tool execution policy, audit logging, and write-tool confirmations.
  */
 
 import { createLogger } from "../../utils/logger.js";
@@ -9,9 +12,6 @@ import { PolicyEngine } from "../../policy/engine.js";
 import { CooldownTracker } from "../../policy/cooldown.js";
 import { AuditLogger, type AuditEntry } from "../../audit/logger.js";
 import { AuditQueryService } from "../../audit/query.js";
-import { SessionKeyLogger } from "../../audit/session-key-logger.js";
-import { AutoRevokeService } from "../../audit/auto-revoke.js";
-import { EmergencyStop } from "../../policy/emergency.js";
 import type {
   ToolDefinition,
   ToolCall,
@@ -40,13 +40,10 @@ export interface ExecutorOptions {
   };
   workspacePath?: string;
   userId?: string;
-  // Policy engine options (Tier 1/2/3)
+  // Policy engine options
   policyEngine?: PolicyEngine;
   auditLogger?: AuditLogger;
   auditQueryService?: AuditQueryService;
-  sessionKeyLogger?: SessionKeyLogger;
-  autoRevokeService?: AutoRevokeService;
-  emergencyStop?: EmergencyStop;
   cooldownTracker?: CooldownTracker;
 }
 
@@ -54,10 +51,7 @@ export interface ExecutorOptions {
 let globalPolicyEngine: PolicyEngine | null = null;
 let globalAuditLogger: AuditLogger | null = null;
 let globalAuditQueryService: AuditQueryService | null = null;
-let globalSessionKeyLogger: SessionKeyLogger | null = null;
 let globalCooldownTracker: CooldownTracker | null = null;
-let globalAutoRevokeService: AutoRevokeService | null = null;
-let globalEmergencyStop: EmergencyStop | null = null;
 
 function getOrCreatePolicyEngine(): PolicyEngine {
   if (!globalPolicyEngine) {
@@ -80,64 +74,11 @@ function getOrCreateAuditQueryService(): AuditQueryService {
   return globalAuditQueryService;
 }
 
-function getOrCreateSessionKeyLogger(): SessionKeyLogger {
-  if (!globalSessionKeyLogger) {
-    globalSessionKeyLogger = new SessionKeyLogger();
-  }
-  return globalSessionKeyLogger;
-}
-
 function getOrCreateCooldownTracker(): CooldownTracker {
   if (!globalCooldownTracker) {
     globalCooldownTracker = new CooldownTracker();
   }
   return globalCooldownTracker;
-}
-
-function getOrCreateAutoRevokeService(): AutoRevokeService {
-  if (!globalAutoRevokeService) {
-    const sessionKeyLogger = getOrCreateSessionKeyLogger();
-    const handlers = {
-      revokeSessionKey: async (reason: string) => {
-        log.warn(`Auto-revoke triggered: ${reason}`);
-      },
-      pauseTool: async (tool: string, reason: string) => {
-        log.warn(`Pause tool ${tool}: ${reason}`);
-      },
-      notify: async (message: string) => {
-        log.info(`Notification: ${message}`);
-      },
-      emergencyStop: async (reason: string) => {
-        log.error(`Emergency stop: ${reason}`);
-      },
-    };
-    globalAutoRevokeService = new AutoRevokeService(handlers, sessionKeyLogger);
-  }
-  return globalAutoRevokeService;
-}
-
-function getOrCreateEmergencyStop(): EmergencyStop {
-  if (!globalEmergencyStop) {
-    const sessionKeyLogger = getOrCreateSessionKeyLogger();
-    const auditLogger = getOrCreateAuditLogger();
-    const handlers = {
-      revokeAllSessionKeys: async () => {
-        log.warn("Revoking all session keys");
-        return [];
-      },
-      pauseAllToolExecution: async () => {
-        log.warn("Pausing all tool execution");
-      },
-      resumeAllToolExecution: async () => {
-        log.info("Resuming all tool execution");
-      },
-      notify: async (message: string) => {
-        log.info(`Emergency notification: ${message}`);
-      },
-    };
-    globalEmergencyStop = new EmergencyStop(handlers, sessionKeyLogger, auditLogger);
-  }
-  return globalEmergencyStop;
 }
 
 /**
@@ -221,8 +162,6 @@ export async function executeToolCall(
   const auditLogger = options.auditLogger ?? getOrCreateAuditLogger();
   const auditQueryService = options.auditQueryService ?? getOrCreateAuditQueryService();
   const cooldownTracker = options.cooldownTracker ?? getOrCreateCooldownTracker();
-  const autoRevokeService = options.autoRevokeService ?? getOrCreateAutoRevokeService();
-  const emergencyStop = options.emergencyStop ?? getOrCreateEmergencyStop();
 
   const tool = registry.get(call.name);
   if (!tool) {
@@ -230,15 +169,6 @@ export async function executeToolCall(
     return {
       success: false,
       error: `Unknown tool: ${call.name}`,
-    };
-  }
-
-  // Check emergency stop
-  if (emergencyStop.isStopped()) {
-    log.error("Tool execution blocked: emergency stop active");
-    return {
-      success: false,
-      error: "Emergency stop active - all operations paused",
     };
   }
 
@@ -293,52 +223,11 @@ export async function executeToolCall(
 
   // Build escalation context using policy thresholds
   const policyThresholds = await policyEngine.getThresholds();
-  const signerTierValue = context.signer?.tier;
   const escalationContext: EscalationContext = {
     amountUsd,
-    // Only mark session key as available if the signer is actually a session-key type
-    // (not app-tier or contract signers)
-    sessionKey: signerTierValue === "session-key"
-      ? {
-          id: context.sessionKey,
-          expired: false,
-          revoked: false,
-        }
-      : undefined,
     thresholds: policyThresholds,
     dailySpentUsd: auditContext.dailySpentUsd,
     consecutiveDenials: auditContext.consecutiveDenials,
-  };
-
-  // Helper: feed entry into anomaly detection for all outcomes
-  const feedAnomaly = async (
-    result: AuditEntry["result"],
-    opts: {
-      id: string;
-      tier: AuditEntry["tier"];
-      effectiveTier: AuditEntry["effectiveTier"];
-      sessionKeyId?: string;
-    },
-  ) => {
-    try {
-      await autoRevokeService.onAuditEntry({
-        id: opts.id,
-        ts: new Date().toISOString(),
-        version: 1,
-        tool: call.name,
-        tier: opts.tier,
-        effectiveTier: opts.effectiveTier,
-        securityLevel: tool.security.level,
-        user: stableUserId,
-        channel: "unknown",
-        params: call.arguments as Record<string, unknown>,
-        result,
-        duration: Date.now() - startTime,
-        sessionKeyId: opts.sessionKeyId,
-      });
-    } catch (err) {
-      log.warn("Anomaly detection failed", err);
-    }
   };
 
   // Track audit entry id for try/finally finalization
@@ -395,11 +284,6 @@ export async function executeToolCall(
         });
         if (authAudit.ok) {
           await auditLogger.finalize(authAudit.id, "denied", "not-in-allowedUsers");
-          await feedAnomaly("denied", {
-            id: authAudit.id,
-            tier: decision.tier,
-            effectiveTier: decision.effectiveTier,
-          });
         }
         return {
           success: false,
@@ -424,11 +308,6 @@ export async function executeToolCall(
       });
       if (cooldownAudit.ok) {
         await auditLogger.finalize(cooldownAudit.id, "denied", cooldownCheck.reason);
-        await feedAnomaly("denied", {
-          id: cooldownAudit.id,
-          tier: decision.tier,
-          effectiveTier: decision.effectiveTier,
-        });
       }
       return {
         success: false,
@@ -436,7 +315,7 @@ export async function executeToolCall(
       };
     }
 
-    // 3. Pre-log (fail-closed)
+    // 4. Pre-log (fail-closed)
     const auditEntry = await auditLogger.preLog({
       tool: call.name,
       tier: decision.tier,
@@ -458,20 +337,10 @@ export async function executeToolCall(
 
     auditEntryId = auditEntry.id;
 
-    // Derive sessionKeyId for anomaly tracking
-    const sessionKeyId = signerTierValue === "session-key" ? context.sessionKey : undefined;
-    const anomalyOpts = {
-      id: auditEntry.id,
-      tier: decision.tier,
-      effectiveTier: decision.effectiveTier,
-      sessionKeyId,
-    };
-
-    // 4. Handle decision
+    // 5. Handle decision
     if (decision.action === "deny") {
       await auditLogger.finalize(auditEntry.id, "denied", decision.reason);
       auditFinalized = true;
-      await feedAnomaly("denied", anomalyOpts);
       return {
         success: false,
         error: decision.reason ?? "Operation denied by policy",
@@ -481,7 +350,6 @@ export async function executeToolCall(
     if (decision.action === "escalate") {
       await auditLogger.finalize(auditEntry.id, "escalated", decision.reason);
       auditFinalized = true;
-      await feedAnomaly("escalated", anomalyOpts);
       return {
         success: false,
         error:
@@ -499,27 +367,13 @@ export async function executeToolCall(
         "confirmation-not-implemented"
       );
       auditFinalized = true;
-      await feedAnomaly("denied", anomalyOpts);
       return {
         success: false,
         error: "Confirmation flow not yet implemented",
       };
     }
 
-    // 4b. Enforce tier→signer selection (P1-2)
-    // If policy requires session-key signing, verify the actual signer matches
-    if (decision.signerTier === "session-key" && signerTierValue !== "session-key") {
-      log.warn(`Signer tier mismatch: policy requires session-key but signer is ${signerTierValue ?? "null"}`);
-      await auditLogger.finalize(auditEntry.id, "escalated", "signer-tier-mismatch");
-      auditFinalized = true;
-      await feedAnomaly("escalated", anomalyOpts);
-      return {
-        success: false,
-        error: `Operation requires session-key signer but current signer is ${signerTierValue ?? "unavailable"}. Please create or activate a session key.`,
-      };
-    }
-
-    // 5. Execute tool
+    // 6. Execute tool
     log.info(`Executing tool: ${call.name} (Tier ${decision.effectiveTier})`);
     const result = await tool.execute(call.arguments, {
       ...context,
@@ -528,7 +382,7 @@ export async function executeToolCall(
 
     const duration = Date.now() - startTime;
 
-    // 6. Finalize audit log
+    // 7. Finalize audit log
     await auditLogger.finalize(
       auditEntry.id,
       result.success ? "success" : "error",
@@ -540,16 +394,10 @@ export async function executeToolCall(
     );
     auditFinalized = true;
 
-    // 7. Record cooldown
+    // 8. Record cooldown
     if (result.success) {
       cooldownTracker.record(call.name, policy);
     }
-
-    // 8. Anomaly detection
-    await feedAnomaly(result.success ? "success" : "error", {
-      ...anomalyOpts,
-      id: auditEntry.id,
-    });
 
     log.info(`Tool ${call.name} completed: ${result.success}`, { duration });
     return result;
@@ -565,15 +413,6 @@ export async function executeToolCall(
       } catch (finalizeErr) {
         log.error("Failed to finalize audit entry on exception", finalizeErr);
       }
-    }
-
-    // Feed anomaly with best-available data
-    if (auditEntryId) {
-      await feedAnomaly("error", {
-        id: auditEntryId,
-        tier: "none",
-        effectiveTier: "none",
-      });
     }
 
     return {

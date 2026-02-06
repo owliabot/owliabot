@@ -41,51 +41,28 @@ describe("PolicyEngine", () => {
     expect(decision.effectiveTier).toBe("none");
   });
 
-  it("should escalate when session key unavailable", async () => {
-    const ctxNoSession: EscalationContext = {
-      ...context,
-      sessionKey: {
-        id: "sk_123",
-        expired: true,
-        revoked: false,
-      },
-    };
-    const decision = await engine.decide("edit_file", {}, ctxNoSession);
-    expect(decision.action).toBe("escalate");
-    expect(decision.effectiveTier).toBe(1);
-    expect(decision.reason).toBe("session-key-unavailable");
-  });
-
   it("should deny Tier 3 tool when amount exceeds per-tool maxAmount", async () => {
     const ctxWithAmount: EscalationContext = {
       ...context,
       amountUsd: 10, // exceeds gas__refuel maxAmount.usd of 5
-      sessionKey: { id: "sk_123", expired: false, revoked: false },
     };
     const decision = await engine.decide("gas__refuel", {}, ctxWithAmount);
     expect(decision.action).toBe("deny");
     expect(decision.reason).toContain("exceeds tool limit");
   });
 
-  it("should escalate Tier 3 when amount exceeds tier threshold but within maxAmount", async () => {
-    // Use a tool without per-tool maxAmount, or amount within maxAmount but above tier3MaxUsd
+  it("should allow Tier 3 tool when amount is within maxAmount", async () => {
     const ctxWithAmount: EscalationContext = {
       ...context,
-      amountUsd: 4, // within gas__refuel maxAmount (5) but let's test with a tool that has higher maxAmount
-      sessionKey: { id: "sk_123", expired: false, revoked: false },
+      amountUsd: 4, // within gas__refuel maxAmount (5) and tier3MaxUsd (5)
     };
-    // gas__refuel has maxAmount 5 and tier3MaxUsd is 5, so amountUsd=4 stays in Tier 3
     const decision = await engine.decide("gas__refuel", {}, ctxWithAmount);
     expect(decision.action).toBe("allow");
     expect(decision.effectiveTier).toBe(3);
   });
 
   it("should require confirmation for Tier 2 tools", async () => {
-    const ctxWithSession: EscalationContext = {
-      ...context,
-      sessionKey: { id: "sk_123", expired: false, revoked: false },
-    };
-    const decision = await engine.decide("dex-swap__swap", {}, ctxWithSession);
+    const decision = await engine.decide("dex-swap__swap", {}, context);
     expect(decision.action).toBe("confirm");
     expect(decision.confirmationChannel).toBe("inline");
   });
@@ -94,26 +71,40 @@ describe("PolicyEngine", () => {
     const ctxWithDenials: EscalationContext = {
       ...context,
       consecutiveDenials: 3,
-      sessionKey: { id: "sk_123", expired: false, revoked: false },
     };
     const decision = await engine.decide("edit_file", {}, ctxWithDenials);
     expect(decision.action).toBe("deny");
     expect(decision.reason).toBe("consecutive-denials-halt");
   });
 
-  it("should map tiers to correct signer", async () => {
-    const tier1Decision = await engine.decide(
-      "approve__set_allowance",
-      {},
-      { ...context, sessionKey: { id: "sk_123", expired: false, revoked: false } }
-    );
-    expect(tier1Decision.signerTier).toBe("app");
+  it("should escalate when daily limit exceeded", async () => {
+    const ctxWithSpending: EscalationContext = {
+      ...context,
+      dailySpentUsd: 180,
+      amountUsd: 30, // 180 + 30 = 210 > tier2DailyUsd (200)
+    };
+    const decision = await engine.decide("dex-swap__swap", {}, ctxWithSpending);
+    expect(decision.action).toBe("escalate");
+    expect(decision.effectiveTier).toBe(1);
+    expect(decision.reason).toBe("daily-limit-exceeded");
+  });
 
-    const tier2Decision = await engine.decide(
-      "defi__claim_rewards",
-      {},
-      { ...context, sessionKey: { id: "sk_123", expired: false, revoked: false } }
-    );
-    expect(tier2Decision.signerTier).toBe("session-key");
+  it("should escalate when amount exceeds tier2MaxUsd but within per-tool maxAmount", async () => {
+    // Use a context where tier2MaxUsd is lower than per-tool maxAmount
+    // dex-swap__swap has maxAmount.usd=50, so we set tier2MaxUsd=40
+    const ctxWithAmount: EscalationContext = {
+      thresholds: {
+        tier3MaxUsd: 5,
+        tier2MaxUsd: 40, // lower than per-tool maxAmount (50)
+        tier2DailyUsd: 200,
+      },
+      dailySpentUsd: 0,
+      consecutiveDenials: 0,
+      amountUsd: 45, // exceeds tier2MaxUsd (40) but within per-tool maxAmount (50)
+    };
+    const decision = await engine.decide("dex-swap__swap", {}, ctxWithAmount);
+    expect(decision.action).toBe("escalate");
+    expect(decision.effectiveTier).toBe(1);
+    expect(decision.reason).toBe("tier2-max-exceeded");
   });
 });

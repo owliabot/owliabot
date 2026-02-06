@@ -337,7 +337,7 @@ describe("MCPToolAdapter", () => {
       const tools = await adapter.getTools();
       const result = await tools[0].execute(
         { message: "Hello" },
-        { sessionKey: "test", agentId: "agent", signer: null, config: {} }
+        { sessionKey: "test", agentId: "agent", config: {} }
       );
 
       expect(client.callTool).toHaveBeenCalledWith("echo", { message: "Hello" });
@@ -362,7 +362,7 @@ describe("MCPToolAdapter", () => {
       const tools = await adapter.getTools();
       const result = await tools[0].execute(
         {},
-        { sessionKey: "test", agentId: "agent", signer: null, config: {} }
+        { sessionKey: "test", agentId: "agent", config: {} }
       );
 
       expect(result.success).toBe(false);
@@ -389,7 +389,7 @@ describe("MCPToolAdapter", () => {
       const tools = await adapter.getTools();
       const result = await tools[0].execute(
         {},
-        { sessionKey: "test", agentId: "agent", signer: null, config: {} }
+        { sessionKey: "test", agentId: "agent", config: {} }
       );
 
       expect(result.data).toBe("Line 1\nLine 2");
@@ -414,7 +414,7 @@ describe("MCPToolAdapter", () => {
       const tools = await adapter.getTools();
       const result = await tools[0].execute(
         {},
-        { sessionKey: "test", agentId: "agent", signer: null, config: {} }
+        { sessionKey: "test", agentId: "agent", config: {} }
       );
 
       expect(result.success).toBe(true);
@@ -441,7 +441,7 @@ describe("MCPToolAdapter", () => {
       const tools = await adapter.getTools();
       const result = await tools[0].execute(
         {},
-        { sessionKey: "test", agentId: "agent", signer: null, config: {} }
+        { sessionKey: "test", agentId: "agent", config: {} }
       );
 
       expect(result.success).toBe(false);

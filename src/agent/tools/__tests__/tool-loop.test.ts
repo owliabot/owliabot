@@ -9,6 +9,8 @@
  * 5. LLM generates final response
  * 
  * @see Phase 1.5 task: "校验 tool loop 在 guild 的一条典型交互"
+ *
+ * Note: Wallet signing (signer) is delegated to Clawlet.
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
@@ -55,20 +57,10 @@ interface MockCooldownTracker {
   record: ReturnType<typeof vi.fn>;
 }
 
-interface MockAutoRevokeService {
-  onAuditEntry: ReturnType<typeof vi.fn>;
-}
-
-interface MockEmergencyStop {
-  isStopped: ReturnType<typeof vi.fn>;
-}
-
 interface MockDeps {
   policyEngine: MockPolicyEngine;
   auditLogger: MockAuditLogger;
   cooldownTracker: MockCooldownTracker;
-  autoRevokeService: MockAutoRevokeService;
-  emergencyStop: MockEmergencyStop;
 }
 
 // Create minimal policy/audit mocks that allow execution
@@ -79,7 +71,6 @@ function createMockDeps(): MockDeps {
         action: "allow" as const,
         tier: "none" as const,
         effectiveTier: "none" as const,
-        signerTier: "none" as const,
       })),
       resolve: vi.fn(async () => ({
         tier: "none" as const,
@@ -87,9 +78,9 @@ function createMockDeps(): MockDeps {
         confirmationChannel: "inline" as const,
       })),
       getThresholds: vi.fn(async () => ({
-        tier1Amount: 10,
-        tier2Amount: 100,
-        tier3Amount: 1000,
+        tier3MaxUsd: 10,
+        tier2MaxUsd: 100,
+        tier2DailyUsd: 1000,
       })),
     },
     auditLogger: {
@@ -100,12 +91,6 @@ function createMockDeps(): MockDeps {
     cooldownTracker: {
       check: vi.fn(() => ({ allowed: true })),
       record: vi.fn(),
-    },
-    autoRevokeService: {
-      onAuditEntry: vi.fn(async () => {}),
-    },
-    emergencyStop: {
-      isStopped: vi.fn(() => false),
     },
   };
 }
@@ -134,7 +119,6 @@ describe("Tool Loop Integration", () => {
     mockContext = {
       sessionKey: "discord:channel:1467915124764573736",
       agentId: "owliabot",
-      signer: null,
       config: {},
     };
 
@@ -338,7 +322,6 @@ describe("Tool Loop Integration", () => {
         action: "deny" as const,
         tier: "none" as const,
         effectiveTier: "none" as const,
-        signerTier: "none" as const,
         reason: "policy-denied",
       }));
 
@@ -401,27 +384,6 @@ describe("Tool Loop Integration", () => {
     });
   });
 
-  describe("emergency stop integration", () => {
-    it("should reject all tool calls when emergency stop is active", async () => {
-      mockDeps.emergencyStop.isStopped = vi.fn(() => true);
-
-      const toolCall: ToolCall = {
-        id: "call_emergency_001",
-        name: "help",
-        arguments: {},
-      };
-
-      const result = await executeToolCall(toolCall, {
-        registry,
-        context: mockContext,
-        ...mockDeps,
-      });
-
-      expect(result.success).toBe(false);
-      expect(result.error?.toLowerCase()).toContain("emergency");
-    });
-  });
-
   describe("unknown tool handling", () => {
     it("should return error for unregistered tool", async () => {
       const toolCall: ToolCall = {
@@ -465,7 +427,6 @@ describe("Tool Loop Integration", () => {
           context: {
             sessionKey: "discord:channel:test123",
             agentId: "test-agent",
-            signer: null,
             config: { custom: "value" },
           },
           ...mockDeps,
@@ -494,7 +455,6 @@ describe("Tool Loop E2E Simulation", () => {
     const context = {
       sessionKey: "discord:channel:1467915124764573736", // #🦉｜oliwabot-core
       agentId: "owliabot",
-      signer: null,
       config: {},
     };
 

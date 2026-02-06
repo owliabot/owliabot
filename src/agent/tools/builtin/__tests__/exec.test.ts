@@ -9,7 +9,6 @@ describe("builtin/exec tool", () => {
   const mockContext: ToolContext = {
     sessionKey: "test-session",
     agentId: "test-agent",
-    signer: null,
     config: {},
   };
 

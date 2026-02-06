@@ -1,6 +1,9 @@
 /**
  * Policy engine - resolves and decides tool execution policies
  * @see docs/design/tier-policy.md Section 5
+ *
+ * Note: Wallet signing is delegated to Clawlet. This engine handles
+ * tool execution policy (tiers, confirmations, limits) without signer selection.
  */
 
 import { minimatch } from "minimatch";
@@ -14,7 +17,6 @@ import type {
   EscalationContext,
 } from "./types.js";
 import type { PolicyConfig } from "./schema.js";
-import type { SignerTier } from "../signer/interface.js";
 
 const log = createLogger("policy-engine");
 
@@ -25,9 +27,6 @@ export class PolicyEngine {
     this.loader = new PolicyLoader(policyPath);
   }
 
-  /**
-   * Resolve policy for a tool (exact match -> wildcard -> fallback)
-   */
   /**
    * Get loaded policy thresholds for building EscalationContext
    */
@@ -44,6 +43,9 @@ export class PolicyEngine {
     };
   }
 
+  /**
+   * Resolve policy for a tool (exact match -> wildcard -> fallback)
+   */
   async resolve(toolName: string): Promise<ResolvedPolicy> {
     const config = await this.loader.load();
 
@@ -79,27 +81,9 @@ export class PolicyEngine {
   ): Promise<PolicyDecision> {
     const policy = await this.resolve(toolName);
 
-    // 1. Session Key availability check
     let effectiveTier = policy.tier;
-    if (effectiveTier === 2 || effectiveTier === 3) {
-      if (
-        !context.sessionKey ||
-        context.sessionKey.expired ||
-        context.sessionKey.revoked
-      ) {
-        log.warn(`Session key unavailable, escalating ${toolName} to Tier 1`);
-        return {
-          action: "escalate",
-          tier: policy.tier,
-          effectiveTier: 1,
-          reason: "session-key-unavailable",
-          signerTier: "app",
-          confirmationChannel: "companion-app",
-        };
-      }
-    }
 
-    // 2. Amount threshold check
+    // 1. Amount threshold check
     if (context.amountUsd !== undefined) {
       // Per-tool maxAmount cap (deny if exceeded, regardless of tier)
       if (policy.maxAmount?.usd && context.amountUsd > policy.maxAmount.usd) {
@@ -111,7 +95,6 @@ export class PolicyEngine {
           tier: policy.tier,
           effectiveTier,
           reason: `Amount exceeds tool limit (max: $${policy.maxAmount.usd})`,
-          signerTier: this.mapTierToSigner(effectiveTier),
         };
       }
 
@@ -119,6 +102,7 @@ export class PolicyEngine {
         effectiveTier = 2;
         log.info(`Amount exceeds Tier 3 limit, escalating ${toolName} to Tier 2`);
       }
+
       // Enforce global Tier 2 max amount threshold
       if (
         effectiveTier === 2 &&
@@ -133,10 +117,10 @@ export class PolicyEngine {
           tier: policy.tier,
           effectiveTier: 1,
           reason: "tier2-max-exceeded",
-          signerTier: "app",
           confirmationChannel: "companion-app",
         };
       }
+
       // Per-tool escalateAbove override
       if (
         effectiveTier === 2 &&
@@ -152,13 +136,12 @@ export class PolicyEngine {
           tier: policy.tier,
           effectiveTier: 1,
           reason: "escalate-above-threshold",
-          signerTier: "app",
           confirmationChannel: "companion-app",
         };
       }
     }
 
-    // 3. Daily limit check (include pending amount)
+    // 2. Daily limit check (include pending amount)
     const effectiveDailySpent = context.dailySpentUsd + (context.amountUsd ?? 0);
     if (
       effectiveTier === 2 &&
@@ -172,12 +155,11 @@ export class PolicyEngine {
         tier: policy.tier,
         effectiveTier: 1,
         reason: "daily-limit-exceeded",
-        signerTier: "app",
         confirmationChannel: "companion-app",
       };
     }
 
-    // 4. Consecutive denials check
+    // 3. Consecutive denials check
     if (context.consecutiveDenials >= 3) {
       log.error(`Consecutive denials threshold reached for ${toolName}`);
       return {
@@ -185,20 +167,15 @@ export class PolicyEngine {
         tier: policy.tier,
         effectiveTier: effectiveTier,
         reason: "consecutive-denials-halt",
-        signerTier: this.mapTierToSigner(effectiveTier),
       };
     }
 
-    // 5. Map to signer tier
-    const signerTier = this.mapTierToSigner(effectiveTier);
-
-    // 6. Determine action
+    // 4. Determine action
     if (effectiveTier === "none") {
       return {
         action: "allow",
         tier: policy.tier,
         effectiveTier,
-        signerTier,
       };
     }
 
@@ -208,7 +185,6 @@ export class PolicyEngine {
         action: "confirm",
         tier: policy.tier,
         effectiveTier,
-        signerTier,
         confirmationChannel:
           effectiveTier === 1 ? "companion-app" : policy.confirmationChannel,
       };
@@ -218,7 +194,6 @@ export class PolicyEngine {
       action: "allow",
       tier: policy.tier,
       effectiveTier,
-      signerTier,
     };
   }
 
@@ -237,12 +212,6 @@ export class PolicyEngine {
       escalateAbove: policy.escalateAbove ?? defaults.escalateAbove ?? undefined,
       timeout: policy.timeout ?? defaults.timeout ?? 120,
     };
-  }
-
-  private mapTierToSigner(tier: Tier): SignerTier {
-    if (tier === 1) return "app";
-    if (tier === 2 || tier === 3) return "session-key";
-    return "none"; // tier none doesn't need signing
   }
 
   async reload(): Promise<void> {

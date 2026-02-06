@@ -18,6 +18,7 @@ vi.mock("../../../security/write-gate.js", () => ({
 }));
 
 // Create mock instances for policy/audit dependencies
+// Note: Wallet signing (signer) is delegated to Clawlet
 function createMockDeps() {
   return {
     policyEngine: {
@@ -25,7 +26,6 @@ function createMockDeps() {
         action: "allow" as const,
         tier: "none" as const,
         effectiveTier: "none" as const,
-        signerTier: "none" as const,
       })),
       resolve: vi.fn(async () => ({
         tier: "none" as const,
@@ -55,14 +55,6 @@ function createMockDeps() {
       check: vi.fn(() => ({ allowed: true })),
       record: vi.fn(),
     } as any,
-    autoRevokeService: {
-      onAuditEntry: vi.fn(async () => {}),
-    } as any,
-    emergencyStop: {
-      isStopped: vi.fn(() => false),
-      activate: vi.fn(async () => {}),
-      deactivate: vi.fn(async () => {}),
-    } as any,
   };
 }
 
@@ -78,7 +70,6 @@ describe("executor", () => {
     mockContext = {
       sessionKey: "test:session",
       agentId: "agent-1",
-      signer: null,
       config: {},
     };
   });

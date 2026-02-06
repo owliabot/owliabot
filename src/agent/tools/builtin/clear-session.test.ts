@@ -31,7 +31,6 @@ describe("clear_session tool", () => {
     const result = await tool.execute({}, {
       sessionKey,
       agentId: "main",
-      signer: null,
       config: {},
     });
 

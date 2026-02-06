@@ -1,9 +1,10 @@
 /**
  * Tool definition interface
  * @see design.md Section 5.2
+ *
+ * Note: Wallet signing is delegated to Clawlet. Tools that need
+ * signing should call Clawlet's HTTP API.
  */
-
-import type { SignerInterface } from "../../signer/interface.js";
 
 export interface ToolDefinition {
   name: string;
@@ -23,7 +24,6 @@ export interface ToolSecurity {
 export interface ToolContext {
   sessionKey: string;
   agentId: string;
-  signer: SignerInterface | null;
   config: ToolConfig;
   requestConfirmation?: (req: ConfirmationRequest) => Promise<boolean>;
 }
@@ -46,12 +46,6 @@ export interface ConfirmationRequest {
   title: string;
   description: string;
   details?: Record<string, string>;
-  transaction?: {
-    to: string;
-    value: bigint;
-    data: string;
-    chainId: number;
-  };
 }
 
 export interface ToolCall {

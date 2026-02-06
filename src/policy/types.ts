@@ -1,9 +1,10 @@
 /**
  * Policy types for Tier-based security
  * @see docs/design/tier-policy.md
+ *
+ * Note: Wallet signing (signer selection) is delegated to Clawlet.
+ * This module handles tool execution policy and access control.
  */
-
-import type { SignerTier } from "../signer/interface.js";
 
 export type Tier = "none" | 1 | 2 | 3;
 export type ConfirmationChannel = "companion-app" | "inline" | "notification";
@@ -59,7 +60,6 @@ export interface PolicyDecision {
   effectiveTier: Tier; // after escalation
   reason?: string;
   confirmationChannel?: ConfirmationChannel;
-  signerTier: SignerTier;
 }
 
 /** Tier confirmation request (sent to Companion App or inline) */
@@ -74,13 +74,6 @@ export interface TierConfirmationRequest {
     currency: string;
     usdEquivalent: number;
   };
-  transaction?: {
-    to: string;
-    value: string;
-    data: string;
-    chainId: number;
-    gasEstimate: string;
-  };
   expiresAt: number; // unix timestamp
   createdAt: number;
 }
@@ -89,7 +82,6 @@ export interface TierConfirmationRequest {
 export interface TierConfirmationResponse {
   requestId: string;
   approved: boolean;
-  signature?: string; // Tier 1: Companion App signature
   respondedAt: number;
   respondedBy: string;
 }
@@ -106,11 +98,6 @@ export interface CooldownState {
 
 /** Escalation context for decision making */
 export interface EscalationContext {
-  sessionKey?: {
-    id: string;
-    expired: boolean;
-    revoked: boolean;
-  };
   amountUsd?: number;
   thresholds: {
     tier3MaxUsd: number;

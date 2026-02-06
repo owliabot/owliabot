@@ -59,7 +59,6 @@ async function executeTool(
   return tool.execute(params, {
     sessionKey: "playwright-e2e-test",
     agentId: "e2e",
-    signer: null,
     config: {},
   });
 }
