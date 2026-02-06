@@ -10,7 +10,7 @@
 
 ## Key Decisions
 - **Server:** `node:http` (no framework).
-- **Client fetch:** native `fetch` (undici).
+- **Client fetch:** native `fetch` (Node.js built-in).
 - **State store:** SQLite.
 - **Entry:** separate script (e.g. `src/gateway-http.ts` + `npm run gateway`).
 - **Pairing security:** IP allowlist + `X-Gateway-Token`.

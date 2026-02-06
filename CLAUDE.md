@@ -86,7 +86,7 @@ workspace/
 - **CLI**: commander
 - **Config**: YAML + Zod validation
 - **Logging**: tslog
-- **HTTP**: undici
+- **HTTP**: native `fetch` (Node.js built-in)
 - **Cron**: croner
 - **Channels**: grammy (Telegram), discord.js (Discord)
 - **AI**: Direct HTTP or @anthropic-ai/sdk, openai (optional)

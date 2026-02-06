@@ -424,7 +424,7 @@ import "viem"
 
 **实际效果**：
 
-- 主进程已装 viem、undici 等常用包 → Skill 直接 import ✅
+- 主进程已装 viem 等常用包 → Skill 直接 import ✅（HTTP 用 Node.js 内置 `fetch`）
 - 需要特殊依赖 → Skill 目录执行 `npm install` ✅
 - 版本冲突 → Skill 自带特定版本覆盖 ✅
 

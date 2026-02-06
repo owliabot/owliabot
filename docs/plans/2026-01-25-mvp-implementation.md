@@ -6,7 +6,7 @@
 
 **Architecture:** Config loader reads YAML → Gateway starts Telegram plugin → Messages route to Agent → Agent builds system prompt from workspace files + calls LLM → Response sent back via Telegram.
 
-**Tech Stack:** TypeScript ESM, grammy (Telegram), undici (HTTP), Zod (config), tslog (logging)
+**Tech Stack:** TypeScript ESM, grammy (Telegram), native `fetch` (Node.js built-in HTTP), Zod (config), tslog (logging)
 
 ---
 
