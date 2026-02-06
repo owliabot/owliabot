@@ -50,6 +50,16 @@ export interface MemorySearchConfig {
   };
 }
 
+/** Clawlet wallet configuration */
+export interface WalletConfig {
+  clawlet?: {
+    /** Clawlet HTTP endpoint (default: http://127.0.0.1:8788) */
+    endpoint?: string;
+    /** Default chain ID (1 = Mainnet, 8453 = Base) */
+    defaultChainId?: number;
+  };
+}
+
 /** System capability configuration */
 export interface SystemCapabilityConfig {
   exec: {
@@ -104,4 +114,7 @@ export interface AppConfig {
 
   // System capabilities (exec / web.fetch / web.search)
   system?: SystemCapabilityConfig;
+
+  // Wallet integration (Clawlet)
+  wallet?: WalletConfig;
 }

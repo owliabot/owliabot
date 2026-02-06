@@ -17,6 +17,14 @@ export interface SecretsConfig {
     token?: string;
     apiKey?: string;
   };
+  /**
+   * Clawlet wallet credentials
+   * - token: Bearer token for Clawlet HTTP API (scope: Read or Trade)
+   * Generated via: clawlet auth grant --scope read
+   */
+  clawlet?: {
+    token?: string;
+  };
 }
 
 export function getSecretsPath(appConfigPath: string): string {

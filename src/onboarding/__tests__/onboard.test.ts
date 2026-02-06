@@ -58,6 +58,7 @@ describe("onboarding", () => {
       "111,222",           // channel allowlist
       "discord-secret",    // discord token
       "telegram-secret",   // telegram token
+      "n",                 // skip wallet
     ];
 
     await runOnboarding({ appConfigPath });
@@ -92,6 +93,7 @@ describe("onboarding", () => {
       "y",                 // require mention
       "",                  // channel allowlist (default)
       "",                  // discord token (skip)
+      "n",                 // skip wallet
     ];
 
     await runOnboarding({ appConfigPath });
@@ -119,6 +121,7 @@ describe("onboarding", () => {
       "y",                 // require mention
       "",                  // channel allowlist (default)
       "",                  // discord token (skip)
+      "n",                 // skip wallet
     ];
 
     await runOnboarding({ appConfigPath });
@@ -143,6 +146,7 @@ describe("onboarding", () => {
       "y",                 // require mention
       "",                  // channel allowlist (default)
       "",                  // discord token (skip)
+      "n",                 // skip wallet
     ];
 
     await runOnboarding({ appConfigPath });
@@ -171,6 +175,7 @@ describe("onboarding", () => {
       "y",                 // require mention
       "",                  // channel allowlist (default)
       "",                  // discord token (skip)
+      "n",                 // skip wallet
     ];
 
     await runOnboarding({ appConfigPath });
@@ -194,6 +199,7 @@ describe("onboarding", () => {
       "y",                 // require mention
       "",                  // channel allowlist (default)
       "",                  // discord token (skip)
+      "n",                 // skip wallet
     ];
 
     await runOnboarding({ appConfigPath });
@@ -202,5 +208,63 @@ describe("onboarding", () => {
 
     expect(config?.providers?.[0]?.id).toBe("openai");
     expect(config?.providers?.[0]?.apiKey).toBe("env");
+  });
+
+  it("writes config with clawlet wallet enabled", async () => {
+    const appConfigPath = join(dir, "app.yaml");
+    const workspacePath = join(dir, "workspace");
+
+    answers = [
+      "discord",           // channels
+      workspacePath,       // workspace
+      "anthropic",         // provider
+      "",                  // model (default)
+      "",                  // empty = use env var
+      "y",                 // require mention
+      "",                  // channel allowlist (default)
+      "",                  // discord token (skip)
+      "y",                 // enable wallet
+      "http://localhost:9000",  // custom endpoint
+      "1",                 // mainnet chain ID
+      "clawlet-test-token", // clawlet token
+    ];
+
+    await runOnboarding({ appConfigPath });
+
+    const config = await loadAppConfig(appConfigPath);
+    const secrets = await loadSecrets(appConfigPath);
+
+    expect(config?.wallet?.clawlet?.endpoint).toBe("http://localhost:9000");
+    expect(config?.wallet?.clawlet?.defaultChainId).toBe(1);
+    expect(secrets?.clawlet?.token).toBe("clawlet-test-token");
+  });
+
+  it("writes config with clawlet wallet defaults", async () => {
+    const appConfigPath = join(dir, "app.yaml");
+    const workspacePath = join(dir, "workspace");
+
+    answers = [
+      "discord",           // channels
+      workspacePath,       // workspace
+      "anthropic",         // provider
+      "",                  // model (default)
+      "",                  // empty = use env var
+      "y",                 // require mention
+      "",                  // channel allowlist (default)
+      "",                  // discord token (skip)
+      "y",                 // enable wallet
+      "",                  // default endpoint
+      "",                  // default chain ID (8453 = Base)
+      "",                  // skip token (use env)
+    ];
+
+    await runOnboarding({ appConfigPath });
+
+    const config = await loadAppConfig(appConfigPath);
+    const secrets = await loadSecrets(appConfigPath);
+
+    expect(config?.wallet?.clawlet?.endpoint).toBe("http://127.0.0.1:8788");
+    expect(config?.wallet?.clawlet?.defaultChainId).toBe(8453);
+    expect(secrets?.clawlet?.token).toBeUndefined();
   });
 });

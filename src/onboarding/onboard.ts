@@ -1,6 +1,6 @@
 import { createInterface } from "node:readline";
 import { createLogger } from "../utils/logger.js";
-import type { AppConfig, ProviderConfig, LLMProviderId, MemorySearchConfig, SystemCapabilityConfig } from "./types.js";
+import type { AppConfig, ProviderConfig, LLMProviderId, MemorySearchConfig, SystemCapabilityConfig, WalletConfig } from "./types.js";
 import { saveAppConfig, DEV_APP_CONFIG_PATH } from "./storage.js";
 import { startOAuthFlow } from "../auth/oauth.js";
 import { saveSecrets, type SecretsConfig } from "./secrets.js";
@@ -256,16 +256,69 @@ export async function runOnboarding(options: OnboardOptions = {}): Promise<void>
       config.telegram = {};
     }
 
+    // Clawlet wallet integration
+    log.info("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+    log.info("  Clawlet Wallet Integration (optional)");
+    log.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+    log.info("");
+    log.info("  Clawlet provides secure wallet operations:");
+    log.info("  • Query ETH/ERC-20 balances");
+    log.info("  • Execute transfers (with policy-based confirmation)");
+    log.info("");
+    log.info("  Prerequisites:");
+    log.info("  • Clawlet running locally (clawlet serve --http)");
+    log.info("  • Auth token generated (clawlet auth grant --scope read)");
+    log.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n");
+
+    const enableWalletAns = await ask(
+      rl,
+      "Enable Clawlet wallet integration? (y/n) [n]: "
+    );
+    const enableWallet = enableWalletAns.toLowerCase().startsWith("y");
+
+    if (enableWallet) {
+      const endpoint = await ask(
+        rl,
+        "Clawlet HTTP endpoint [http://127.0.0.1:8788]: "
+      ) || "http://127.0.0.1:8788";
+
+      const chainIdAns = await ask(
+        rl,
+        "Default chain ID (1=Mainnet, 8453=Base) [8453]: "
+      );
+      const defaultChainId = parseInt(chainIdAns, 10) || 8453;
+
+      const clawletToken = await ask(
+        rl,
+        "Clawlet auth token (leave empty to set via CLAWLET_TOKEN env) [skip]: "
+      );
+
+      if (clawletToken) {
+        secrets.clawlet = { token: clawletToken };
+      }
+
+      const walletConfig: WalletConfig = {
+        clawlet: {
+          endpoint,
+          defaultChainId,
+        },
+      };
+      config.wallet = walletConfig;
+
+      log.info("✓ Clawlet wallet configured");
+    }
+
     // Save app config (non-sensitive)
     await saveAppConfig(config, appConfigPath);
 
-    // Save secrets (sensitive) - includes channel tokens and API keys
+    // Save secrets (sensitive) - includes channel tokens, API keys, and wallet tokens
     const hasSecrets =
       secrets.discord?.token ||
       secrets.telegram?.token ||
       secrets.openai?.apiKey ||
       secrets.anthropic?.apiKey ||
-      secrets.anthropic?.token;
+      secrets.anthropic?.token ||
+      secrets.clawlet?.token;
 
     if (hasSecrets) {
       await saveSecrets(appConfigPath, secrets);
@@ -296,6 +349,12 @@ export async function runOnboarding(options: OnboardOptions = {}): Promise<void>
       const envVar =
         providerId === "openai" ? "OPENAI_API_KEY" : "ANTHROPIC_API_KEY";
       log.info(`• Set ${envVar} environment variable`);
+    }
+
+    // Wallet instructions
+    if (config.wallet?.clawlet && !secrets.clawlet?.token) {
+      log.info("• Set Clawlet token: export CLAWLET_TOKEN=<your-token>");
+      log.info("  (Generate with: clawlet auth grant --scope read)");
     }
 
     log.info("• Start the bot: owliabot start");
