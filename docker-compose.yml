@@ -7,10 +7,13 @@
 
 services:
   owliabot:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    image: owliabot:latest
+    # 使用预构建镜像（推荐）
+    image: ghcr.io/owliabot/owliabot:latest
+
+    # 本地构建（开发环境，取消注释下面两行并注释上面的 image）
+    # build:
+    #   context: .
+    #   dockerfile: Dockerfile
     container_name: owliabot
     restart: unless-stopped
 
@@ -128,7 +131,7 @@ volumes:
   #   build:
   #     context: .
   #     dockerfile: Dockerfile
-  #   image: owliabot:latest
+  #   image: ghcr.io/owliabot/owliabot:latest
   #   container_name: owliabot-onboard
   #   stdin_open: true
   #   tty: true
@@ -152,7 +155,7 @@ volumes:
   #   build:
   #     context: .
   #     dockerfile: Dockerfile
-  #   image: owliabot:latest
+  #   image: ghcr.io/owliabot/owliabot:latest
   #   container_name: owliabot
   #   restart: unless-stopped
   #   ports:
