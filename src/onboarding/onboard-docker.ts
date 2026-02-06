@@ -8,6 +8,28 @@
 import { createInterface } from "node:readline";
 import { existsSync, readFileSync, mkdirSync, writeFileSync, chmodSync } from "node:fs";
 import { join } from "node:path";
+
+/**
+ * Safely chmod a path, ignoring EPERM/EACCES errors from bind-mounted volumes.
+ * When running in Docker with host-mounted volumes, the container user (uid 1001)
+ * may not have permission to chmod directories owned by the host user.
+ * install.sh already sets proper permissions on the host side.
+ * 
+ * @returns true if chmod succeeded, false if skipped due to permission error
+ */
+function safeChmod(path: string, mode: number): boolean {
+  try {
+    chmodSync(path, mode);
+    return true;
+  } catch (err: unknown) {
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code === "EPERM" || code === "EACCES") {
+      // Ignore - likely a bind-mounted volume with host ownership
+      return false;
+    }
+    throw err;
+  }
+}
 import { randomBytes } from "node:crypto";
 import { homedir } from "node:os";
 import { stringify as yamlStringify } from "yaml";
@@ -363,7 +385,9 @@ export async function runDockerOnboarding(options: DockerOnboardOptions = {}): P
     const home = homedir();
     const owliabotHome = join(home, ".owliabot");
     mkdirSync(owliabotHome, { recursive: true });
-    chmodSync(owliabotHome, 0o700);
+    if (!safeChmod(owliabotHome, 0o700)) {
+      warn(`Could not chmod ${owliabotHome} - using host permissions (bind-mounted volume)`);
+    }
     mkdirSync(join(owliabotHome, "auth"), { recursive: true });
     
     // Write secrets.yaml using YAML serializer (safe escaping)
@@ -385,8 +409,11 @@ ${yamlStringify(secretsData, { indent: 2 })}`;
     
     const secretsPath = join(owliabotHome, "secrets.yaml");
     writeFileSync(secretsPath, secretsYaml);
-    chmodSync(secretsPath, 0o600);
-    success(`Wrote ${secretsPath} (chmod 600)`);
+    if (safeChmod(secretsPath, 0o600)) {
+      success(`Wrote ${secretsPath} (chmod 600)`);
+    } else {
+      warn(`Wrote ${secretsPath} (chmod skipped - host-mounted volume, ensure host permissions are secure)`);
+    }
     
     // Write app.yaml
     let appYaml = `# OwliaBot config
