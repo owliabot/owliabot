@@ -5,7 +5,7 @@ import { homedir } from "node:os";
 import { randomBytes } from "node:crypto";
 import { createLogger } from "../utils/logger.js";
 import type { AppConfig, ProviderConfig, LLMProviderId, MemorySearchConfig, SystemCapabilityConfig } from "./types.js";
-import { saveAppConfig, DEV_APP_CONFIG_PATH } from "./storage.js";
+import { saveAppConfig, DEFAULT_APP_CONFIG_PATH, IS_DEV_MODE } from "./storage.js";
 import { startOAuthFlow } from "../auth/oauth.js";
 import { saveSecrets, loadSecrets, type SecretsConfig } from "./secrets.js";
 import { ensureWorkspaceInitialized } from "../workspace/init.js";
@@ -114,7 +114,7 @@ export interface OnboardOptions {
 }
 
 export async function runOnboarding(options: OnboardOptions = {}): Promise<void> {
-  const appConfigPath = options.appConfigPath ?? DEV_APP_CONFIG_PATH;
+  const appConfigPath = options.appConfigPath ?? DEFAULT_APP_CONFIG_PATH;
 
   const rl = createInterface({ input: process.stdin, output: process.stdout });
   try {
@@ -126,7 +126,10 @@ export async function runOnboarding(options: OnboardOptions = {}): Promise<void>
     console.log(`${CYAN} | |__| |\\ V  V /| | | (_| | |_) | (_) | |_ ${NC}`);
     console.log(`${CYAN}  \\____/  \\_/\\_/ |_|_|\\__,_|____/ \\___/ \\__|${NC}`);
     console.log("");
-    console.log("  OwliaBot Interactive Setup");
+    console.log(`  OwliaBot Interactive Setup ${IS_DEV_MODE ? "(dev mode)" : ""}`);
+    if (IS_DEV_MODE) {
+      info("Dev mode enabled (OWLIABOT_DEV=1). Config will be saved to ~/.owlia_dev/");
+    }
     console.log("");
 
     // Check for existing config
