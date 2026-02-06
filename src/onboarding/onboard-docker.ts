@@ -367,8 +367,14 @@ export async function runDockerOnboarding(options: DockerOnboardOptions = {}): P
     
     if (reuseExisting && (discordToken || telegramToken)) {
       success("Reusing existing chat platform configuration:");
-      if (discordToken) info("  - Discord");
-      if (telegramToken) info("  - Telegram");
+      if (discordToken) {
+        info("  - Discord");
+        secrets.discord = { token: discordToken };
+      }
+      if (telegramToken) {
+        info("  - Telegram");
+        secrets.telegram = { token: telegramToken };
+      }
     } else {
       const chatChoice = await selectOption(rl, "Choose platform(s):", [
         "Discord",
@@ -548,7 +554,7 @@ docker run -d \\
   -p 127.0.0.1:${gatewayPort}:8787 \\
   -v ~/.owliabot/secrets.yaml:/app/config/secrets.yaml:ro \\
   -v ~/.owliabot/auth:/home/owliabot/.owliabot/auth \\
-  -v $(pwd)/config/app.yaml:/app/config/app.yaml:ro \\
+  -v $(pwd)/${configDir}/app.yaml:/app/config/app.yaml:ro \\
   -v $(pwd)/workspace:/app/workspace \\
   -e TZ=${tz} \\
   ${image} \\
@@ -570,7 +576,7 @@ services:
     volumes:
       - ~/.owliabot/secrets.yaml:/app/config/secrets.yaml:ro
       - ~/.owliabot/auth:/home/owliabot/.owliabot/auth
-      - ./config/app.yaml:/app/config/app.yaml:ro
+      - ./${configDir}/app.yaml:/app/config/app.yaml:ro
       - ./workspace:/app/workspace
     environment:
       - TZ=${tz}

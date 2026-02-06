@@ -32,7 +32,31 @@ OwliaBot uses a 3-tier security model:
 - Memory subsystem with SQLite indexing
 - Audit logging with fail-closed design
 
-## Quick Start
+## Docker Quick Start (Recommended)
+
+The easiest way to run OwliaBot:
+
+```bash
+curl -sSL https://raw.githubusercontent.com/owliabot/owliabot/main/install.sh | bash
+```
+
+This runs an interactive wizard that:
+- Checks Docker is installed and running
+- Configures AI providers (Anthropic/OpenAI/local LLMs)
+- Sets up Discord/Telegram integration
+- Generates `docker-compose.yml`
+
+Then start with:
+
+```bash
+docker-compose up -d
+```
+
+See [Docker Installation Guide](docs/docker-install.md) for details.
+
+---
+
+## Quick Start (Node.js)
 
 ### Prerequisites
 
