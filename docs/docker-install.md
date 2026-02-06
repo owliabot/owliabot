@@ -61,7 +61,7 @@ Or use the Docker run command printed by the onboard wizard.
 | `app.yaml` | `./config/app.yaml` | Main configuration (non-sensitive) |
 | `secrets.yaml` | `~/.owliabot/secrets.yaml` | API keys and tokens (chmod 600) |
 | `auth/` | `~/.owliabot/auth/` | OAuth tokens (chmod 700) |
-| `workspace/` | `./workspace/` | Agent workspace |
+| `workspace` | `owliabot_workspace` (Docker volume) | Agent workspace (persistent) |
 
 ## CLI Reference
 

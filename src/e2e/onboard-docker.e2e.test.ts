@@ -159,7 +159,7 @@ services:
       - ~/.owliabot/secrets.yaml:/app/config/secrets.yaml:ro
       - ~/.owliabot/auth:/home/owliabot/.owliabot/auth
       - ./config/app.yaml:/app/config/app.yaml:ro
-      - ./workspace:/app/workspace
+      - owliabot_workspace:/app/workspace
     environment:
       - TZ=UTC
     command: ["start", "-c", "/app/config/app.yaml"]

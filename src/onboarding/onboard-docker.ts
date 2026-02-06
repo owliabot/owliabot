@@ -555,7 +555,7 @@ docker run -d \\
   -v ~/.owliabot/secrets.yaml:/app/config/secrets.yaml:ro \\
   -v ~/.owliabot/auth:/home/owliabot/.owliabot/auth \\
   -v $(pwd)/${configDir}/app.yaml:/app/config/app.yaml:ro \\
-  -v $(pwd)/workspace:/app/workspace \\
+  -v owliabot_workspace:/app/workspace \\
   -e TZ=${tz} \\
   ${image} \\
   start -c /app/config/app.yaml
@@ -577,10 +577,14 @@ services:
       - ~/.owliabot/secrets.yaml:/app/config/secrets.yaml:ro
       - ~/.owliabot/auth:/home/owliabot/.owliabot/auth
       - ./${configDir}/app.yaml:/app/config/app.yaml:ro
-      - ./workspace:/app/workspace
+      - owliabot_workspace:/app/workspace
     environment:
       - TZ=${tz}
     command: ["start", "-c", "/app/config/app.yaml"]
+
+volumes:
+  owliabot_workspace:
+    name: owliabot_workspace
 `;
       
       const composePath = join(outputDir, "docker-compose.yml");
