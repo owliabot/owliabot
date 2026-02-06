@@ -248,7 +248,8 @@ export async function runOnboarding(options: OnboardOptions = {}): Promise<void>
     if (apiKeyValue === "oauth") {
       log.info(`• If you skipped OAuth: owliabot auth setup ${providerId}`);
     } else if (apiKeyValue === "env") {
-      const envVar = "ANTHROPIC_API_KEY";
+      const envVar =
+        providerId === "openai" ? "OPENAI_API_KEY" : "ANTHROPIC_API_KEY";
       log.info(`• Set ${envVar} environment variable`);
     }
 
