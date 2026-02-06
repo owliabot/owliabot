@@ -178,4 +178,152 @@ describe("createBuiltinTools", () => {
       expect(names).not.toContain("edit_file");
     });
   });
+
+  describe("wallet tools", () => {
+    it("excludes wallet tools when wallet is not configured", () => {
+      const tools = createBuiltinTools({
+        workspace: "/tmp/workspace",
+        sessionStore: mockSessionStore,
+        transcripts: mockTranscripts,
+      });
+
+      const names = tools.map((t) => t.name);
+      expect(names).not.toContain("wallet_balance");
+      expect(names).not.toContain("wallet_transfer");
+    });
+
+    it("excludes wallet tools when wallet.enabled is false", () => {
+      const tools = createBuiltinTools({
+        workspace: "/tmp/workspace",
+        sessionStore: mockSessionStore,
+        transcripts: mockTranscripts,
+        wallet: {
+          enabled: false,
+          provider: "clawlet",
+        },
+      });
+
+      const names = tools.map((t) => t.name);
+      expect(names).not.toContain("wallet_balance");
+      expect(names).not.toContain("wallet_transfer");
+    });
+
+    it("excludes wallet tools when provider is not clawlet", () => {
+      const tools = createBuiltinTools({
+        workspace: "/tmp/workspace",
+        sessionStore: mockSessionStore,
+        transcripts: mockTranscripts,
+        wallet: {
+          enabled: true,
+          provider: "other" as any, // Unknown provider
+        },
+      });
+
+      const names = tools.map((t) => t.name);
+      expect(names).not.toContain("wallet_balance");
+      expect(names).not.toContain("wallet_transfer");
+    });
+
+    it("includes wallet tools when wallet.enabled is true and provider is clawlet", () => {
+      const tools = createBuiltinTools({
+        workspace: "/tmp/workspace",
+        sessionStore: mockSessionStore,
+        transcripts: mockTranscripts,
+        wallet: {
+          enabled: true,
+          provider: "clawlet",
+        },
+      });
+
+      const names = tools.map((t) => t.name);
+      expect(names).toContain("wallet_balance");
+      expect(names).toContain("wallet_transfer");
+    });
+
+    it("includes wallet tools with custom clawlet config", () => {
+      const tools = createBuiltinTools({
+        workspace: "/tmp/workspace",
+        sessionStore: mockSessionStore,
+        transcripts: mockTranscripts,
+        wallet: {
+          enabled: true,
+          provider: "clawlet",
+          clawlet: {
+            socketPath: "/custom/socket.sock",
+            authToken: "test-token",
+            connectTimeout: 10000,
+            requestTimeout: 60000,
+          },
+          defaultChainId: 1, // Ethereum mainnet
+        },
+      });
+
+      const names = tools.map((t) => t.name);
+      expect(names).toContain("wallet_balance");
+      expect(names).toContain("wallet_transfer");
+    });
+
+    it("wallet tools are valid tool definitions", () => {
+      const tools = createBuiltinTools({
+        workspace: "/tmp/workspace",
+        sessionStore: mockSessionStore,
+        transcripts: mockTranscripts,
+        wallet: {
+          enabled: true,
+          provider: "clawlet",
+        },
+      });
+
+      const walletTools = tools.filter((t) =>
+        ["wallet_balance", "wallet_transfer"].includes(t.name)
+      );
+
+      expect(walletTools).toHaveLength(2);
+      for (const tool of walletTools) {
+        expect(tool.name).toBeTruthy();
+        expect(tool.description).toBeTruthy();
+        expect(tool.parameters).toBeDefined();
+        expect(typeof tool.execute).toBe("function");
+      }
+    });
+
+    it("wallet tools can be filtered by policy", () => {
+      const tools = createBuiltinTools({
+        workspace: "/tmp/workspace",
+        sessionStore: mockSessionStore,
+        transcripts: mockTranscripts,
+        wallet: {
+          enabled: true,
+          provider: "clawlet",
+        },
+        tools: {
+          policy: { allowList: ["echo", "wallet_balance"] },
+        },
+      });
+
+      const names = tools.map((t) => t.name);
+      expect(names).toContain("echo");
+      expect(names).toContain("wallet_balance");
+      expect(names).not.toContain("wallet_transfer");
+    });
+
+    it("wallet tools can be denied by policy", () => {
+      const tools = createBuiltinTools({
+        workspace: "/tmp/workspace",
+        sessionStore: mockSessionStore,
+        transcripts: mockTranscripts,
+        wallet: {
+          enabled: true,
+          provider: "clawlet",
+        },
+        tools: {
+          policy: { denyList: ["wallet_transfer"] },
+        },
+      });
+
+      const names = tools.map((t) => t.name);
+      expect(names).toContain("wallet_balance");
+      expect(names).not.toContain("wallet_transfer");
+    });
+  });
 });
