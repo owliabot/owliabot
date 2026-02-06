@@ -210,8 +210,26 @@ describe("runner", () => {
       await expect(runLLM({ model: "sonnet" }, messages)).rejects.toThrow("API error");
     });
 
-    it("should use OAuth credentials when env key not available", async () => {
+    it("should throw for anthropic when no key available (OAuth deprecated, use setup-token)", async () => {
+      // Anthropic no longer uses OAuth - it uses setup-token which is treated as an API key
+      // When no key is available at all, it should throw with helpful message
       delete process.env.ANTHROPIC_API_KEY;
+
+      vi.mocked(piAi.getEnvApiKey).mockReturnValue(undefined);
+      // OAuth is not called for anthropic anymore - only openai-codex uses OAuth
+      vi.mocked(oauth.loadOAuthCredentials).mockResolvedValue(null);
+
+      const messages = [
+        { role: "user" as const, content: "Test", timestamp: Date.now() },
+      ];
+
+      await expect(runLLM({ model: "claude-sonnet-4-5" }, messages)).rejects.toThrow(
+        /No API key found for anthropic/
+      );
+    });
+
+    it("should use OAuth credentials for openai-codex when env key not available", async () => {
+      delete process.env.OPENAI_API_KEY;
 
       const mockCredentials = { access_token: "oauth-token", refresh_token: "refresh" };
       vi.mocked(piAi.getEnvApiKey).mockReturnValue(undefined);
@@ -224,9 +242,9 @@ describe("runner", () => {
       const mockResponse = {
         role: "assistant" as const,
         content: [{ type: "text" as const, text: "OAuth works!" }],
-        api: "anthropic-messages" as const,
-        provider: "anthropic",
-        model: "claude-sonnet-4-5",
+        api: "openai" as const,
+        provider: "openai",
+        model: "gpt-5.2",
         usage: {
           input: 10,
           output: 5,
@@ -245,10 +263,10 @@ describe("runner", () => {
         { role: "user" as const, content: "Test", timestamp: Date.now() },
       ];
 
-      const result = await runLLM({ model: "claude-sonnet-4-5" }, messages);
+      const result = await runLLM({ model: "openai-codex/gpt-5.2" }, messages);
 
       expect(result.content).toBe("OAuth works!");
-      expect(oauth.loadOAuthCredentials).toHaveBeenCalled();
+      expect(oauth.loadOAuthCredentials).toHaveBeenCalledWith("openai-codex");
     });
   });
 

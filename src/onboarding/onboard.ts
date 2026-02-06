@@ -2,9 +2,10 @@ import { createInterface } from "node:readline";
 import { createLogger } from "../utils/logger.js";
 import type { AppConfig, ProviderConfig, LLMProviderId } from "./types.js";
 import { saveAppConfig, DEV_APP_CONFIG_PATH } from "./storage.js";
-import { startOAuthFlow, type SupportedOAuthProvider } from "../auth/oauth.js";
+import { startOAuthFlow } from "../auth/oauth.js";
 import { saveSecrets, type SecretsConfig } from "./secrets.js";
 import { ensureWorkspaceInitialized } from "../workspace/init.js";
+import { validateAnthropicSetupToken, isSetupToken } from "../auth/setup-token.js";
 
 const log = createLogger("onboard");
 
@@ -44,7 +45,7 @@ export async function runOnboarding(options: OnboardOptions = {}): Promise<void>
 
     // Provider selection
     log.info("\nAvailable LLM providers:");
-    log.info("  1. anthropic     - Anthropic Claude (OAuth or API Key)");
+    log.info("  1. anthropic     - Anthropic Claude (setup-token or API Key)");
     log.info("  2. openai        - OpenAI (API Key)");
     log.info("  3. openai-codex  - OpenAI Codex (ChatGPT Plus/Pro OAuth)");
 
@@ -94,40 +95,42 @@ export async function runOnboarding(options: OnboardOptions = {}): Promise<void>
         apiKeyValue = "env"; // indicates to load from env
       }
     } else if (providerId === "anthropic") {
-      // Anthropic supports both OAuth and API key
-      const authMethodAns = await ask(
+      // Anthropic uses setup-token (from `claude setup-token` CLI command) or API key
+      log.info("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+      log.info("  Anthropic authentication");
+      log.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+      log.info("");
+      log.info("  Option 1: Setup-token (Claude Pro/Max subscription)");
+      log.info("    Run `claude setup-token` in your terminal,");
+      log.info("    then paste the generated token below.");
+      log.info("");
+      log.info("  Option 2: API Key");
+      log.info("    Paste your Anthropic API key (sk-ant-api...)");
+      log.info("    or leave empty to use ANTHROPIC_API_KEY env var.");
+      log.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n");
+
+      const tokenAns = await ask(
         rl,
-        "Auth method: (1) OAuth (Claude Pro/Max subscription), (2) API Key [1]: "
+        "Paste token (setup-token or API key, empty=env): "
       );
-      const authMethod = authMethodAns === "2" ? "apikey" : "oauth";
 
-      if (authMethod === "oauth") {
-        const useOauthAns = await ask(
-          rl,
-          "Start Anthropic OAuth now? (y/n) [n=skip for now]: "
-        );
-        const useOauth = useOauthAns.toLowerCase().startsWith("y");
-
-        if (useOauth) {
-          log.info("Starting Anthropic OAuth flow...");
-          await startOAuthFlow("anthropic");
-        } else {
-          log.info(
-            "Skipping OAuth. Run `owliabot auth setup anthropic` later."
-          );
-        }
-        apiKeyValue = "oauth";
-      } else {
-        const apiKeyAns = await ask(
-          rl,
-          "Anthropic API key (leave empty to set via ANTHROPIC_API_KEY env): "
-        );
-        if (apiKeyAns) {
-          secrets.anthropic = { apiKey: apiKeyAns };
+      if (tokenAns) {
+        // Auto-detect token type
+        if (isSetupToken(tokenAns)) {
+          // Validate setup-token
+          const error = validateAnthropicSetupToken(tokenAns);
+          if (error) {
+            log.warn(`Setup-token validation warning: ${error}`);
+          }
+          secrets.anthropic = { token: tokenAns };
           apiKeyValue = "secrets";
         } else {
-          apiKeyValue = "env";
+          // Treat as standard API key
+          secrets.anthropic = { apiKey: tokenAns };
+          apiKeyValue = "secrets";
         }
+      } else {
+        apiKeyValue = "env"; // indicates to load from env
       }
     } else if (providerId === "openai-codex") {
       // OpenAI Codex only supports OAuth
@@ -216,7 +219,8 @@ export async function runOnboarding(options: OnboardOptions = {}): Promise<void>
       secrets.discord?.token ||
       secrets.telegram?.token ||
       secrets.openai?.apiKey ||
-      secrets.anthropic?.apiKey;
+      secrets.anthropic?.apiKey ||
+      secrets.anthropic?.token;
 
     if (hasSecrets) {
       await saveSecrets(appConfigPath, secrets);
@@ -244,8 +248,7 @@ export async function runOnboarding(options: OnboardOptions = {}): Promise<void>
     if (apiKeyValue === "oauth") {
       log.info(`• If you skipped OAuth: owliabot auth setup ${providerId}`);
     } else if (apiKeyValue === "env") {
-      const envVar =
-        providerId === "openai" ? "OPENAI_API_KEY" : "ANTHROPIC_API_KEY";
+      const envVar = "ANTHROPIC_API_KEY";
       log.info(`• Set ${envVar} environment variable`);
     }
 

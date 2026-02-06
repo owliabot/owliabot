@@ -41,25 +41,6 @@ describe("oauth", () => {
   });
 
   describe("loadOAuthCredentials", () => {
-    it("should load valid credentials for anthropic", async () => {
-      const mockCredentials = {
-        access: "access_token",
-        refresh: "refresh_token",
-        expires: Date.now() + 3600000,
-        email: "test@example.com",
-      };
-
-      vi.mocked(readFile).mockResolvedValue(JSON.stringify(mockCredentials));
-
-      const result = await loadOAuthCredentials("anthropic");
-
-      expect(result).toEqual(mockCredentials);
-      expect(readFile).toHaveBeenCalledWith(
-        join(AUTH_DIR, "auth-anthropic.json"),
-        "utf-8"
-      );
-    });
-
     it("should load valid credentials for openai-codex", async () => {
       const mockCredentials = {
         access: "access_token",
@@ -84,37 +65,9 @@ describe("oauth", () => {
       error.code = "ENOENT";
       vi.mocked(readFile).mockRejectedValue(error);
 
-      const result = await loadOAuthCredentials("anthropic");
+      const result = await loadOAuthCredentials("openai-codex");
 
       expect(result).toBeNull();
-    });
-
-    it("should auto-refresh expired credentials", async () => {
-      const expiredCredentials = {
-        access: "old_access",
-        refresh: "refresh_token",
-        expires: Date.now() - 1000,
-        email: "test@example.com",
-      };
-
-      const newCredentials = {
-        access: "new_access",
-        refresh: "refresh_token",
-        expires: Date.now() + 3600000,
-        email: "test@example.com",
-      };
-
-      vi.mocked(readFile).mockResolvedValue(JSON.stringify(expiredCredentials));
-      vi.mocked(piAi.refreshAnthropicToken).mockResolvedValue(
-        newCredentials as any
-      );
-      vi.mocked(mkdir).mockResolvedValue(undefined);
-      vi.mocked(writeFile).mockResolvedValue();
-
-      const result = await loadOAuthCredentials("anthropic");
-
-      expect(result).toEqual(newCredentials);
-      expect(piAi.refreshAnthropicToken).toHaveBeenCalled();
     });
 
     it("should auto-refresh expired openai-codex credentials", async () => {
@@ -154,37 +107,17 @@ describe("oauth", () => {
       };
 
       vi.mocked(readFile).mockResolvedValue(JSON.stringify(expiredCredentials));
-      vi.mocked(piAi.refreshAnthropicToken).mockRejectedValue(
+      vi.mocked(piAi.refreshOpenAICodexToken).mockRejectedValue(
         new Error("Refresh failed")
       );
 
-      const result = await loadOAuthCredentials("anthropic");
+      const result = await loadOAuthCredentials("openai-codex");
 
       expect(result).toBeNull();
     });
   });
 
   describe("saveOAuthCredentials", () => {
-    it("should save credentials to provider-specific file", async () => {
-      const credentials = {
-        access: "access_token",
-        refresh: "refresh_token",
-        expires: Date.now() + 3600000,
-        email: "test@example.com",
-      };
-
-      vi.mocked(mkdir).mockResolvedValue(undefined);
-      vi.mocked(writeFile).mockResolvedValue();
-
-      await saveOAuthCredentials(credentials as any, "anthropic");
-
-      expect(mkdir).toHaveBeenCalled();
-      expect(writeFile).toHaveBeenCalledWith(
-        join(AUTH_DIR, "auth-anthropic.json"),
-        JSON.stringify(credentials, null, 2)
-      );
-    });
-
     it("should save openai-codex credentials", async () => {
       const credentials = {
         access: "access_token",
@@ -206,15 +139,6 @@ describe("oauth", () => {
   });
 
   describe("clearOAuthCredentials", () => {
-    it("should delete credentials file for anthropic", async () => {
-      vi.mocked(unlink).mockResolvedValue(undefined);
-
-      await clearOAuthCredentials("anthropic");
-
-      expect(unlink).toHaveBeenCalledWith(join(AUTH_DIR, "auth-anthropic.json"));
-      expect(unlink).toHaveBeenCalledTimes(1);
-    });
-
     it("should delete credentials file for openai-codex", async () => {
       vi.mocked(unlink).mockResolvedValue(undefined);
 
@@ -232,7 +156,7 @@ describe("oauth", () => {
       vi.mocked(unlink).mockRejectedValue(error);
 
       // Should not throw
-      await expect(clearOAuthCredentials("anthropic")).resolves.toBeUndefined();
+      await expect(clearOAuthCredentials("openai-codex")).resolves.toBeUndefined();
     });
   });
 
@@ -247,7 +171,7 @@ describe("oauth", () => {
 
       vi.mocked(readFile).mockResolvedValue(JSON.stringify(mockCredentials));
 
-      const status = await getOAuthStatus("anthropic");
+      const status = await getOAuthStatus("openai-codex");
 
       expect(status.authenticated).toBe(true);
       expect(status.expiresAt).toBe(mockCredentials.expires);
@@ -259,7 +183,7 @@ describe("oauth", () => {
       error.code = "ENOENT";
       vi.mocked(readFile).mockRejectedValue(error);
 
-      const status = await getOAuthStatus("anthropic");
+      const status = await getOAuthStatus("openai-codex");
 
       expect(status.authenticated).toBe(false);
       expect(status.expiresAt).toBeUndefined();
@@ -268,7 +192,7 @@ describe("oauth", () => {
   });
 
   describe("getAllOAuthStatus", () => {
-    it("should return status for all providers", async () => {
+    it("should return status for openai-codex", async () => {
       const mockCredentials = {
         access: "access_token",
         refresh: "refresh_token",
@@ -280,38 +204,13 @@ describe("oauth", () => {
 
       const statuses = await getAllOAuthStatus();
 
-      expect(statuses.anthropic.authenticated).toBe(true);
       expect(statuses["openai-codex"].authenticated).toBe(true);
+      // Anthropic is no longer included in OAuth status (uses setup-token)
+      expect("anthropic" in statuses).toBe(false);
     });
   });
 
   describe("refreshOAuthCredentials", () => {
-    it("should refresh and save anthropic credentials", async () => {
-      const oldCredentials = {
-        access: "old_access",
-        refresh: "refresh_token",
-        expires: Date.now() - 1000,
-        email: "test@example.com",
-      };
-
-      const newCredentials = {
-        access: "new_access",
-        refresh: "refresh_token",
-        expires: Date.now() + 3600000,
-        email: "test@example.com",
-      };
-
-      vi.mocked(piAi.refreshAnthropicToken).mockResolvedValue(newCredentials as any);
-      vi.mocked(mkdir).mockResolvedValue(undefined);
-      vi.mocked(writeFile).mockResolvedValue();
-
-      const result = await refreshOAuthCredentials(oldCredentials as any, "anthropic");
-
-      expect(result).toEqual(newCredentials);
-      expect(piAi.refreshAnthropicToken).toHaveBeenCalledWith(oldCredentials.refresh);
-      expect(writeFile).toHaveBeenCalled();
-    });
-
     it("should refresh and save openai-codex credentials", async () => {
       const oldCredentials = {
         access: "old_access",

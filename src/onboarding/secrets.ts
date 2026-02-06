@@ -7,8 +7,16 @@ export interface SecretsConfig {
   telegram?: { token?: string };
   /** OpenAI API key (for openai provider, not OAuth) */
   openai?: { apiKey?: string };
-  /** Anthropic API key (alternative to OAuth) */
-  anthropic?: { apiKey?: string };
+  /** 
+   * Anthropic credentials
+   * - token: setup-token from `claude setup-token` (starts with sk-ant-oat01-)
+   * - apiKey: standard Anthropic API key (starts with sk-ant-api...)
+   * Either one can be used; token takes precedence if both are set.
+   */
+  anthropic?: { 
+    token?: string;
+    apiKey?: string;
+  };
 }
 
 export function getSecretsPath(appConfigPath: string): string {

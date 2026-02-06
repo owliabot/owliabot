@@ -72,8 +72,13 @@ export async function loadConfig(path: string): Promise<Config> {
           provider.apiKey =
             secrets?.openai?.apiKey ?? process.env.OPENAI_API_KEY ?? undefined;
         } else if (provider.id === "anthropic") {
+          // For Anthropic, check setup-token first, then standard API key, then env
+          // setup-token (sk-ant-oat01-) takes precedence over standard API key
           provider.apiKey =
-            secrets?.anthropic?.apiKey ?? process.env.ANTHROPIC_API_KEY ?? undefined;
+            secrets?.anthropic?.token ??
+            secrets?.anthropic?.apiKey ??
+            process.env.ANTHROPIC_API_KEY ??
+            undefined;
         }
       } else if (provider.apiKey === "env") {
         // Only use env vars (user explicitly chose env-based auth)

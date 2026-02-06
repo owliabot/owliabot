@@ -101,8 +101,8 @@ async function resolveApiKey(provider: string, configApiKey?: string): Promise<s
     return envKey;
   }
 
-  // Try OAuth for supported providers
-  const oauthProviders: SupportedOAuthProvider[] = ["anthropic", "openai-codex"];
+  // Try OAuth for supported providers (only openai-codex now; anthropic uses setup-token)
+  const oauthProviders: SupportedOAuthProvider[] = ["openai-codex"];
   if (oauthProviders.includes(provider as SupportedOAuthProvider)) {
     const oauthProvider = provider as SupportedOAuthProvider;
     const credentials = await loadOAuthCredentials(oauthProvider);
@@ -120,8 +120,15 @@ async function resolveApiKey(provider: string, configApiKey?: string): Promise<s
     }
   }
 
+  // Build helpful error message based on provider
+  const envVar = provider.toUpperCase().replace("-", "_") + "_API_KEY";
+  if (provider === "anthropic") {
+    throw new Error(
+      `No API key found for ${provider}. Run 'claude setup-token' and paste the token during onboarding, or set ${envVar} env var.`
+    );
+  }
   throw new Error(
-    `No API key found for ${provider}. Set ${provider.toUpperCase().replace("-", "_")}_API_KEY env var or run 'owliabot auth setup ${provider}'.`
+    `No API key found for ${provider}. Set ${envVar} env var or run 'owliabot auth setup ${provider}'.`
   );
 }
 

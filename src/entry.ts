@@ -162,17 +162,32 @@ const auth = program.command("auth").description("Manage authentication");
 
 auth
   .command("setup [provider]")
-  .description("Setup OAuth authentication (anthropic or openai-codex)")
+  .description("Setup authentication (openai-codex uses OAuth; for anthropic, use 'claude setup-token')")
   .action(async (provider?: string) => {
     try {
-      const validProviders: SupportedOAuthProvider[] = ["anthropic", "openai-codex"];
+      // Anthropic now uses setup-token instead of OAuth
+      if (provider === "anthropic") {
+        log.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+        log.info("  Anthropic authentication has changed!");
+        log.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+        log.info("");
+        log.info("  Run `claude setup-token` in your terminal to generate a token,");
+        log.info("  then run `owliabot onboard` and paste the token when prompted.");
+        log.info("");
+        log.info("  The setup-token works with Claude Pro/Max subscriptions.");
+        log.info("  You can also use a standard Anthropic API key instead.");
+        log.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+        return;
+      }
+
+      const validProviders: SupportedOAuthProvider[] = ["openai-codex"];
       const selectedProvider: SupportedOAuthProvider =
         provider && validProviders.includes(provider as SupportedOAuthProvider)
           ? (provider as SupportedOAuthProvider)
-          : "anthropic";
+          : "openai-codex";
 
-      if (provider && !validProviders.includes(provider as SupportedOAuthProvider)) {
-        log.warn(`Unknown provider: ${provider}, defaulting to anthropic`);
+      if (provider && !validProviders.includes(provider as SupportedOAuthProvider) && provider !== "anthropic") {
+        log.warn(`Unknown provider: ${provider}, defaulting to openai-codex`);
       }
 
       log.info(`Starting ${selectedProvider} OAuth setup...`);
@@ -190,14 +205,14 @@ auth
 
 auth
   .command("status [provider]")
-  .description("Check authentication status (anthropic, openai-codex, or all)")
+  .description("Check authentication status (openai-codex or all; anthropic uses setup-token)")
   .action(async (provider?: string) => {
     if (!provider || provider === "all") {
-      // Show status for all providers
+      // Show status for OAuth providers (only openai-codex now)
       const statuses = await getAllOAuthStatus();
       for (const [prov, status] of Object.entries(statuses)) {
         if (status.authenticated) {
-          log.info(`${prov}: Authenticated`);
+          log.info(`${prov}: Authenticated (OAuth)`);
           if (status.expiresAt) {
             log.info(`  Expires: ${new Date(status.expiresAt).toISOString()}`);
           }
@@ -208,12 +223,17 @@ auth
           log.info(`${prov}: Not authenticated`);
         }
       }
+      // Note about Anthropic
+      log.info(`anthropic: Uses setup-token (stored in secrets.yaml)`);
+    } else if (provider === "anthropic") {
+      log.info("Anthropic uses setup-token authentication (stored in secrets.yaml).");
+      log.info("Run `claude setup-token` to generate a token, then run `owliabot onboard`.");
     } else {
-      const validProviders: SupportedOAuthProvider[] = ["anthropic", "openai-codex"];
+      const validProviders: SupportedOAuthProvider[] = ["openai-codex"];
       const selectedProvider: SupportedOAuthProvider =
         validProviders.includes(provider as SupportedOAuthProvider)
           ? (provider as SupportedOAuthProvider)
-          : "anthropic";
+          : "openai-codex";
 
       const status = await getOAuthStatus(selectedProvider);
 
@@ -234,20 +254,24 @@ auth
 
 auth
   .command("logout [provider]")
-  .description("Clear stored authentication (anthropic, openai-codex, or all)")
+  .description("Clear stored authentication (openai-codex or all; anthropic uses secrets.yaml)")
   .action(async (provider?: string) => {
-    const validProviders: SupportedOAuthProvider[] = ["anthropic", "openai-codex"];
+    const validProviders: SupportedOAuthProvider[] = ["openai-codex"];
 
     if (!provider || provider === "all") {
       for (const prov of validProviders) {
         await clearOAuthCredentials(prov);
       }
-      log.info("Logged out from all providers");
+      log.info("Logged out from OAuth providers (openai-codex)");
+      log.info("Note: Anthropic tokens are stored in secrets.yaml - edit that file to remove.");
+    } else if (provider === "anthropic") {
+      log.info("Anthropic tokens are stored in secrets.yaml.");
+      log.info("To remove, edit ~/.owlia_dev/secrets.yaml and delete the anthropic section.");
     } else {
       const selectedProvider: SupportedOAuthProvider =
         validProviders.includes(provider as SupportedOAuthProvider)
           ? (provider as SupportedOAuthProvider)
-          : "anthropic";
+          : "openai-codex";
       await clearOAuthCredentials(selectedProvider);
       log.info(`Logged out from ${selectedProvider}`);
     }
