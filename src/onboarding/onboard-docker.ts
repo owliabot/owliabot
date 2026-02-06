@@ -38,27 +38,49 @@ function header(title: string) {
 function ask(rl: ReturnType<typeof createInterface>, q: string, secret = false): Promise<string> {
   return new Promise((resolve) => {
     if (secret) {
-      // Hide input for secrets
+      // Hide input for secrets with proper cleanup
       process.stdout.write(q);
       const stdin = process.stdin;
       const oldRawMode = stdin.isRaw;
-      if (stdin.isTTY) stdin.setRawMode(true);
+      
+      const restoreMode = () => {
+        try {
+          if (stdin.isTTY) stdin.setRawMode(oldRawMode ?? false);
+        } catch {
+          // Ignore errors during cleanup
+        }
+      };
+      
+      if (stdin.isTTY) {
+        try {
+          stdin.setRawMode(true);
+        } catch {
+          // Fall back to non-secret mode if raw mode fails
+          rl.question("", (ans) => resolve(ans.trim()));
+          return;
+        }
+      }
       
       let input = "";
       const onData = (char: Buffer) => {
         const c = char.toString();
         if (c === "\n" || c === "\r") {
           stdin.removeListener("data", onData);
-          if (stdin.isTTY) stdin.setRawMode(oldRawMode ?? false);
+          restoreMode();
           console.log("");
           resolve(input.trim());
         } else if (c === "\x03") { // Ctrl+C
-          process.exit(1);
+          stdin.removeListener("data", onData);
+          restoreMode();
+          console.log("");
+          process.exit(130); // Standard exit code for Ctrl+C
         } else if (c === "\x7f" || c === "\b") { // Backspace
           input = input.slice(0, -1);
-        } else {
+        } else if (c.charCodeAt(0) >= 32 && c.charCodeAt(0) < 127) {
+          // Only accept printable ASCII (filter out arrow keys, escape sequences, etc.)
           input += c;
         }
+        // Silently ignore non-printable characters (arrow keys, escape sequences, etc.)
       };
       stdin.on("data", onData);
     } else {
