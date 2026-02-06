@@ -1,7 +1,7 @@
 // src/infra/store.ts
 /**
  * Shared infrastructure store for rate limiting, idempotency, and event logging.
- * Used by both gateway-http and gateway (message channels).
+ * Used by both gateway http and gateway (message channels).
  */
 
 import Database from "better-sqlite3";

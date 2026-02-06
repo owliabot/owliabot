@@ -205,7 +205,7 @@ src/
 ├── channels/          # Telegram / Discord 渠道接入
 ├── agent/             # Agent 运行时、会话、工具
 ├── gateway/           # 消息网关
-├── gateway-http/      # 设备配对 HTTP 服务器
+├── gateway/http/      # 设备配对 HTTP 服务器
 ├── security/          # WriteGate、Tier 策略、审计
 ├── memory/            # 记忆搜索与索引
 ├── workspace/         # 工作区加载器

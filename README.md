@@ -261,7 +261,7 @@ src/
 ├── channels/          # Telegram / Discord integrations
 ├── agent/             # Agent runtime, sessions, tools
 ├── gateway/           # Message gateway
-├── gateway-http/      # HTTP server for device pairing
+├── gateway/http/      # HTTP server for device pairing
 ├── security/          # WriteGate, Tier policy, audit
 ├── memory/            # Memory search and indexing
 ├── workspace/         # Workspace loader

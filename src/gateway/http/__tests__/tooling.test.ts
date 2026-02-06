@@ -1,16 +1,16 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { createGatewayToolRegistry } from "../tooling.js";
 
-vi.mock("../../agent/tools/registry.js", async () => {
-  const { ToolRegistry: ActualToolRegistry } = await vi.importActual<typeof import("../../agent/tools/registry.js")>(
-    "../../agent/tools/registry.js"
+vi.mock("../../../agent/tools/registry.js", async () => {
+  const { ToolRegistry: ActualToolRegistry } = await vi.importActual<typeof import("../../../agent/tools/registry.js")>(
+    "../../../agent/tools/registry.js"
   );
   return { ToolRegistry: ActualToolRegistry };
 });
 
-vi.mock("../../agent/tools/builtin/index.js", async () => {
-  const actual = await vi.importActual<typeof import("../../agent/tools/builtin/index.js")>(
-    "../../agent/tools/builtin/index.js"
+vi.mock("../../../agent/tools/builtin/index.js", async () => {
+  const actual = await vi.importActual<typeof import("../../../agent/tools/builtin/index.js")>(
+    "../../../agent/tools/builtin/index.js"
   );
   return actual;
 });
@@ -18,7 +18,7 @@ vi.mock("../../agent/tools/builtin/index.js", async () => {
 // Note: Markdown-based skills don't register tools with the registry.
 // Skills initialization now happens at the gateway level for system prompt injection.
 
-vi.mock("../../utils/logger.js", () => ({
+vi.mock("../../../utils/logger.js", () => ({
   createLogger: () => ({
     debug: vi.fn(),
     info: vi.fn(),
@@ -27,7 +27,7 @@ vi.mock("../../utils/logger.js", () => ({
   }),
 }));
 
-describe("gateway-http tooling", () => {
+describe("gateway http tooling", () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });

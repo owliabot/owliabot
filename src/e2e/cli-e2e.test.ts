@@ -7,7 +7,7 @@ import http from "node:http";
 import { parse } from "yaml";
 
 import { loadConfig } from "../config/loader.js";
-import { startGatewayHttp } from "../gateway-http/server.js";
+import { startGatewayHttp } from "../gateway/http/server.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -76,7 +76,7 @@ async function runOnboardCli(opts: { cwd: string; appYamlPath: string; answers: 
   return { stdout, stderr };
 }
 
-describe.sequential("E2E: CLI onboard -> config/secrets -> gateway-http", () => {
+describe.sequential("E2E: CLI onboard -> config/secrets -> gateway http", () => {
   const repoRoot = process.cwd();
   const tmpRoot = "/tmp/e2e-test-config";
   const appYamlPath = join(tmpRoot, "app.yaml");

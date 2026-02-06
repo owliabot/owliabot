@@ -1,5 +1,5 @@
-import { loadConfig } from "./config/loader.js";
-import { startGatewayHttp } from "./gateway-http/server.js";
+import { loadConfig } from "../config/loader.js";
+import { startGatewayHttp } from "./http/server.js";
 
 const config = await loadConfig(process.argv[2] ?? "config.yaml");
 if (!config.gateway?.http) {

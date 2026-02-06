@@ -9,7 +9,7 @@
   "scripts": {
     "build": "tsc",
     "dev": "tsx watch src/entry.ts",
-    "gateway": "tsx src/gateway-http.ts",
+    "gateway": "tsx src/gateway/http-entry.ts",
     "start": "node dist/entry.js",
     "lint": "eslint src/",
     "typecheck": "tsc --noEmit",

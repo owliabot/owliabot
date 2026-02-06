@@ -1,12 +1,12 @@
-import { ToolRegistry } from "../agent/tools/registry.js";
+import { ToolRegistry } from "../../agent/tools/registry.js";
 import {
   createBuiltinTools,
   createHelpTool,
   type BuiltinToolsOptions,
   type ToolPolicy,
-} from "../agent/tools/builtin/index.js";
-import type { SessionStore } from "../agent/session-store.js";
-import type { SessionTranscriptStore } from "../agent/session-transcript.js";
+} from "../../agent/tools/builtin/index.js";
+import type { SessionStore } from "../../agent/session-store.js";
+import type { SessionTranscriptStore } from "../../agent/session-transcript.js";
 import { randomUUID } from "node:crypto";
 
 /**

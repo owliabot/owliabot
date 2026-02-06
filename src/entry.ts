@@ -8,7 +8,7 @@ import { join } from "node:path";
 import { loadConfig } from "./config/loader.js";
 import { loadWorkspace } from "./workspace/loader.js";
 import { startGateway } from "./gateway/server.js";
-import { startGatewayHttp } from "./gateway-http/server.js";
+import { startGatewayHttp } from "./gateway/http/server.js";
 import { logger } from "./utils/logger.js";
 import {
   startOAuthFlow,
