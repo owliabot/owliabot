@@ -57,6 +57,10 @@ type RL = ReturnType<typeof createInterface>;
 
 /**
  * Ask a question. If secret=true, hide input (for tokens/passwords).
+ * 
+ * Note: Secret input only accepts printable ASCII (32-126) to filter out
+ * arrow keys, escape sequences, and other control characters. API tokens
+ * and passwords are typically ASCII-only, so this is safe for most cases.
  */
 export function ask(rl: RL, q: string, secret = false): Promise<string> {
   return new Promise((resolve) => {
@@ -142,8 +146,8 @@ export async function selectOption(rl: RL, prompt: string, options: string[]): P
 
 export const DEFAULT_MODELS: Record<LLMProviderId, string> = {
   anthropic: "claude-sonnet-4-5",
-  openai: "gpt-4.1",
-  "openai-codex": "codex-1",
+  openai: "gpt-4o",
+  "openai-codex": "gpt-5.2",
   "openai-compatible": "llama3.2",
 };
 
