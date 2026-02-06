@@ -88,8 +88,6 @@ sign              →    2 或 1（取决于金额 / 合约类型）
 | `approve__set_allowance` | sign | **1** | 授权第三方合约操作 token |
 | `wallet__export_key` | sign | **1** | 导出任何密钥 |
 | `contract__deploy` | sign | **1** | 部署合约 |
-| `wallet__add_session_key` | sign | **1** | 创建新的 session key |
-| `wallet__revoke_session_key` | sign | **1** | 撤销 session key |
 | `*__approve_*` / `*__revoke_*` | sign | **1** | 通配：授权/撤销类 |
 
 ### 2.3 系统能力类（`system-capability`）
@@ -125,11 +123,9 @@ defaults:
 
 # Tier 阈值配置（用于 sign 级别工具的自动分级）
 thresholds:
-  tier2MaxUsd: 50      # Session Key 单笔最大美元额
-  tier2DailyUsd: 200   # Session Key 日累计最大美元额
+  tier2MaxUsd: 50      # 单笔最大美元额（inline 确认）
+  tier2DailyUsd: 200   # 日累计最大美元额（inline 确认）
   tier3MaxUsd: 5       # Tier 3 自动执行最大美元额
-  sessionKeyTtlHours: 24
-  sessionKeyMaxBalance: "0.05"  # ETH
 
 # 紧急停止
 emergencyStop:
@@ -142,7 +138,7 @@ emergencyStop:
     - companion-app
     - telegram
     - discord
-  action: revoke-all-session-keys
+  action: halt-all-operations
 
 # 工具策略
 tools:
@@ -189,7 +185,7 @@ tools:
       maxPerHour: 10
       maxPerDay: 50
 
-  # ── Tier 2: Session Key，按阈值确认 ──
+  # ── Tier 2: Inline 确认，按阈值执行 ──
   "dex-swap__swap":
     tier: 2
     requireConfirmation: true
@@ -243,12 +239,10 @@ tools:
     requireConfirmation: true
     confirmationChannel: companion-app
 
-  "wallet__add_session_key":
     tier: 1
     requireConfirmation: true
     confirmationChannel: companion-app
 
-  "wallet__revoke_session_key":
     tier: 1
     requireConfirmation: true
     confirmationChannel: companion-app
@@ -344,14 +338,12 @@ export const policySchema = z.object({
     tier2MaxUsd: z.number(),
     tier2DailyUsd: z.number(),
     tier3MaxUsd: z.number(),
-    sessionKeyTtlHours: z.number(),
-    sessionKeyMaxBalance: z.string(),
   }),
   emergencyStop: z.object({
     enabled: z.boolean(),
     commands: z.array(z.string()),
     channels: z.array(z.string()),
-    action: z.enum(["revoke-all-session-keys", "pause-all", "shutdown"]),
+    action: z.enum(["halt-all-operations", "pause-all", "shutdown"]),
   }),
   tools: z.record(z.string(), toolPolicySchema),
   wildcards: z.array(
@@ -464,7 +456,7 @@ flowchart TD
     O --> P[返回结果]
     
     L --> L1{金额 ≤ Tier3 阈值?}
-    L1 -->|是| L2[Session Key 自动执行]
+    L1 -->|是| L2[自动执行（Clawlet）]
     L1 -->|否| L3[升级到 Tier 2]
     L2 --> O
     L3 --> M
@@ -472,7 +464,7 @@ flowchart TD
     M --> M1{需要确认?}
     M1 -->|否| M2{金额 ≤ Tier2 阈值?}
     M1 -->|是| M3[Inline 确认]
-    M2 -->|是| M4[Session Key 执行]
+    M2 -->|是| M4[Clawlet 签名执行]
     M2 -->|否| M5[升级到 Tier 1]
     M3 -->|批准| M4
     M3 -->|拒绝| M6[❌ DENY]
@@ -524,19 +516,18 @@ PolicyEngine.resolve("gas__refuel")
 检查: 金额 $2.50 ≤ $5 ✓, 本小时第 3 次 ≤ 10 ✓
   │
   ▼
-选择 Signer: SessionKeySigner (tier: "session-key", canAutoSign: true)
+选择 Signer: ClawletSigner (tier: "clawlet", canAutoSign: true)
   │
   ▼
 自动签名+广播 → 写审计日志 → 返回 txHash
 ```
 
 **关键约束**:
-- Session Key 余额上限 `sessionKeyMaxBalance`
 - 单笔不超过 `tier3MaxUsd`
 - cooldown 限制
 - **无需用户交互**
 
-### 5.4 Tier 2 — Session Key + Inline 确认
+### 5.4 Tier 2 — Clawlet + Inline 确认
 
 ```
 用户: "帮我把 50 USDC swap 成 ETH"
@@ -569,7 +560,7 @@ Bot → Channel Message:
   └──────────────────────────────────────┘
   │
   ▼
-用户点击确认 → Session Key 签名 → 广播 → 写审计日志
+用户点击确认 → Clawlet 签名 → 广播 → 写审计日志
 ```
 
 **关键约束**:
@@ -635,11 +626,11 @@ Bot → Channel Message: "✅ 授权完成, tx: 0x...abc"
 ```mermaid
 flowchart LR
     T3[Tier 3] -->|金额超 tier3Max| T2[Tier 2]
-    T3 -->|session key 过期/撤销| T2
+    T3 -->|金额超限| T2
     T3 -->|日累计超限| T2
     
     T2 -->|金额超 escalateAbove| T1[Tier 1]
-    T2 -->|session key 过期/撤销| T1
+    T2 -->|金额超限| T1
     T2 -->|日累计超 tier2DailyUsd| T1
     T2 -->|连续 3 次确认被拒| HALT[暂停操作]
     
@@ -658,12 +649,12 @@ export function resolveEffectiveTier(
 ): PolicyDecision {
   let tier = policy.tier;
   
-  // 1. Session Key 可用性检查
+  // 1. Clawlet 可用性检查
   if (tier === 3 || tier === 2) {
-    if (!context.sessionKey || context.sessionKey.expired || context.sessionKey.revoked) {
-      tier = 1; // session key 不可用，必须走 Companion App
+    if (!context.clawlet || context.clawlet.expired || context.clawlet.revoked) {
+      tier = 1; // Clawlet 不可用，必须走 Companion App
       return { action: "escalate", tier: policy.tier, effectiveTier: 1,
-               reason: "session-key-unavailable", signerTier: "app" };
+               reason: "clawlet-unavailable", signerTier: "app" };
     }
   }
   
@@ -692,7 +683,7 @@ export function resolveEffectiveTier(
   
   // 5. 映射到 SignerTier
   const signerTier: SignerTier = tier === 1 ? "app" 
-    : (tier === 2 || tier === 3) ? "session-key" 
+    : (tier === 2 || tier === 3) ? "clawlet" 
     : "none"; // tier none 不需要签名，跳过 signer
   
   return {
@@ -726,24 +717,24 @@ sequenceDiagram
     participant C as Channel
     participant G as Gateway
     participant E as EmergencyStop
-    participant SK as SessionKeyManager
+    participant SK as ClawletManager
     participant A as AuditLog
 
     U->>C: /stop
     C->>G: route: emergency.stop
     G->>E: handleEmergencyStop()
     
-    E->>SK: revokeAllSessionKeys()
+    E->>SK: haltAllOperations()
     SK-->>E: revoked: [key1, key2]
     
     E->>G: pauseAllToolExecution()
     E->>A: writeAuditLog({ event: "emergency-stop", keys: [...] })
     
-    E->>C: "🛑 紧急停止已执行：\n- 已撤销 2 个 session key\n- 所有工具执行已暂停\n- 恢复需在 Companion App 中操作"
+    E->>C: "🛑 紧急停止已执行：\n- 已暂停所有签名操作\n- 所有工具执行已暂停\n- 恢复需在 Companion App 中操作"
     
     Note over E: 恢复流程：
     Note over E: 1. Companion App 确认恢复
-    Note over E: 2. 重新创建 session key (Tier 1)
+    Note over E: 2. 重新授权 Clawlet (Tier 1)
     Note over E: 3. 解除工具暂停
 ```
 
@@ -754,7 +745,7 @@ sequenceDiagram
 autoEmergencyStop:
   # 短时间内多次签名失败
   - condition: "signFailures >= 5 in 10m"
-    action: revoke-all-session-keys
+    action: halt-all-operations
   
   # 短时间内大额累计操作
   - condition: "dailySpentUsd >= 500"
@@ -800,7 +791,7 @@ export async function executeToolCall(
   // 2. 审计日志（fail-closed: 写失败则不执行）
   const auditEntry = await auditLogger.preLog({
     tool: call.name, tier: decision.effectiveTier,
-    user: context.sessionKey, params: call.arguments,
+    user: context.clawlet, params: call.arguments,
   });
   if (!auditEntry.ok) {
     return { success: false, error: "Audit log write failed, operation blocked" };
@@ -887,8 +878,8 @@ function selectSigner(signerTier: SignerTier, ctx: ToolContext): SignerInterface
   switch (signerTier) {
     case "app":
       return ctx.signers.appBridge;      // Tier 1: Companion App
-    case "session-key":
-      return ctx.signers.sessionKey;     // Tier 2/3: 本地 session key
+    case "clawlet":
+      return ctx.signers.clawlet;     // Tier 2/3: Clawlet 远程签名
     case "contract":
       return ctx.signers.contractWallet; // Tier 3+: 智能合约钱包
     default:

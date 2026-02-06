@@ -13,11 +13,9 @@ defaults:
 
 # Tier thresholds (for sign-level tools)
 thresholds:
-  tier2MaxUsd: 50 # Session Key single transaction max USD
-  tier2DailyUsd: 200 # Session Key daily cumulative max USD
+  tier2MaxUsd: 50 # Single transaction max USD for inline confirmation
+  tier2DailyUsd: 200 # Daily cumulative max USD for inline confirmation
   tier3MaxUsd: 5 # Tier 3 auto-execute max USD
-  sessionKeyTtlHours: 24
-  sessionKeyMaxBalance: "0.05" # ETH
 
 # Emergency stop
 emergencyStop:
@@ -30,7 +28,7 @@ emergencyStop:
     - companion-app
     - telegram
     - discord
-  action: revoke-all-session-keys
+  action: halt-all-operations
 
 # Tool-specific policies
 tools:
@@ -88,7 +86,7 @@ tools:
       maxPerHour: 10
       maxPerDay: 50
 
-  # ── Tier 2: Session Key, with inline confirmation ──
+  # ── Tier 2: Inline confirmation ──
   "dex-swap__swap":
     tier: 2
     requireConfirmation: true
@@ -138,16 +136,6 @@ tools:
       maxPerDay: 5
 
   "contract__deploy":
-    tier: 1
-    requireConfirmation: true
-    confirmationChannel: companion-app
-
-  "wallet__add_session_key":
-    tier: 1
-    requireConfirmation: true
-    confirmationChannel: companion-app
-
-  "wallet__revoke_session_key":
     tier: 1
     requireConfirmation: true
     confirmationChannel: companion-app

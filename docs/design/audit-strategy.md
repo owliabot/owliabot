@@ -12,7 +12,7 @@
 2. [审计日志格式](#2-审计日志格式)
 3. [Fail-Closed 策略](#3-fail-closed-策略)
 4. [日志轮换与归档](#4-日志轮换与归档)
-5. [Session Key 生命周期日志](#5-session-key-生命周期日志)
+5. [Clawlet 签名日志](#5-clawlet-签名日志)
 6. [CLI 查询接口](#6-cli-查询接口)
 7. [数据保留与脱敏策略](#7-数据保留与脱敏策略)
 8. [与 Tier 模型的自动撤销集成](#8-与-tier-模型的自动撤销集成)
@@ -44,7 +44,7 @@ workspace/
 │   ├── audit-2026-02-03.jsonl.gz   # 归档（按日压缩）
 │   ├── audit-2026-02-02.jsonl.gz
 │   └── ...
-├── session-keys.jsonl       # Session Key 生命周期日志
+├── clawlet-signs.jsonl       # Clawlet 签名日志
 ```
 
 ### 2.2 审计记录 Schema
@@ -90,9 +90,9 @@ workspace/
   "gasUsed": "21000",                     // Gas 使用量
   "gasPrice": "0.001 gwei",              // Gas 价格
 
-  // ── Session Key 信息 ──
-  "sessionKeyId": "sk_01HQXYZ789",       // 使用的 session key ID
-  "signerTier": "session-key",            // app|session-key|contract
+  // ── Clawlet 签名 信息 ──
+  "clawletRequestId": "clw_01HQXYZ789",       // Clawlet 请求 ID
+  "signerTier": "clawlet",            // app|clawlet|contract
 
   // ── 确认信息（Tier 1/2） ──
   "confirmation": {
@@ -153,7 +153,7 @@ const entry = await auditLogger.preLog({
   tier: 2,
   user: "telegram:883499266",
   params: { from: "USDC", to: "ETH", amount: "50" },
-  sessionKeyId: "sk_01HQXYZ789",
+  clawletRequestId: "clw_01HQXYZ789",
 });
 // 如果 preLog 失败，直接返回错误，不执行操作
 
@@ -239,19 +239,19 @@ audit-{YYYY-MM-DD}-{sequence}.jsonl.gz  # 同日多次轮换
 
 ---
 
-## 5. Session Key 生命周期日志
+## 5. Clawlet 签名日志
 
 ### 5.1 存储位置
 
 ```
-workspace/session-keys.jsonl
+workspace/clawlet-signs.jsonl
 ```
 
 ### 5.2 事件类型
 
 | 事件 | 说明 |
 |------|------|
-| `created` | Session key 生成 |
+| `created` | Clawlet 会话创建 |
 | `activated` | 开始使用 |
 | `used` | 执行了一次操作（摘要） |
 | `rotated` | 被新 key 替换 |
@@ -266,7 +266,7 @@ workspace/session-keys.jsonl
   "id": "sklog_01HQXYZ",
   "ts": "2026-02-04T08:00:00.000Z",
   "event": "created",
-  "sessionKeyId": "sk_01HQXYZ789",
+  "clawletRequestId": "clw_01HQXYZ789",
   "publicKey": "0x04abc...def",           // 公钥（安全）
   "chainId": 8453,
   
@@ -290,7 +290,7 @@ workspace/session-keys.jsonl
   "id": "sklog_01HQABC",
   "ts": "2026-02-04T10:30:22.456Z",
   "event": "used",
-  "sessionKeyId": "sk_01HQXYZ789",
+  "clawletRequestId": "clw_01HQXYZ789",
   
   // used 特有字段
   "toolName": "dex-swap__swap",
@@ -313,7 +313,7 @@ workspace/session-keys.jsonl
   "id": "sklog_01HQDEF",
   "ts": "2026-02-04T15:00:00.000Z",
   "event": "revoked",
-  "sessionKeyId": "sk_01HQXYZ789",
+  "clawletRequestId": "clw_01HQXYZ789",
   
   // revoked 特有字段
   "reason": "consecutive-denials",        // user-manual|consecutive-denials|emergency-stop|anomaly-detected
@@ -330,7 +330,7 @@ workspace/session-keys.jsonl
 }
 ```
 
-### 5.4 Session Key 状态机
+### 5.4 Clawlet 签名 状态机
 
 ```mermaid
 stateDiagram-v2
@@ -374,7 +374,7 @@ owliabot audit show audit_01HQXYZ123456
 owliabot audit stats
 owliabot audit stats --since 2026-02-01
 
-# Session Key 日志
+# Clawlet 签名 日志
 owliabot audit keys
 owliabot audit keys --id sk_01HQXYZ789
 owliabot audit keys --event revoked
@@ -394,7 +394,7 @@ $ owliabot audit list --tier 1 --limit 5
   ─────────────────────────────────────────────────────────────────────────────────────
   audit_01HQ..456       2026-02-04 10:30     approve__set_allowance   T1    success  0xabc..def
   audit_01HQ..455       2026-02-04 09:15     contract__deploy         T1    denied   -
-  audit_01HQ..454       2026-02-03 22:00     wallet__add_session_key  T1    success  0x123..789
+  audit_01HQ..454       2026-02-03 22:00     wallet__authorize_clawlet  T1    success  0x123..789
   audit_01HQ..453       2026-02-03 18:30     approve__set_allowance   T1    timeout  -
   audit_01HQ..452       2026-02-03 14:00     wallet__revoke_sk        T1    success  0xdef..123
 
@@ -423,7 +423,7 @@ $ owliabot audit stats
     总 Gas 费:        $12.35
     总操作金额:       $4,521.00
 
-  Session Keys:
+  Clawlet 签名s:
     当前活跃:          1
     7天内创建:         3
     7天内撤销:         2
@@ -549,7 +549,7 @@ function summarizeParams(entry: AuditEntry): AuditEntry {
 - 所有 Tier 1 操作
 - 所有 `result: "denied"` 的 Tier 2 操作
 - 所有 `emergency-stopped` 事件
-- 所有 session key 的 `created` 和 `revoked` 事件
+- 所有 Clawlet 的 `created` 和 `revoked` 事件
 - 所有链上交易记录（有 `txHash` 的）
 
 ---
@@ -560,14 +560,14 @@ function summarizeParams(entry: AuditEntry): AuditEntry {
 
 ```mermaid
 flowchart TD
-    E1[连续 3 次确认被拒] --> R[撤销当前 Session Key]
+    E1[连续 3 次确认被拒] --> R[撤销当前 Clawlet 签名]
     E2[单日累计超 $200] --> R
     E3[签名失败 5 次 / 10min] --> R
     E4[检测到异常模式] --> R
     E5[Companion App 离线 > 30min] --> DG[降级为只读]
-    E6[用户发送 /stop] --> RA[撤销所有 Session Key]
+    E6[用户发送 /stop] --> RA[撤销所有 Clawlet 签名]
     
-    R --> LOG[写入 session-keys.jsonl]
+    R --> LOG[写入 clawlet-signs.jsonl]
     R --> NOTIFY[通知用户]
     DG --> LOG
     DG --> NOTIFY
@@ -584,7 +584,7 @@ export interface AnomalyRule {
   id: string;
   description: string;
   check: (recentEntries: AuditEntry[]) => AnomalyResult | null;
-  action: "revoke-session-key" | "pause-tool" | "notify" | "emergency-stop";
+  action: "revoke-clawlet" | "pause-tool" | "notify" | "emergency-stop";
 }
 
 export const defaultRules: AnomalyRule[] = [
@@ -598,7 +598,7 @@ export const defaultRules: AnomalyRule[] = [
       }
       return null;
     },
-    action: "revoke-session-key",
+    action: "revoke-clawlet",
   },
   
   {
@@ -627,10 +627,10 @@ export const defaultRules: AnomalyRule[] = [
         e => new Date(e.ts).getTime() > todayStart && e.result === "success"
       );
       // 简化：实际需要从 params 中提取金额
-      // 这里通过 session-keys.jsonl 中的 stats 获取
+      // 这里通过 clawlet-signs.jsonl 中的 stats 获取
       return null;
     },
-    action: "revoke-session-key",
+    action: "revoke-clawlet",
   },
   
   {
@@ -675,15 +675,15 @@ export class AutoRevokeService {
     trigger: AuditEntry
   ): Promise<void> {
     switch (rule.action) {
-      case "revoke-session-key":
-        await this.sessionKeyManager.revokeCurrent(rule.id);
-        await this.sessionKeyLogger.log({
+      case "revoke-clawlet":
+        await this.clawletManager.revokeCurrent(rule.id);
+        await this.clawletLogger.log({
           event: "revoked",
-          sessionKeyId: trigger.sessionKeyId,
+          clawletRequestId: trigger.clawletRequestId?,
           reason: rule.id,
           triggeredBy: `system:auto-revoke:${rule.id}`,
         });
-        await this.notifyUser(`⚠️ Session Key 已自动撤销: ${rule.description}`);
+        await this.notifyUser(`⚠️ Clawlet 签名 已自动撤销: ${rule.description}`);
         break;
 
       case "emergency-stop":
@@ -739,7 +739,7 @@ export interface AuditEntry {
   chainId?: number;
   blockNumber?: number;
   gasUsed?: string;
-  sessionKeyId?: string;
+  clawletRequestId??: string;
   signerTier?: string;
   confirmation?: {
     required: boolean;
@@ -859,16 +859,16 @@ function generateULID(): string {
 }
 ```
 
-### 9.2 SessionKeyLogger
+### 9.2 ClawletLogger
 
 ```typescript
-// src/audit/session-key-logger.ts
+// src/audit/clawlet-logger.ts
 
 export interface SessionKeyEvent {
   id: string;
   ts: string;
   event: "created" | "activated" | "used" | "rotated" | "revoked" | "expired" | "limit-reached";
-  sessionKeyId: string;
+  clawletRequestId: string;
   publicKey?: string;
   chainId?: number;
   permissions?: {
@@ -900,10 +900,10 @@ export interface SessionKeyEvent {
   };
 }
 
-export class SessionKeyLogger {
+export class ClawletLogger {
   private logPath: string;
 
-  constructor(logPath: string = "workspace/session-keys.jsonl") {
+  constructor(logPath: string = "workspace/clawlet-signs.jsonl") {
     this.logPath = logPath;
   }
 
@@ -922,7 +922,7 @@ export class SessionKeyLogger {
     const keyStates = new Map<string, string>();
     
     for (const e of events) {
-      keyStates.set(e.sessionKeyId, e.event);
+      keyStates.set(e.clawletRequestId?, e.event);
     }
     
     const activeKeyIds = [...keyStates.entries()]
@@ -930,7 +930,7 @@ export class SessionKeyLogger {
       .map(([id]) => id);
     
     return events.filter(
-      e => activeKeyIds.includes(e.sessionKeyId) && e.event === "created"
+      e => activeKeyIds.includes(e.clawletRequestId?) && e.event === "created"
     );
   }
 
@@ -962,9 +962,9 @@ graph TB
         ROT --> ARCH[audit/*.jsonl.gz]
     end
     
-    subgraph "Session Key 管理"
+    subgraph "Clawlet 签名 管理"
         AR -->|撤销| SKM[SessionKeyManager]
-        SKM --> SKL[session-keys.jsonl]
+        SKM --> SKL[clawlet-signs.jsonl]
         PE -->|查询 key 状态| SKL
     end
     
@@ -1001,7 +1001,7 @@ Tool Call
   │
   ├─→ AuditLogger.finalize → audit.jsonl
   │
-  ├─→ AutoRevokeService → 异常检测 → 可能撤销 Session Key
+  ├─→ AutoRevokeService → 异常检测 → 可能撤销 Clawlet 签名
   │
-  └─→ SessionKeyLogger → session-keys.jsonl
+  └─→ ClawletLogger → clawlet-signs.jsonl
 ```
