@@ -171,6 +171,11 @@ export async function runDockerOnboarding(options: DockerOnboardOptions = {}): P
   const outputDir = options.outputDir ?? ".";
   const outputFormat = options.outputFormat ?? "both";
   
+  // Determine if configDir is absolute or relative for Docker volume paths
+  const isAbsoluteConfigDir = configDir.startsWith("/");
+  const dockerConfigPath = isAbsoluteConfigDir ? configDir : `./${configDir}`;
+  const shellConfigPath = isAbsoluteConfigDir ? configDir : `$(pwd)/${configDir}`;
+  
   const rl = createInterface({ input: process.stdin, output: process.stdout });
   
   try {
@@ -554,7 +559,7 @@ docker run -d \\
   -p 127.0.0.1:${gatewayPort}:8787 \\
   -v ~/.owliabot/secrets.yaml:/app/config/secrets.yaml:ro \\
   -v ~/.owliabot/auth:/home/owliabot/.owliabot/auth \\
-  -v $(pwd)/${configDir}/app.yaml:/app/config/app.yaml:ro \\
+  -v ${shellConfigPath}/app.yaml:/app/config/app.yaml:ro \\
   -v owliabot_workspace:/app/workspace \\
   -e TZ=${tz} \\
   ${image} \\
@@ -576,7 +581,7 @@ services:
     volumes:
       - ~/.owliabot/secrets.yaml:/app/config/secrets.yaml:ro
       - ~/.owliabot/auth:/home/owliabot/.owliabot/auth
-      - ./${configDir}/app.yaml:/app/config/app.yaml:ro
+      - ${dockerConfigPath}/app.yaml:/app/config/app.yaml:ro
       - owliabot_workspace:/app/workspace
     environment:
       - TZ=${tz}
