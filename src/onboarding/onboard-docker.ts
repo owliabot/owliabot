@@ -344,14 +344,18 @@ export async function runDockerOnboarding(options: DockerOnboardOptions = {}): P
           const model = await ask(rl, "Model name [llama3.2]: ") || "llama3.2";
           const apiKey = await ask(rl, "API key (optional): ", true);
           
-          // For OpenAI-compatible, write key directly (config loader doesn't resolve "secrets" for this provider)
+          // OpenAI-compatible uses "secrets" placeholder (config loader now resolves it)
           providers.push({
             id: "openai-compatible" as LLMProviderId,
             model,
             baseUrl,
-            apiKey: apiKey || "none",
+            apiKey: apiKey ? "secrets" : "none",
             priority: priority++,
           } as ProviderConfig);
+          
+          if (apiKey) {
+            (secrets as any)["openai-compatible"] = { apiKey };
+          }
           success(`OpenAI-compatible configured: ${baseUrl}`);
         }
       }
@@ -482,11 +486,11 @@ export async function runDockerOnboarding(options: DockerOnboardOptions = {}): P
     mkdirSync(join(owliabotHome, "auth"), { recursive: true });
     
     // Write secrets.yaml using YAML serializer (safe escaping)
-    // Note: openai-compatible key is written directly to app.yaml (not secrets)
-    // because config loader doesn't resolve "secrets" for this provider
+    // All sensitive tokens go to secrets.yaml (config loader resolves "secrets" placeholder)
     const secretsData = {
       anthropic: { apiKey: secrets.anthropic?.apiKey ?? "" },
       openai: { apiKey: secrets.openai?.apiKey ?? "" },
+      "openai-compatible": { apiKey: (secrets as any)["openai-compatible"]?.apiKey ?? "" },
       discord: { token: secrets.discord?.token ?? "" },
       telegram: { token: secrets.telegram?.token ?? "" },
       gateway: { token: gatewayToken },
@@ -537,12 +541,12 @@ providers:
     }
     
     appYaml += `
-# Gateway HTTP config
+# Gateway HTTP config (token resolved from secrets.yaml)
 gateway:
   http:
     host: 0.0.0.0
     port: 8787
-    token: "${gatewayToken}"
+    token: secrets
 
 workspace: /app/workspace
 timezone: ${tz}
