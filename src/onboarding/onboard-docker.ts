@@ -188,9 +188,22 @@ export async function runDockerOnboarding(options: DockerOnboardOptions = {}): P
   const outputFormat = options.outputFormat ?? "both";
   
   // Determine if configDir is absolute or relative for Docker volume paths
-  const isAbsoluteConfigDir = configDir.startsWith("/");
-  const dockerConfigPath = isAbsoluteConfigDir ? configDir : `./${configDir}`;
-  const shellConfigPath = isAbsoluteConfigDir ? configDir : `$(pwd)/${configDir}`;
+  // For generated Docker commands, always use host-relative paths.
+  // When running inside a container (configDir=/app/config), map to host path (./config).
+  // This ensures generated docker-compose.yml mounts correctly on the host.
+  let hostConfigDir: string;
+  if (configDir.startsWith("/app/")) {
+    // Container path like /app/config -> host path ./config
+    hostConfigDir = "." + configDir.slice(4);
+  } else if (configDir.startsWith("/")) {
+    // Other absolute paths -> default to ./config
+    hostConfigDir = "./config";
+  } else {
+    // Relative paths -> keep as-is with ./ prefix
+    hostConfigDir = configDir.startsWith("./") ? configDir : `./${configDir}`;
+  }
+  const dockerConfigPath = hostConfigDir;
+  const shellConfigPath = hostConfigDir.replace(/^\.\//, "$(pwd)/");
   
   const rl = createInterface({ input: process.stdin, output: process.stdout });
   
