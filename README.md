@@ -171,6 +171,94 @@ gateway:
 - `POST /command/tool` — Tool invocation
 - `POST /pair/*` — Device pairing flow
 
+## Wallet Integration (Clawlet)
+
+OwliaBot integrates with [Clawlet](https://github.com/owliabot/clawlet), a secure local wallet daemon for executing on-chain operations. This enables the AI agent to query balances and execute transfers while keeping private keys isolated.
+
+### Why Clawlet?
+
+- **Key isolation**: Private keys never enter the OwliaBot process
+- **Policy enforcement**: Daily limits, recipient allowlists, token restrictions
+- **Audit logging**: All operations logged with agent/session context
+- **Confirmation flow**: User approval required for transfers via WriteGate
+
+### Quick Setup
+
+1. **Install Clawlet**:
+
+```bash
+# Quick install (user mode)
+curl -fsSL https://raw.githubusercontent.com/owliabot/clawlet/main/scripts/install.sh | bash
+
+# Or production install with key isolation (creates dedicated system user)
+curl -fsSL https://raw.githubusercontent.com/owliabot/clawlet/main/scripts/install.sh | sudo bash -s -- --isolated
+```
+
+2. **Initialize wallet and create auth token**:
+
+```bash
+clawlet init
+clawlet auth grant --scope read,trade --label "owliabot"
+# Save the returned token: clwt_xxxxx
+```
+
+3. **Start the daemon**:
+
+```bash
+clawlet serve
+# Listens on http://127.0.0.1:9100
+```
+
+4. **Configure OwliaBot** in `config.yaml`:
+
+```yaml
+wallet:
+  clawlet:
+    enabled: true
+    baseUrl: "http://127.0.0.1:9100"
+    authToken: ${CLAWLET_AUTH_TOKEN}
+    defaultChainId: 8453  # Base
+```
+
+5. **Set the auth token and start**:
+
+```bash
+export CLAWLET_AUTH_TOKEN=clwt_xxxxx
+npx tsx src/entry.ts start
+```
+
+See [Clawlet documentation](https://github.com/owliabot/clawlet) for advanced configuration (Unix socket mode, policy rules, systemd/launchd setup).
+
+### Available Wallet Tools
+
+| Tool | Scope | Description |
+|------|-------|-------------|
+| `wallet_balance` | read | Query ETH + ERC-20 token balances |
+| `wallet_transfer` | trade | Execute transfers (requires confirmation) |
+
+### Supported Chains
+
+| Chain ID | Network |
+|----------|---------|
+| 1 | Ethereum Mainnet |
+| 8453 | Base |
+| 10 | Optimism |
+| 42161 | Arbitrum One |
+
+### Example Interactions
+
+```
+User: What's my wallet balance?
+Owlia: Your wallet (0x1234...5678) on Base:
+       ETH: 0.52
+       Tokens: USDC: 150.00, WETH: 0.1
+
+User: Send 0.1 ETH to 0xRecipient...
+Owlia: Transfer 0.1 ETH to 0xRecipient... on chain 8453. Confirm? [y/n]
+User: y
+Owlia: ✓ Successfully transferred 0.1 ETH. TX: 0xabc123...
+```
+
 ## Skills System
 
 OwliaBot uses a Markdown-based Skills system. Each skill is a `SKILL.md` file with YAML frontmatter containing instructions for the LLM.

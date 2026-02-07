@@ -92,7 +92,7 @@ describe("wallet_transfer tool", () => {
       expect(mockTransfer).toHaveBeenCalledWith({
         to: "0x1234567890123456789012345678901234567890",
         amount: "100",
-        token: "USDC",
+        token_type: "USDC",
         chain_id: 8453,
       });
     });
@@ -115,7 +115,7 @@ describe("wallet_transfer tool", () => {
 
       expect(mockTransfer).toHaveBeenCalledWith(
         expect.objectContaining({
-          token: "ETH",
+          token_type: "ETH",
         })
       );
     });
@@ -315,7 +315,7 @@ describe("wallet_transfer tool", () => {
 
       expect(mockTransfer).toHaveBeenCalledWith(
         expect.objectContaining({
-          token: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
+          token_type: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
         })
       );
     });

@@ -57,8 +57,8 @@ export interface TransferRequest {
   to: string;
   /** Amount as decimal string (e.g. "1.0") */
   amount: string;
-  /** Token to transfer — "ETH" for native, or symbol/address */
-  token: string;
+  /** Token type — "ETH" for native, or token symbol/contract address */
+  token_type: string;
   /** Chain ID to execute on */
   chain_id: number;
 }

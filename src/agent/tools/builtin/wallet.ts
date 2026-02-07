@@ -282,7 +282,7 @@ EXAMPLE:
 
       const p = parseResult.data;
       const chainId = p.chain_id ?? defaultChainId;
-      const token = p.token.toUpperCase() === "ETH" ? "ETH" : p.token;
+      const tokenType = p.token.toUpperCase() === "ETH" ? "ETH" : p.token;
       const parsedAmountWei = parseEthAmountToWei(p.amount);
 
       if (!parsedAmountWei) {
@@ -296,7 +296,7 @@ EXAMPLE:
       const request: TransferRequest = {
         to: p.to,
         amount: p.amount,
-        token,
+        token_type: tokenType,
         chain_id: chainId,
       };
 
@@ -315,23 +315,23 @@ EXAMPLE:
       const confirmed = await ctx.requestConfirmation({
         type: "transaction",
         title: "Confirm Transfer",
-        description: `Transfer ${p.amount} ${token} to ${p.to} on chain ${chainId}. Confirm? [y/n]`,
+        description: `Transfer ${p.amount} ${p.token} to ${p.to} on chain ${chainId}. Confirm? [y/n]`,
         details: {
           Recipient: p.to,
           Amount: p.amount,
-          Token: token,
+          Token: p.token,
           "Chain ID": String(chainId),
         },
         transaction: {
           to: p.to,
-          value: token === "ETH" ? parsedAmountWei : 0n,
+          value: tokenType === "ETH" ? parsedAmountWei : 0n,
           data: "", // Populated by Clawlet for ERC-20
           chainId,
         },
       });
 
       if (!confirmed) {
-        log.info(`Transfer denied by user: ${p.amount} ${token} to ${p.to}`);
+        log.info(`Transfer denied by user: ${p.amount} ${p.token} to ${p.to}`);
         return {
           success: false,
           error: "Transfer cancelled by user",
@@ -360,7 +360,7 @@ EXAMPLE:
             status: result.status,
             tx_hash: result.tx_hash,
             audit_id: result.audit_id,
-            summary: `Successfully transferred ${p.amount} ${token} to ${p.to}. TX: ${result.tx_hash}`,
+            summary: `Successfully transferred ${p.amount} ${p.token} to ${p.to}. TX: ${result.tx_hash}`,
           },
         };
       } catch (err) {

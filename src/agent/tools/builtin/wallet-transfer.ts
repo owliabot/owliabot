@@ -106,7 +106,7 @@ EXAMPLE:
       const request: TransferRequest = {
         to: p.to,
         amount: p.amount,
-        token: p.token.toUpperCase() === "ETH" ? "ETH" : p.token,
+        token_type: p.token.toUpperCase() === "ETH" ? "ETH" : p.token,
         chain_id: p.chain_id ?? defaultChainId,
       };
 

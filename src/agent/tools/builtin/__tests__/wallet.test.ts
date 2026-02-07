@@ -224,7 +224,7 @@ describe("wallet_transfer tool", () => {
     );
 
     expect(mockClient.transfer).toHaveBeenCalledWith(
-      expect.objectContaining({ token: "ETH" }),
+      expect.objectContaining({ token_type: "ETH" }),
     );
   });
 

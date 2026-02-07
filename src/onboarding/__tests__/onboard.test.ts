@@ -32,6 +32,11 @@ vi.mock("../../auth/oauth.js", () => ({
   }),
 }));
 
+// Mock clawlet onboarding to skip wallet prompts (no daemon in test)
+vi.mock("../clawlet-onboard.js", () => ({
+  runClawletOnboarding: vi.fn().mockResolvedValue({ enabled: false }),
+}));
+
 describe("onboarding", () => {
   let dir: string;
 
@@ -68,6 +73,7 @@ describe("onboarding", () => {
       "111,222",           // Discord channelAllowList
       "123456789",         // Discord memberAllowList
       "539066683",         // Telegram allowList
+      // Note: Clawlet onboarding is skipped (no daemon in test environment)
       "",                  // writeToolAllowList (use default from channels)
     ];
 
@@ -111,6 +117,7 @@ describe("onboarding", () => {
       "n",                 // Gateway: no
       "",                  // Discord channelAllowList (empty)
       "",                  // Discord memberAllowList (empty)
+      // Note: Clawlet onboarding skipped (no daemon in test)
     ];
 
     await runOnboarding({ appConfigPath });
@@ -138,6 +145,7 @@ describe("onboarding", () => {
       "n",                 // Gateway: no
       "",                  // Discord channelAllowList (empty)
       "",                  // Discord memberAllowList (empty)
+      // Note: Clawlet onboarding skipped (no daemon in test)
     ];
 
     await runOnboarding({ appConfigPath });
@@ -163,6 +171,7 @@ describe("onboarding", () => {
       "n",                 // Gateway: no
       "",                  // Discord channelAllowList (empty)
       "",                  // Discord memberAllowList (empty)
+      // Note: Clawlet onboarding skipped (no daemon in test)
     ];
 
     await runOnboarding({ appConfigPath });
@@ -192,6 +201,7 @@ describe("onboarding", () => {
       "n",                 // Gateway: no
       "",                  // Discord channelAllowList (empty)
       "",                  // Discord memberAllowList (empty)
+      // Note: Clawlet onboarding skipped (no daemon in test)
     ];
 
     await runOnboarding({ appConfigPath });
@@ -216,6 +226,7 @@ describe("onboarding", () => {
       "n",                 // Gateway: no
       "",                  // Discord channelAllowList (empty)
       "",                  // Discord memberAllowList (empty)
+      // Note: Clawlet onboarding skipped (no daemon in test)
     ];
 
     await runOnboarding({ appConfigPath });
@@ -241,6 +252,7 @@ describe("onboarding", () => {
       "n",                 // Gateway: no
       "",                  // Discord channelAllowList (empty)
       "",                  // Discord memberAllowList (empty)
+      // Note: Clawlet onboarding skipped (no daemon in test)
     ];
 
     await runOnboarding({ appConfigPath });
@@ -265,6 +277,7 @@ describe("onboarding", () => {
       "",                  // Discord channelAllowList (empty)
       "",                  // Discord memberAllowList (empty)
       "",                  // Telegram allowList (empty)
+      // Note: Clawlet onboarding skipped (no daemon in test)
     ];
 
     await runOnboarding({ appConfigPath });
