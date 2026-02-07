@@ -130,6 +130,78 @@ main() {
     "${OWLIABOT_IMAGE}" \
     onboard --docker --config-dir /app/config --output-dir /app/output \
     < /dev/tty
+
+  # Verify onboard produced docker-compose.yml
+  if [ ! -f "docker-compose.yml" ]; then
+    die "Onboard did not generate docker-compose.yml. Cannot auto-start."
+  fi
+
+  # --- Auto-start container ---
+  header "Starting OwliaBot container"
+
+  # Detect docker compose command
+  COMPOSE_CMD=""
+  if command -v docker-compose &>/dev/null; then
+    COMPOSE_CMD="docker-compose"
+  elif docker compose version &>/dev/null; then
+    COMPOSE_CMD="docker compose"
+  else
+    die "Docker Compose not found. Please install it and run: docker-compose up -d"
+  fi
+
+  info "Using: ${COMPOSE_CMD}"
+  if ! ${COMPOSE_CMD} up -d; then
+    die "Failed to start container. Check docker-compose.yml and try: ${COMPOSE_CMD} up -d"
+  fi
+  success "Container started"
+
+  # --- Wait for container to be ready ---
+  info "Waiting for container to be ready..."
+  TIMEOUT=30
+  ELAPSED=0
+  while [ $ELAPSED -lt $TIMEOUT ]; do
+    STATE=$(docker inspect --format='{{.State.Running}}' owliabot 2>/dev/null || echo "false")
+    if [ "$STATE" = "true" ]; then
+      break
+    fi
+    sleep 1
+    ELAPSED=$((ELAPSED + 1))
+  done
+
+  if [ "$STATE" != "true" ]; then
+    warn "Container did not become ready within ${TIMEOUT}s."
+    warn "Check logs with: ${COMPOSE_CMD} logs"
+    exit 1
+  fi
+  success "Container is running"
+
+  # --- Auto-trigger OAuth setup if needed ---
+  if [ -f "config/app.yaml" ] && grep -q 'apiKey: "oauth"\|apiKey: oauth' config/app.yaml 2>/dev/null; then
+    header "Setting up OAuth authentication"
+    info "OAuth providers detected in config. Starting auth setup..."
+    echo ""
+
+    # Give the container a moment to fully initialize
+    sleep 2
+
+    # Run auth setup interactively (needs /dev/tty for browser-based OAuth flow)
+    docker exec -it owliabot owliabot auth setup < /dev/tty || {
+      warn "OAuth setup did not complete. You can retry later with:"
+      echo "  docker exec -it owliabot owliabot auth setup"
+      echo ""
+    }
+  fi
+
+  # --- Final success message ---
+  header "OwliaBot is running! 🦉"
+  success "Your bot is up and running."
+  echo ""
+  info "Useful commands:"
+  echo "  ${COMPOSE_CMD} logs -f          # Follow logs"
+  echo "  ${COMPOSE_CMD} restart          # Restart"
+  echo "  ${COMPOSE_CMD} down             # Stop"
+  echo "  ${COMPOSE_CMD} pull && ${COMPOSE_CMD} up -d  # Update"
+  echo ""
 }
 
 main "$@"
