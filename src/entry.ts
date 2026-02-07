@@ -19,6 +19,7 @@ import {
 import { runOnboarding } from "./onboarding/onboard.js";
 import { runDockerOnboarding } from "./onboarding/onboard-docker.js";
 import { DEV_APP_CONFIG_PATH } from "./onboarding/storage.js";
+import type { Config } from "./config/schema.js";
 
 const log = logger;
 
@@ -35,6 +36,54 @@ program
   .description("Crypto-native AI agent for Telegram and Discord")
   .version("0.1.0");
 
+/**
+ * Check if any OAuth providers are configured but lack credentials.
+ * If so, print actionable instructions to the user.
+ * Works in both Docker and local environments.
+ */
+async function checkOAuthProviders(config: Config): Promise<void> {
+  const oauthProviders = config.providers.filter(
+    (p) => p.apiKey === "oauth"
+  );
+  if (oauthProviders.length === 0) return;
+
+  const missing: string[] = [];
+  for (const provider of oauthProviders) {
+    const oauthId = provider.id as SupportedOAuthProvider;
+    // Only check providers that actually support OAuth
+    if (oauthId !== "openai-codex") continue;
+    const status = await getOAuthStatus(oauthId);
+    if (!status.authenticated) {
+      missing.push(provider.id);
+    }
+  }
+
+  if (missing.length === 0) return;
+
+  const isDocker = process.env.OWLIABOT_CONFIG_PATH != null ||
+    (await import("node:fs")).existsSync("/.dockerenv");
+
+  log.warn("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+  log.warn("  OAuth credentials missing for: " + missing.join(", "));
+  log.warn("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+  log.warn("");
+  if (isDocker) {
+    log.warn("  Run the following to authenticate:");
+    for (const id of missing) {
+      log.warn(`    docker exec -it owliabot owliabot auth setup ${id}`);
+    }
+  } else {
+    log.warn("  Run the following to authenticate:");
+    for (const id of missing) {
+      log.warn(`    owliabot auth setup ${id}`);
+    }
+  }
+  log.warn("");
+  log.warn("  The bot will start but these providers will not work until");
+  log.warn("  OAuth is configured.");
+  log.warn("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+}
+
 program
   .command("start")
   .description("Start the bot")
@@ -49,6 +98,9 @@ program
 
       // Load config
       const config = await loadConfig(options.config);
+
+      // Check for missing OAuth credentials and print instructions
+      await checkOAuthProviders(config);
 
       // Load workspace
       const workspace = await loadWorkspace(config.workspace);

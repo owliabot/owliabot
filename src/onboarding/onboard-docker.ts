@@ -207,7 +207,8 @@ export async function runDockerOnboarding(options: DockerOnboardOptions = {}): P
             success("Anthropic API key set");
           }
         } else {
-          success("Anthropic OAuth will be configured after container starts");
+          success("Anthropic OAuth: after starting the container, run:");
+          info("  docker exec -it owliabot owliabot auth setup anthropic");
         }
       }
       
@@ -228,7 +229,8 @@ export async function runDockerOnboarding(options: DockerOnboardOptions = {}): P
         useOpenaiCodex = true;
         console.log("");
         info("OpenAI OAuth (openai-codex) uses your ChatGPT Plus/Pro subscription.");
-        success("OpenAI OAuth will be configured after container starts");
+        success("OpenAI OAuth: after starting the container, run:");
+        info("  docker exec -it owliabot owliabot auth setup openai-codex");
       }
       
       // OpenAI-compatible
@@ -544,15 +546,26 @@ volumes:
     console.log("  - ./docker-compose.yml       (if generated)");
     console.log("");
     
+    const needsOAuth = (useAnthropic && !secrets.anthropic?.apiKey) || useOpenaiCodex;
+    
     console.log("Next steps:");
-    if (useAnthropic && !secrets.anthropic?.apiKey) {
-      console.log("  - Anthropic OAuth: docker run --rm -it -v ~/.owliabot/auth:/home/owliabot/.owliabot/auth " + image + " auth setup anthropic");
+    console.log("  1. Start the container:");
+    console.log("     docker compose up -d");
+    console.log("");
+    if (needsOAuth) {
+      console.log("  2. Set up OAuth authentication (run after container is started):");
+      if (useAnthropic && !secrets.anthropic?.apiKey) {
+        console.log("     docker exec -it owliabot owliabot auth setup anthropic");
+      }
+      if (useOpenaiCodex) {
+        console.log("     docker exec -it owliabot owliabot auth setup openai-codex");
+      }
+      console.log("");
+      console.log("  3. Check logs:");
+    } else {
+      console.log("  2. Check logs:");
     }
-    if (useOpenaiCodex) {
-      console.log("  - OpenAI OAuth: docker run --rm -it -v ~/.owliabot/auth:/home/owliabot/.owliabot/auth " + image + " auth setup openai-codex");
-    }
-    console.log("  - Start: docker compose up -d  (or: docker-compose up -d)");
-    console.log("  - Logs:  docker-compose logs -f");
+    console.log("     docker compose logs -f");
     console.log("");
     
     console.log("Gateway HTTP:");

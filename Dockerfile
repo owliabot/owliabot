@@ -61,6 +61,13 @@ COPY config.example.yaml ./config.example.yaml
 RUN mkdir -p /app/config /app/workspace /home/owliabot/.owliabot && \
     chown -R owliabot:owliabot /app /home/owliabot
 
+# Add owliabot CLI wrapper so users can run:
+#   docker exec -it owliabot owliabot auth setup
+# instead of:
+#   docker exec -it owliabot node dist/entry.js auth setup
+RUN printf '#!/bin/sh\nexec node /app/dist/entry.js "$@"\n' > /usr/local/bin/owliabot && \
+    chmod +x /usr/local/bin/owliabot
+
 # Switch to non-root user
 USER owliabot
 
