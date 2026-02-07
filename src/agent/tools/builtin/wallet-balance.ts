@@ -37,6 +37,7 @@ PARAMETERS:
 
 SUPPORTED CHAINS:
 - 1: Ethereum Mainnet
+- 11155111: Ethereum Sepolia (testnet)
 - 8453: Base
 - 10: Optimism
 - 42161: Arbitrum One
