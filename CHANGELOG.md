@@ -4,6 +4,8 @@ All notable changes to OwliaBot will be documented in this file.
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-02-07
+
 ### Added
 - **Skills System MVP** - Extensible tool system via JavaScript modules
   - `src/skills/` - Skill loader, context factory, and registry
