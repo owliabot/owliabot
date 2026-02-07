@@ -81,10 +81,10 @@ describe("ClawletClient", () => {
       const parsed = JSON.parse(options.body);
       expect(parsed.jsonrpc).toBe("2.0");
       expect(parsed.method).toBe("balance");
-      expect(parsed.params).toEqual({
+      expect(parsed.params).toEqual([{
         address: "0x1234567890123456789012345678901234567890",
         chain_id: 8453,
-      });
+      }]);
       expect(parsed.id).toBe(1);
     });
 
