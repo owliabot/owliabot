@@ -285,7 +285,9 @@ src/
 | "Node.js version" error | Upgrade to Node.js >= 22 |
 | Bot doesn't respond | Check allowList includes your user ID |
 | OAuth expired | Run `npx tsx src/entry.ts auth setup` again |
-| Discord bot silent in guild | Ensure `requireMentionInGuild` settings and channel allowlist |
+| Discord bot silent in guild | Ensure `requireMentionInGuild` settings and channel allowlist. See [Discord Setup Guide](docs/discord-setup.md) |
+| Discord bot not receiving messages | Enable MESSAGE CONTENT INTENT in Discord Developer Portal. See [Discord Setup Guide](docs/discord-setup.md) |
+| Discord bot can't reply in threads | Enable "Send Messages in Threads" permission. See [Discord Setup Guide](docs/discord-setup.md) |
 
 ## License
 

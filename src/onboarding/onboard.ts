@@ -128,6 +128,8 @@ export async function runOnboarding(options: OnboardOptions = {}): Promise<void>
       if (discordEnabled && !secrets.discord?.token) {
         console.log("");
         info("Discord developer portal: https://discord.com/developers/applications");
+        info("Setup guide: https://github.com/owliabot/owliabot/blob/main/docs/discord-setup.md");
+        info("⚠️  Remember to enable MESSAGE CONTENT INTENT in the developer portal!");
         const token = await ask(rl, "Discord bot token (leave empty to set later): ");
         if (token) {
           secrets.discord = { token };
@@ -390,6 +392,9 @@ export async function runOnboarding(options: OnboardOptions = {}): Promise<void>
 
     if (discordEnabled) {
       header("Discord configuration");
+      info("Ensure your bot has these permissions: View Channels, Send Messages, Send Messages in Threads, Read Message History");
+      info("See: https://github.com/owliabot/owliabot/blob/main/docs/discord-setup.md");
+      console.log("");
       
       const channelIds = await ask(rl, "Channel allowlist (comma-separated channel IDs, leave empty for all): ");
       const channelAllowList = channelIds

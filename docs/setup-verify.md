@@ -186,6 +186,10 @@ OwliaBot is running. Press Ctrl+C to stop.
 - **频道 ID 错误**：`channelAllowList` 中的 ID 必须是频道 ID（非服务器 ID）。开启 Discord 开发者模式后右键频道 → 复制 ID。
 - **Bot 权限不足**：确保 Bot 在目标频道有「查看频道」「发送消息」「读取消息历史」权限。
 - **memberAllowList 未包含你的 ID**：如果设置了此字段，确保你的 Discord 用户 ID 在列表中。
+- **MESSAGE CONTENT INTENT 未开启**：在 Discord Developer Portal → Bot → Privileged Gateway Intents 中开启。
+- **Thread 中不回复**：需要勾选「Send Messages in Threads」权限，并重新邀请 Bot。
+
+> 📖 详细的 Discord 设置指南请参考 [Discord Setup Guide](discord-setup.md)
 
 ### OAuth 过期
 

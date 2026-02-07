@@ -38,6 +38,7 @@ export function createDiscordPlugin(config: DiscordConfig): ChannelPlugin {
     partials: [
       Partials.Channel, // Required for DMs
       Partials.Message,
+      Partials.ThreadMember, // Required for threads
     ],
   });
 
