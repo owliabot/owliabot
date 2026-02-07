@@ -121,12 +121,15 @@ main() {
   info "Running onboard inside Docker container..."
   echo ""
   
+  # Use </dev/tty to ensure interactive input works even when
+  # the script is piped via curl (curl ... | bash steals stdin)
   docker run --rm -it \
     -v ~/.owliabot:/home/owliabot/.owliabot \
     -v "$(pwd)/config:/app/config" \
     -v "$(pwd):/app/output" \
     "${OWLIABOT_IMAGE}" \
-    onboard --docker --config-dir /app/config --output-dir /app/output
+    onboard --docker --config-dir /app/config --output-dir /app/output \
+    < /dev/tty
 }
 
 main "$@"
