@@ -160,7 +160,12 @@ main() {
   TIMEOUT=30
   ELAPSED=0
   while [ $ELAPSED -lt $TIMEOUT ]; do
-    STATE=$(docker inspect --format='{{.State.Running}}' owliabot 2>/dev/null || echo "false")
+    CID=$(${COMPOSE_CMD} ps -q owliabot 2>/dev/null)
+    if [ -n "$CID" ]; then
+      STATE=$(docker inspect --format='{{.State.Running}}' "$CID" 2>/dev/null || echo "false")
+    else
+      STATE="false"
+    fi
     if [ "$STATE" = "true" ]; then
       break
     fi
@@ -176,16 +181,14 @@ main() {
   success "Container is running"
 
   # --- Auto-trigger OAuth setup if needed ---
-  if [ -f "config/app.yaml" ] && grep -q 'apiKey: "oauth"\|apiKey: oauth' config/app.yaml 2>/dev/null; then
+  if [ -f "config/app.yaml" ] && grep -qE 'apiKey: "?oauth"?' config/app.yaml 2>/dev/null; then
     header "Setting up OAuth authentication"
     info "OAuth providers detected in config. Starting auth setup..."
     echo ""
 
-    # Give the container a moment to fully initialize
-    sleep 2
-
     # Run auth setup interactively (needs /dev/tty for browser-based OAuth flow)
-    docker exec -it owliabot owliabot auth setup < /dev/tty || {
+    CID=$(${COMPOSE_CMD} ps -q owliabot 2>/dev/null)
+    docker exec -it "$CID" owliabot auth setup < /dev/tty || {
       warn "OAuth setup did not complete. You can retry later with:"
       echo "  docker exec -it owliabot owliabot auth setup"
       echo ""
@@ -197,10 +200,11 @@ main() {
   success "Your bot is up and running."
   echo ""
   info "Useful commands:"
-  echo "  ${COMPOSE_CMD} logs -f          # Follow logs"
-  echo "  ${COMPOSE_CMD} restart          # Restart"
-  echo "  ${COMPOSE_CMD} down             # Stop"
-  echo "  ${COMPOSE_CMD} pull && ${COMPOSE_CMD} up -d  # Update"
+  echo "  ${COMPOSE_CMD} logs -f                              # Follow logs"
+  echo "  ${COMPOSE_CMD} restart                              # Restart"
+  echo "  ${COMPOSE_CMD} down                                 # Stop"
+  echo "  ${COMPOSE_CMD} pull && ${COMPOSE_CMD} up -d         # Update"
+  echo "  docker exec -it \$(${COMPOSE_CMD} ps -q owliabot) owliabot auth setup  # Re-run OAuth"
   echo ""
 }
 
