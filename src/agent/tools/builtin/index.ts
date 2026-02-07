@@ -27,5 +27,4 @@ export { createWebFetchTool, type WebFetchToolDeps } from "./web-fetch.js";
 export { createWebSearchTool, type WebSearchToolDeps } from "./web-search.js";
 
 // Wallet tools (Clawlet integration)
-export { createWalletBalanceTool, type WalletBalanceToolDeps } from "./wallet-balance.js";
-export { createWalletTransferTool, type WalletTransferToolDeps } from "./wallet-transfer.js";
+export { createWalletBalanceTool, createWalletTransferTool, createWalletTools, type WalletToolsConfig } from "./wallet.js";

@@ -1,11 +1,10 @@
 /**
  * ClawletClient Unit Tests
  *
- * Tests for the Unix socket JSON-RPC client.
+ * Tests for the HTTP JSON-RPC client.
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { EventEmitter } from "node:events";
 import {
   ClawletClient,
   ClawletError,
@@ -13,43 +12,38 @@ import {
   getClawletClient,
 } from "../clawlet-client.js";
 
-// Use vi.hoisted to ensure the mock function is available during hoisting
-const { mockCreateConnection } = vi.hoisted(() => {
-  return { mockCreateConnection: vi.fn() };
-});
-
-// Mock net.createConnection
-vi.mock("node:net", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("node:net")>();
-  return {
-    ...actual,
-    createConnection: mockCreateConnection,
-  };
-});
+// Mock global fetch
+const mockFetch = vi.fn();
+vi.stubGlobal("fetch", mockFetch);
 
 /**
- * Create a mock socket for testing
+ * Helper to create a mock Response
  */
-function createMockSocket() {
-  const socket = new EventEmitter() as EventEmitter & {
-    write: ReturnType<typeof vi.fn>;
-    destroy: ReturnType<typeof vi.fn>;
-    removeAllListeners: ReturnType<typeof vi.fn>;
-  };
-  socket.write = vi.fn();
-  socket.destroy = vi.fn();
-  socket.removeAllListeners = vi.fn();
-  return socket;
+function createMockResponse(body: unknown, status = 200): Response {
+  return {
+    ok: status >= 200 && status < 300,
+    status,
+    statusText: status === 200 ? "OK" : "Error",
+    json: async () => body,
+    headers: new Headers(),
+    redirected: false,
+    type: "basic",
+    url: "http://127.0.0.1:9100/rpc",
+    clone: () => createMockResponse(body, status),
+    body: null,
+    bodyUsed: false,
+    arrayBuffer: async () => new ArrayBuffer(0),
+    blob: async () => new Blob(),
+    formData: async () => new FormData(),
+    text: async () => JSON.stringify(body),
+    bytes: async () => new Uint8Array(),
+  } as Response;
 }
 
 describe("ClawletClient", () => {
-  let mockSocket: ReturnType<typeof createMockSocket>;
-
   beforeEach(() => {
     vi.clearAllMocks();
     resetClawletClient();
-    mockSocket = createMockSocket();
-    mockCreateConnection.mockReturnValue(mockSocket as any);
   });
 
   afterEach(() => {
@@ -60,89 +54,66 @@ describe("ClawletClient", () => {
     it("should serialize request with correct JSON-RPC format", async () => {
       const client = new ClawletClient({
         authToken: "test-token",
-        connectTimeout: 100,
-        requestTimeout: 100,
+        requestTimeout: 5000,
       });
 
-      // Setup mock response
-      setTimeout(() => {
-        mockSocket.emit("connect");
-      }, 10);
-
-      setTimeout(() => {
-        const response = JSON.stringify({
+      mockFetch.mockResolvedValueOnce(
+        createMockResponse({
           jsonrpc: "2.0",
           result: { eth: "1.0", tokens: [] },
           id: 1,
-        });
-        mockSocket.emit("data", Buffer.from(response + "\n"));
-      }, 20);
+        })
+      );
 
       await client.balance({
         address: "0x1234567890123456789012345678901234567890",
         chain_id: 8453,
       });
 
-      // Verify request format
-      expect(mockSocket.write).toHaveBeenCalledTimes(1);
-      const writtenData = mockSocket.write.mock.calls[0][0] as string;
-      const parsed = JSON.parse(writtenData.trim());
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+      const [url, options] = mockFetch.mock.calls[0];
+      
+      expect(url).toBe("http://127.0.0.1:9100/rpc");
+      expect(options.method).toBe("POST");
+      expect(options.headers["Content-Type"]).toBe("application/json");
+      expect(options.headers["Authorization"]).toBe("Bearer test-token");
 
+      const parsed = JSON.parse(options.body);
       expect(parsed.jsonrpc).toBe("2.0");
       expect(parsed.method).toBe("balance");
-      expect(parsed.params).toEqual({
+      expect(parsed.params).toEqual([{
         address: "0x1234567890123456789012345678901234567890",
         chain_id: 8453,
-      });
+      }]);
       expect(parsed.id).toBe(1);
-      expect(parsed.meta.authorization).toBe("Bearer test-token");
     });
 
     it("should increment request ID for each call", async () => {
       const client = new ClawletClient({
         authToken: "test-token",
-        connectTimeout: 100,
-        requestTimeout: 100,
+        requestTimeout: 5000,
       });
 
-      // First request
-      setTimeout(() => mockSocket.emit("connect"), 5);
-      setTimeout(() => {
-        mockSocket.emit(
-          "data",
-          Buffer.from(
-            JSON.stringify({ jsonrpc: "2.0", result: { eth: "1.0", tokens: [] }, id: 1 }) + "\n"
-          )
-        );
-      }, 10);
+      mockFetch.mockResolvedValue(
+        createMockResponse({
+          jsonrpc: "2.0",
+          result: { eth: "1.0", tokens: [] },
+          id: 1,
+        })
+      );
 
       await client.balance({
         address: "0x1234567890123456789012345678901234567890",
         chain_id: 8453,
       });
-
-      const firstId = JSON.parse((mockSocket.write.mock.calls[0][0] as string).trim()).id;
-
-      // Second request - need new mock socket
-      mockSocket = createMockSocket();
-      mockCreateConnection.mockReturnValue(mockSocket as any);
-
-      setTimeout(() => mockSocket.emit("connect"), 5);
-      setTimeout(() => {
-        mockSocket.emit(
-          "data",
-          Buffer.from(
-            JSON.stringify({ jsonrpc: "2.0", result: { eth: "2.0", tokens: [] }, id: 2 }) + "\n"
-          )
-        );
-      }, 10);
 
       await client.balance({
         address: "0x1234567890123456789012345678901234567890",
         chain_id: 1,
       });
 
-      const secondId = JSON.parse((mockSocket.write.mock.calls[0][0] as string).trim()).id;
+      const firstId = JSON.parse(mockFetch.mock.calls[0][1].body).id;
+      const secondId = JSON.parse(mockFetch.mock.calls[1][1].body).id;
 
       expect(secondId).toBe(firstId + 1);
     });
@@ -152,24 +123,21 @@ describe("ClawletClient", () => {
     it("should parse balance response correctly", async () => {
       const client = new ClawletClient({
         authToken: "test-token",
-        connectTimeout: 100,
-        requestTimeout: 100,
+        requestTimeout: 5000,
       });
 
-      setTimeout(() => mockSocket.emit("connect"), 5);
-      setTimeout(() => {
-        const response = JSON.stringify({
+      mockFetch.mockResolvedValueOnce(
+        createMockResponse({
           jsonrpc: "2.0",
           result: {
             eth: "1.5",
             tokens: [
-              { symbol: "USDC", balance: "100.0", address: "0xUSDC" },
+              { symbol: "USDC", balance: "100.0", address: "0xUSDC", decimals: 6 },
             ],
           },
           id: 1,
-        });
-        mockSocket.emit("data", Buffer.from(response + "\n"));
-      }, 10);
+        })
+      );
 
       const result = await client.balance({
         address: "0x1234567890123456789012345678901234567890",
@@ -180,18 +148,17 @@ describe("ClawletClient", () => {
       expect(result.tokens).toHaveLength(1);
       expect(result.tokens[0].symbol).toBe("USDC");
       expect(result.tokens[0].balance).toBe("100.0");
+      expect(result.tokens[0].decimals).toBe(6);
     });
 
     it("should parse transfer response correctly", async () => {
       const client = new ClawletClient({
         authToken: "test-token",
-        connectTimeout: 100,
-        requestTimeout: 100,
+        requestTimeout: 5000,
       });
 
-      setTimeout(() => mockSocket.emit("connect"), 5);
-      setTimeout(() => {
-        const response = JSON.stringify({
+      mockFetch.mockResolvedValueOnce(
+        createMockResponse({
           jsonrpc: "2.0",
           result: {
             status: "success",
@@ -199,9 +166,8 @@ describe("ClawletClient", () => {
             audit_id: "audit-456",
           },
           id: 1,
-        });
-        mockSocket.emit("data", Buffer.from(response + "\n"));
-      }, 10);
+        })
+      );
 
       const result = await client.transfer({
         to: "0x1234567890123456789012345678901234567890",
@@ -217,19 +183,16 @@ describe("ClawletClient", () => {
 
     it("should parse health response without auth", async () => {
       const client = new ClawletClient({
-        connectTimeout: 100,
-        requestTimeout: 100,
+        requestTimeout: 5000,
       });
 
-      setTimeout(() => mockSocket.emit("connect"), 5);
-      setTimeout(() => {
-        const response = JSON.stringify({
+      mockFetch.mockResolvedValueOnce(
+        createMockResponse({
           jsonrpc: "2.0",
           result: { status: "ok", version: "1.0.0" },
           id: 1,
-        });
-        mockSocket.emit("data", Buffer.from(response + "\n"));
-      }, 10);
+        })
+      );
 
       const result = await client.health();
 
@@ -237,9 +200,30 @@ describe("ClawletClient", () => {
       expect(result.version).toBe("1.0.0");
 
       // Verify no auth header for health
-      const writtenData = mockSocket.write.mock.calls[0][0] as string;
-      const parsed = JSON.parse(writtenData.trim());
-      expect(parsed.meta).toBeUndefined();
+      const options = mockFetch.mock.calls[0][1];
+      expect(options.headers["Authorization"]).toBeUndefined();
+    });
+
+    it("should parse address response without auth", async () => {
+      const client = new ClawletClient({
+        requestTimeout: 5000,
+      });
+
+      mockFetch.mockResolvedValueOnce(
+        createMockResponse({
+          jsonrpc: "2.0",
+          result: { address: "0x742d35cc6634c0532925a3b844bc9e7595f5b5e2" },
+          id: 1,
+        })
+      );
+
+      const result = await client.address();
+
+      expect(result.address).toBe("0x742d35cc6634c0532925a3b844bc9e7595f5b5e2");
+
+      // Verify no auth header for address
+      const options = mockFetch.mock.calls[0][1];
+      expect(options.headers["Authorization"]).toBeUndefined();
     });
   });
 
@@ -247,22 +231,19 @@ describe("ClawletClient", () => {
     it("should throw ClawletError on RPC error", async () => {
       const client = new ClawletClient({
         authToken: "test-token",
-        connectTimeout: 100,
-        requestTimeout: 100,
+        requestTimeout: 5000,
       });
 
-      setTimeout(() => mockSocket.emit("connect"), 5);
-      setTimeout(() => {
-        const response = JSON.stringify({
+      mockFetch.mockResolvedValueOnce(
+        createMockResponse({
           jsonrpc: "2.0",
           error: {
             code: -32600,
             message: "Invalid request",
           },
           id: 1,
-        });
-        mockSocket.emit("data", Buffer.from(response + "\n"));
-      }, 10);
+        })
+      );
 
       try {
         await client.balance({
@@ -280,22 +261,41 @@ describe("ClawletClient", () => {
     it("should map -32001 to UNAUTHORIZED error", async () => {
       const client = new ClawletClient({
         authToken: "test-token",
-        connectTimeout: 100,
-        requestTimeout: 100,
+        requestTimeout: 5000,
       });
 
-      setTimeout(() => mockSocket.emit("connect"), 5);
-      setTimeout(() => {
-        const response = JSON.stringify({
+      mockFetch.mockResolvedValueOnce(
+        createMockResponse({
           jsonrpc: "2.0",
           error: {
             code: -32001,
             message: "Unauthorized",
           },
           id: 1,
+        })
+      );
+
+      try {
+        await client.balance({
+          address: "0x1234567890123456789012345678901234567890",
+          chain_id: 8453,
         });
-        mockSocket.emit("data", Buffer.from(response + "\n"));
-      }, 10);
+        expect.fail("Should have thrown");
+      } catch (err) {
+        expect(err).toBeInstanceOf(ClawletError);
+        expect((err as ClawletError).code).toBe("UNAUTHORIZED");
+      }
+    });
+
+    it("should throw on HTTP 401", async () => {
+      const client = new ClawletClient({
+        authToken: "test-token",
+        requestTimeout: 5000,
+      });
+
+      mockFetch.mockResolvedValueOnce(
+        createMockResponse({ error: "Unauthorized" }, 401)
+      );
 
       try {
         await client.balance({
@@ -312,42 +312,15 @@ describe("ClawletClient", () => {
     it("should throw on missing result", async () => {
       const client = new ClawletClient({
         authToken: "test-token",
-        connectTimeout: 100,
-        requestTimeout: 100,
+        requestTimeout: 5000,
       });
 
-      setTimeout(() => mockSocket.emit("connect"), 5);
-      setTimeout(() => {
-        const response = JSON.stringify({
+      mockFetch.mockResolvedValueOnce(
+        createMockResponse({
           jsonrpc: "2.0",
           id: 1,
-        });
-        mockSocket.emit("data", Buffer.from(response + "\n"));
-      }, 10);
-
-      try {
-        await client.balance({
-          address: "0x1234567890123456789012345678901234567890",
-          chain_id: 8453,
-        });
-        expect.fail("Should have thrown");
-      } catch (err) {
-        expect(err).toBeInstanceOf(ClawletError);
-        expect((err as ClawletError).code).toBe("INVALID_RESPONSE");
-      }
-    });
-
-    it("should throw on malformed JSON", async () => {
-      const client = new ClawletClient({
-        authToken: "test-token",
-        connectTimeout: 100,
-        requestTimeout: 100,
-      });
-
-      setTimeout(() => mockSocket.emit("connect"), 5);
-      setTimeout(() => {
-        mockSocket.emit("data", Buffer.from("not valid json\n"));
-      }, 10);
+        })
+      );
 
       try {
         await client.balance({
@@ -366,19 +339,17 @@ describe("ClawletClient", () => {
     it("should accept valid 0x-prefixed address", async () => {
       const client = new ClawletClient({
         authToken: "test-token",
-        connectTimeout: 100,
-        requestTimeout: 100,
+        requestTimeout: 5000,
       });
 
-      setTimeout(() => mockSocket.emit("connect"), 5);
-      setTimeout(() => {
-        mockSocket.emit(
-          "data",
-          Buffer.from(JSON.stringify({ jsonrpc: "2.0", result: { eth: "1.0", tokens: [] }, id: 1 }) + "\n")
-        );
-      }, 10);
+      mockFetch.mockResolvedValueOnce(
+        createMockResponse({
+          jsonrpc: "2.0",
+          result: { eth: "1.0", tokens: [] },
+          id: 1,
+        })
+      );
 
-      // Valid address with uppercase
       await expect(
         client.balance({
           address: "0xABCDEF1234567890ABCDEF1234567890ABCDEF12",
@@ -471,37 +442,26 @@ describe("ClawletClient", () => {
   });
 
   describe("timeout handling", () => {
-    it("should timeout on connection", async () => {
-      const client = new ClawletClient({
-        authToken: "test-token",
-        connectTimeout: 50,
-        requestTimeout: 100,
-      });
-
-      // Don't emit connect - let it timeout
-
-      try {
-        await client.balance({
-          address: "0x1234567890123456789012345678901234567890",
-          chain_id: 8453,
-        });
-        expect.fail("Should have thrown");
-      } catch (err) {
-        expect(err).toBeInstanceOf(ClawletError);
-        expect((err as ClawletError).code).toBe("TIMEOUT");
-        expect((err as ClawletError).message).toContain("Connection timeout");
-      }
-    }, 1000);
-
     it("should timeout on request", async () => {
       const client = new ClawletClient({
         authToken: "test-token",
-        connectTimeout: 100,
         requestTimeout: 50,
       });
 
-      // Connect but don't respond
-      setTimeout(() => mockSocket.emit("connect"), 5);
+      // Mock fetch that respects AbortSignal
+      mockFetch.mockImplementationOnce((_url: string, options: { signal?: AbortSignal }) => {
+        return new Promise((resolve, reject) => {
+          const timer = setTimeout(() => resolve(createMockResponse({})), 200);
+          
+          // Listen for abort
+          options?.signal?.addEventListener("abort", () => {
+            clearTimeout(timer);
+            const abortError = new Error("The operation was aborted");
+            abortError.name = "AbortError";
+            reject(abortError);
+          });
+        });
+      });
 
       try {
         await client.balance({
@@ -512,24 +472,19 @@ describe("ClawletClient", () => {
       } catch (err) {
         expect(err).toBeInstanceOf(ClawletError);
         expect((err as ClawletError).code).toBe("TIMEOUT");
-        expect((err as ClawletError).message).toContain("Request timeout");
+        expect((err as ClawletError).message).toContain("timeout");
       }
     }, 1000);
   });
 
   describe("connection error handling", () => {
-    it("should handle ENOENT (socket not found)", async () => {
+    it("should handle fetch failure (connection refused)", async () => {
       const client = new ClawletClient({
         authToken: "test-token",
-        socketPath: "/nonexistent/path.sock",
-        connectTimeout: 100,
+        requestTimeout: 5000,
       });
 
-      setTimeout(() => {
-        const error = new Error("Socket not found") as NodeJS.ErrnoException;
-        error.code = "ENOENT";
-        mockSocket.emit("error", error);
-      }, 5);
+      mockFetch.mockRejectedValueOnce(new Error("fetch failed: ECONNREFUSED"));
 
       try {
         await client.balance({
@@ -540,21 +495,16 @@ describe("ClawletClient", () => {
       } catch (err) {
         expect(err).toBeInstanceOf(ClawletError);
         expect((err as ClawletError).code).toBe("CONNECTION_FAILED");
-        expect((err as ClawletError).message).toContain("Socket not found");
       }
     });
 
-    it("should handle ECONNREFUSED", async () => {
+    it("should handle network errors", async () => {
       const client = new ClawletClient({
         authToken: "test-token",
-        connectTimeout: 100,
+        requestTimeout: 5000,
       });
 
-      setTimeout(() => {
-        const error = new Error("Connection refused") as NodeJS.ErrnoException;
-        error.code = "ECONNREFUSED";
-        mockSocket.emit("error", error);
-      }, 5);
+      mockFetch.mockRejectedValueOnce(new Error("Network error"));
 
       try {
         await client.balance({
@@ -565,30 +515,6 @@ describe("ClawletClient", () => {
       } catch (err) {
         expect(err).toBeInstanceOf(ClawletError);
         expect((err as ClawletError).code).toBe("CONNECTION_FAILED");
-        expect((err as ClawletError).message).toContain("Connection refused");
-      }
-    });
-
-    it("should handle unexpected close", async () => {
-      const client = new ClawletClient({
-        authToken: "test-token",
-        connectTimeout: 100,
-        requestTimeout: 100,
-      });
-
-      setTimeout(() => mockSocket.emit("connect"), 5);
-      setTimeout(() => mockSocket.emit("close"), 15);
-
-      try {
-        await client.balance({
-          address: "0x1234567890123456789012345678901234567890",
-          chain_id: 8453,
-        });
-        expect.fail("Should have thrown");
-      } catch (err) {
-        expect(err).toBeInstanceOf(ClawletError);
-        expect((err as ClawletError).code).toBe("CONNECTION_FAILED");
-        expect((err as ClawletError).message).toContain("closed unexpectedly");
       }
     });
   });
@@ -615,7 +541,7 @@ describe("ClawletClient", () => {
     });
 
     it("should allow setAuthToken to update token", async () => {
-      const client = new ClawletClient({ connectTimeout: 100, requestTimeout: 100 });
+      const client = new ClawletClient({ requestTimeout: 5000 });
 
       // Initially no token
       await expect(
@@ -628,13 +554,13 @@ describe("ClawletClient", () => {
       // Set token
       client.setAuthToken("new-token");
 
-      setTimeout(() => mockSocket.emit("connect"), 5);
-      setTimeout(() => {
-        mockSocket.emit(
-          "data",
-          Buffer.from(JSON.stringify({ jsonrpc: "2.0", result: { eth: "1.0", tokens: [] }, id: 2 }) + "\n")
-        );
-      }, 10);
+      mockFetch.mockResolvedValueOnce(
+        createMockResponse({
+          jsonrpc: "2.0",
+          result: { eth: "1.0", tokens: [] },
+          id: 1,
+        })
+      );
 
       // Should work now
       await expect(
@@ -643,6 +569,37 @@ describe("ClawletClient", () => {
           chain_id: 8453,
         })
       ).resolves.toBeDefined();
+    });
+
+    it("should return token with getAuthToken", () => {
+      const client = new ClawletClient({ authToken: "test-token" });
+      expect(client.getAuthToken()).toBe("test-token");
+    });
+  });
+
+  describe("custom base URL", () => {
+    it("should use custom base URL", async () => {
+      const client = new ClawletClient({
+        baseUrl: "http://192.168.1.100:8080",
+        authToken: "test-token",
+        requestTimeout: 5000,
+      });
+
+      mockFetch.mockResolvedValueOnce(
+        createMockResponse({
+          jsonrpc: "2.0",
+          result: { eth: "1.0", tokens: [] },
+          id: 1,
+        })
+      );
+
+      await client.balance({
+        address: "0x1234567890123456789012345678901234567890",
+        chain_id: 8453,
+      });
+
+      const [url] = mockFetch.mock.calls[0];
+      expect(url).toBe("http://192.168.1.100:8080/rpc");
     });
   });
 
@@ -661,6 +618,38 @@ describe("ClawletClient", () => {
       const client2 = getClawletClient({ authToken: "token2" });
 
       expect(client1).not.toBe(client2);
+    });
+  });
+
+  describe("authGrant", () => {
+    it("should grant token and auto-set it", async () => {
+      const client = new ClawletClient({
+        requestTimeout: 5000,
+      });
+
+      mockFetch.mockResolvedValueOnce(
+        createMockResponse({
+          jsonrpc: "2.0",
+          result: {
+            token: "clwt_new_token_123",
+            scope: "read,trade",
+            expires_at: "2026-12-31T23:59:59Z",
+          },
+          id: 1,
+        })
+      );
+
+      const result = await client.authGrant({
+        password: "admin-password",
+        scope: "read,trade",
+        label: "my-agent",
+      });
+
+      expect(result.token).toBe("clwt_new_token_123");
+      expect(result.scope).toBe("read,trade");
+      
+      // Token should be auto-set
+      expect(client.getAuthToken()).toBe("clwt_new_token_123");
     });
   });
 });

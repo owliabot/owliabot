@@ -131,4 +131,15 @@ export interface AppConfig {
     /** Enable filesystem write tools (write_file / edit_file / apply_patch) */
     allowWrite?: boolean;
   };
+
+  // Wallet configuration (Clawlet integration)
+  wallet?: {
+    clawlet?: {
+      enabled?: boolean;
+      baseUrl?: string;
+      requestTimeout?: number;
+      defaultChainId?: number;
+      defaultAddress?: string;
+    };
+  };
 }

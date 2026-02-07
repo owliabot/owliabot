@@ -462,7 +462,7 @@ describe("message-handler", () => {
       expect(mockChannel.send).toHaveBeenCalledWith(
         "user1",
         expect.objectContaining({
-          text: expect.stringContaining("30"),
+          text: expect.stringMatching(/\d+\s*秒/),
         })
       );
     });

@@ -192,14 +192,15 @@ describe("createBuiltinTools", () => {
       expect(names).not.toContain("wallet_transfer");
     });
 
-    it("excludes wallet tools when wallet.enabled is false", () => {
+    it("excludes wallet tools when wallet.clawlet.enabled is false", () => {
       const tools = createBuiltinTools({
         workspace: "/tmp/workspace",
         sessionStore: mockSessionStore,
         transcripts: mockTranscripts,
         wallet: {
-          enabled: false,
-          provider: "clawlet",
+          clawlet: {
+            enabled: false,
+          },
         },
       });
 
@@ -208,15 +209,12 @@ describe("createBuiltinTools", () => {
       expect(names).not.toContain("wallet_transfer");
     });
 
-    it("excludes wallet tools when provider is not clawlet", () => {
+    it("excludes wallet tools when clawlet config is missing", () => {
       const tools = createBuiltinTools({
         workspace: "/tmp/workspace",
         sessionStore: mockSessionStore,
         transcripts: mockTranscripts,
-        wallet: {
-          enabled: true,
-          provider: "other" as any, // Unknown provider
-        },
+        wallet: {},
       });
 
       const names = tools.map((t) => t.name);
@@ -224,14 +222,15 @@ describe("createBuiltinTools", () => {
       expect(names).not.toContain("wallet_transfer");
     });
 
-    it("includes wallet tools when wallet.enabled is true and provider is clawlet", () => {
+    it("includes wallet tools when wallet.clawlet.enabled is true", () => {
       const tools = createBuiltinTools({
         workspace: "/tmp/workspace",
         sessionStore: mockSessionStore,
         transcripts: mockTranscripts,
         wallet: {
-          enabled: true,
-          provider: "clawlet",
+          clawlet: {
+            enabled: true,
+          },
         },
       });
 
@@ -246,15 +245,14 @@ describe("createBuiltinTools", () => {
         sessionStore: mockSessionStore,
         transcripts: mockTranscripts,
         wallet: {
-          enabled: true,
-          provider: "clawlet",
           clawlet: {
-            socketPath: "/custom/socket.sock",
-            authToken: "test-token",
+            enabled: true,
+            baseUrl: "http://192.168.1.100:9100",
+            token: "test-token",
             connectTimeout: 10000,
             requestTimeout: 60000,
+            defaultChainId: 1, // Ethereum mainnet
           },
-          defaultChainId: 1, // Ethereum mainnet
         },
       });
 
@@ -269,8 +267,9 @@ describe("createBuiltinTools", () => {
         sessionStore: mockSessionStore,
         transcripts: mockTranscripts,
         wallet: {
-          enabled: true,
-          provider: "clawlet",
+          clawlet: {
+            enabled: true,
+          },
         },
       });
 
@@ -293,8 +292,9 @@ describe("createBuiltinTools", () => {
         sessionStore: mockSessionStore,
         transcripts: mockTranscripts,
         wallet: {
-          enabled: true,
-          provider: "clawlet",
+          clawlet: {
+            enabled: true,
+          },
         },
         tools: {
           policy: { allowList: ["echo", "wallet_balance"] },
@@ -313,8 +313,9 @@ describe("createBuiltinTools", () => {
         sessionStore: mockSessionStore,
         transcripts: mockTranscripts,
         wallet: {
-          enabled: true,
-          provider: "clawlet",
+          clawlet: {
+            enabled: true,
+          },
         },
         tools: {
           policy: { denyList: ["wallet_transfer"] },

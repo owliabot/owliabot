@@ -260,42 +260,62 @@ const groupSchema = z
   })
   .default({ activation: "mention" });
 
-// Wallet configuration (Clawlet integration)
-const walletSchema = z
+// Clawlet-specific configuration (nested under wallet.clawlet)
+const clawletConfigSchema = z
   .object({
+    /** Enable Clawlet wallet integration */
     enabled: z.boolean().default(false),
-    provider: z.enum(["clawlet"]).default("clawlet"),
-    clawlet: z
-      .object({
-        /** Unix socket path */
-        socketPath: z.string().default("/run/clawlet/clawlet.sock"),
-        /** Path to file containing auth token (safer than plaintext in config) */
-        authTokenFile: z.string().optional(),
-        /** Auth token (prefer authTokenFile for security) */
-        authToken: z.string().optional(),
-        /** Connection timeout in ms */
-        connectTimeout: z.number().int().default(5_000),
-        /** Request timeout in ms */
-        requestTimeout: z.number().int().default(30_000),
-      })
-      .default({
-        socketPath: "/run/clawlet/clawlet.sock",
-        connectTimeout: 5_000,
-        requestTimeout: 30_000,
-      }),
-    /** Default chain ID for wallet operations */
-    defaultChainId: z.number().int().default(8453), // Base
+    /** HTTP base URL for Clawlet daemon */
+    baseUrl: z.string().url().default("http://127.0.0.1:9100"),
+    /** Auth token - supports env var expansion like ${CLAWLET_TOKEN} */
+    token: z.string().optional(),
+    /** Request timeout in ms */
+    requestTimeout: z.number().int().default(30_000),
+    /** Default chain ID for wallet operations (8453 = Base) */
+    defaultChainId: z.number().int().default(8453),
+    /** Default wallet address for balance queries */
+    defaultAddress: z
+      .string()
+      .regex(/^0x[a-fA-F0-9]{40}$/, "Must be a valid 0x-prefixed 40-character hex address")
+      .optional(),
   })
   .default({
     enabled: false,
-    provider: "clawlet",
-    clawlet: {
-      socketPath: "/run/clawlet/clawlet.sock",
-      connectTimeout: 5_000,
-      requestTimeout: 30_000,
-    },
+    baseUrl: "http://127.0.0.1:9100",
+    requestTimeout: 30_000,
     defaultChainId: 8453,
   });
+
+// Wallet configuration wrapper
+const walletSchema = z
+  .object({
+    clawlet: clawletConfigSchema,
+  })
+  .default({
+    clawlet: {
+      enabled: false,
+      baseUrl: "http://127.0.0.1:9100",
+      requestTimeout: 30_000,
+      defaultChainId: 8453,
+    },
+  })
+  // Validation: if enabled=true, token must be non-empty
+  .refine(
+    (data) => {
+      if (data.clawlet.enabled && !data.clawlet.token?.trim()) {
+        return false;
+      }
+      return true;
+    },
+    {
+      message:
+        "wallet.clawlet.token is required when wallet.clawlet.enabled is true. " +
+        "Set it directly or use ${CLAWLET_TOKEN} for env var expansion.",
+      path: ["clawlet", "token"],
+    }
+  );
+
+export type ClawletConfig = z.infer<typeof clawletConfigSchema>;
 
 const memorySearchSchema = z
   .object({

@@ -148,3 +148,14 @@ heartbeat:
 #       endpoint: https://duckduckgo.com/html/
 #     timeoutMs: 15000
 #     maxResults: 10
+
+# Wallet Tools (Clawlet integration) - optional
+# Enables wallet_balance and wallet_transfer tools for on-chain operations
+# wallet:
+#   clawlet:
+#     enabled: false                          # Set to true to enable wallet tools
+#     baseUrl: http://127.0.0.1:9100          # Clawlet daemon HTTP endpoint
+#     token: ${CLAWLET_TOKEN}                 # Auth token from clawlet (required when enabled)
+#     requestTimeout: 30000                   # Request timeout in ms (default: 30s)
+#     defaultChainId: 8453                    # Default chain ID (8453 = Base, 1 = Ethereum)
+#     defaultAddress: "0x742d35Cc6634C0532925a3b844Bc9e7595f5b5e2"  # Default wallet address (must be quoted)

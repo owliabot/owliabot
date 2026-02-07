@@ -7,6 +7,7 @@ import { saveAppConfig, DEFAULT_APP_CONFIG_PATH, IS_DEV_MODE } from "./storage.j
 import { startOAuthFlow } from "../auth/oauth.js";
 import { saveSecrets, loadSecrets, type SecretsConfig } from "./secrets.js";
 import { ensureWorkspaceInitialized } from "../workspace/init.js";
+import { runClawletOnboarding } from "./clawlet-onboard.js";
 import { validateAnthropicSetupToken, isSetupToken } from "../auth/setup-token.js";
 import {
   COLORS,
@@ -433,6 +434,20 @@ export async function runOnboarding(options: OnboardOptions = {}): Promise<void>
       }
     }
 
+    // Optional Clawlet wallet setup
+    const walletConfig = await runClawletOnboarding(rl, secrets);
+    if (walletConfig.enabled) {
+      config.wallet = {
+        clawlet: {
+          enabled: true,
+          baseUrl: walletConfig.baseUrl,
+          requestTimeout: 30000,
+          defaultChainId: walletConfig.defaultChainId,
+          defaultAddress: walletConfig.defaultAddress,
+        },
+      };
+    }
+
     // Security: writeGate allowList
     // Combine all user IDs from channels as default
     const allUserIds = [...userAllowLists.discord, ...userAllowLists.telegram];
@@ -474,7 +489,7 @@ export async function runOnboarding(options: OnboardOptions = {}): Promise<void>
 
     // Save config
     header("Saving configuration");
-    
+
     await saveAppConfig(config, appConfigPath);
     success(`Saved config to: ${appConfigPath}`);
 
@@ -486,9 +501,14 @@ export async function runOnboarding(options: OnboardOptions = {}): Promise<void>
     }
 
     // Initialize workspace
-    const workspaceInit = await ensureWorkspaceInitialized({ workspacePath: workspace });
+    const workspaceInit = await ensureWorkspaceInitialized({
+      workspacePath: workspace,
+    });
     if (workspaceInit.wroteBootstrap) {
       success("Created BOOTSTRAP.md for first-run setup");
+    }
+    if (workspaceInit.copiedSkills && workspaceInit.skillsDir) {
+      success(`Copied bundled skills to: ${workspaceInit.skillsDir}`);
     }
 
     // Next steps

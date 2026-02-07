@@ -62,6 +62,17 @@ export async function loadConfig(path: string): Promise<Config> {
       secrets?.telegram?.token ?? process.env.TELEGRAM_BOT_TOKEN ?? undefined;
   }
 
+  // Merge Clawlet wallet token from secrets/env
+  // Priority: config value > secrets.clawlet.token > env var
+  if (raw?.wallet?.clawlet) {
+    if (!raw.wallet.clawlet.token) {
+      raw.wallet.clawlet.token =
+        secrets?.clawlet?.token ??
+        process.env.CLAWLET_TOKEN ??
+        undefined;
+    }
+  }
+
   // Merge provider API keys from secrets/env
   // Respect user's explicit choice: "secrets" = use secrets.yaml, "env" = use env vars only
   if (Array.isArray(raw?.providers)) {

@@ -14,6 +14,7 @@ export {
   type TransferRequest,
   type TransferResponse,
   type HealthResponse,
+  type AddressResponse,
   type AuthGrantRequest,
   type AuthGrantResponse,
 } from "./clawlet-client.js";
