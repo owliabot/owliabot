@@ -240,9 +240,28 @@ export async function runDockerOnboarding(options: DockerOnboardOptions = {}): P
         info("  - vLLM:      http://localhost:8000/v1");
         info("  - LM Studio: http://localhost:1234/v1");
         console.log("");
+        info("💡 如果使用 Ollama，请先安装: curl -fsSL https://ollama.com/install.sh | sh");
+        info("   安装后运行: ollama pull llama3.2");
+        console.log("");
+        warn("⚠️  Docker 网络注意事项:");
+        warn("   容器内无法访问宿主机的 localhost/127.0.0.1");
+        warn("   请使用 http://host.docker.internal:11434/v1 替代");
+        warn("   (Linux 用户需添加 --add-host=host.docker.internal:host-gateway)");
+        console.log("");
         
-        const baseUrl = await ask(rl, "API base URL: ");
+        let baseUrl = await ask(rl, "API base URL: ");
         if (baseUrl) {
+          // Auto-fix localhost URLs for Docker networking
+          if (baseUrl.match(/\blocalhost\b|127\.0\.0\.1/)) {
+            const suggested = baseUrl.replace(/\blocalhost\b|127\.0\.0\.1/, "host.docker.internal");
+            warn(`检测到 localhost 地址，Docker 容器内无法访问。`);
+            info(`建议使用: ${suggested}`);
+            const useFixed = await askYN(rl, `自动替换为 ${suggested}?`, true);
+            if (useFixed) {
+              baseUrl = suggested;
+              success(`已替换为: ${baseUrl}`);
+            }
+          }
           useOpenaiCompat = true;
           const model = await ask(rl, "Model name [llama3.2]: ") || "llama3.2";
           const apiKey = await ask(rl, "API key (optional): ", true);
@@ -322,7 +341,14 @@ export async function runDockerOnboarding(options: DockerOnboardOptions = {}): P
       
       if (chatChoice === 0 || chatChoice === 2) {
         console.log("");
-        info("Discord developer portal: https://discord.com/developers/applications");
+        header("Discord Bot 创建步骤");
+        info("1. 前往 https://discord.com/developers/applications");
+        info("2. 点击 New Application → 输入名称 → 创建");
+        info("3. 左侧菜单 Bot → Reset Token → 复制 Token");
+        info("4. ⚠️  在 Bot 页面开启 MESSAGE CONTENT INTENT（必须！）");
+        info("5. OAuth2 → URL Generator → 勾选 bot → 选权限 → 复制链接邀请 Bot");
+        info("详细指南: https://github.com/owliabot/owliabot/blob/main/docs/discord-setup.md");
+        console.log("");
         discordToken = await ask(rl, "Enter Discord bot token: ", true);
         if (discordToken) {
           secrets.discord = { token: discordToken };
@@ -332,7 +358,13 @@ export async function runDockerOnboarding(options: DockerOnboardOptions = {}): P
       
       if (chatChoice === 1 || chatChoice === 2) {
         console.log("");
-        info("Telegram BotFather: https://t.me/BotFather");
+        header("Telegram Bot 创建步骤");
+        info("1. 在 Telegram 中打开 @BotFather: https://t.me/BotFather");
+        info("2. 发送 /newbot → 输入 Bot 名称 → 输入用户名（须以 bot 结尾）");
+        info("3. 复制返回的 Token（格式: 123456789:ABCdef...）");
+        info("4. 获取你的 User ID: 打开 @userinfobot 发送任意消息");
+        info("详细指南: https://github.com/owliabot/owliabot/blob/main/docs/telegram-setup.md");
+        console.log("");
         telegramToken = await ask(rl, "Enter Telegram bot token: ", true);
         if (telegramToken) {
           secrets.telegram = { token: telegramToken };
@@ -481,13 +513,14 @@ timezone: ${tz}
     header("Docker commands");
     
     const image = "ghcr.io/owliabot/owliabot:latest";
+    const needsHostNetwork = providers.some(p => (p as any).baseUrl?.includes("host.docker.internal"));
     
     if (outputFormat === "docker-run" || outputFormat === "both") {
       console.log("Docker run command:");
       console.log(`
 docker run -d \\
   --name owliabot \\
-  --restart unless-stopped \\
+  --restart unless-stopped \\${needsHostNetwork ? "\n  --add-host=host.docker.internal:host-gateway \\" : ""}
   -p 127.0.0.1:${gatewayPort}:8787 \\
   -v ~/.owliabot/secrets.yaml:/app/config/secrets.yaml:ro \\
   -v ~/.owliabot/auth:/home/owliabot/.owliabot/auth \\
@@ -514,7 +547,9 @@ services:
       - ~/.owliabot/secrets.yaml:/app/config/secrets.yaml:ro
       - ~/.owliabot/auth:/home/owliabot/.owliabot/auth
       - ${dockerConfigPath}/app.yaml:/app/config/app.yaml:ro
-      - owliabot_workspace:/app/workspace
+      - owliabot_workspace:/app/workspace${needsHostNetwork ? `
+    extra_hosts:
+      - "host.docker.internal:host-gateway"` : ""}
     environment:
       - TZ=${tz}
     command: ["start", "-c", "/app/config/app.yaml"]
