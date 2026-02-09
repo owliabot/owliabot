@@ -27,6 +27,16 @@ export interface DiscordConfig {
   preFilter?: (ctx: MsgContext) => boolean;
 }
 
+async function withTyping(channel: { sendTyping(): Promise<void> }, fn: () => Promise<void>) {
+  await channel.sendTyping().catch(() => {});
+  const interval = setInterval(() => channel.sendTyping().catch(() => {}), 8000);
+  try {
+    await fn();
+  } finally {
+    clearInterval(interval);
+  }
+}
+
 export function createDiscordPlugin(config: DiscordConfig): ChannelPlugin {
   const client = new Client({
     intents: [
@@ -107,7 +117,7 @@ export function createDiscordPlugin(config: DiscordConfig): ChannelPlugin {
         // Pre-filter bypass (e.g. WriteGate confirmation replies)
         if (config.preFilter && config.preFilter(msgCtx)) {
           try {
-            await messageHandler(msgCtx);
+            await withTyping(message.channel, () => messageHandler!(msgCtx));
           } catch (err) {
             log.error("Error handling pre-filtered message", err);
           }
@@ -138,7 +148,7 @@ export function createDiscordPlugin(config: DiscordConfig): ChannelPlugin {
         }
 
         try {
-          await messageHandler(msgCtx);
+          await withTyping(message.channel, () => messageHandler!(msgCtx));
         } catch (err) {
           log.error("Error handling message", err);
         }
