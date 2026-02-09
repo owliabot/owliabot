@@ -131,6 +131,81 @@ API Key 使用与设备相同的 `DeviceScope` 权限模型：
 
 **权限继承**：`sign` > `write` > `read`。高权限自动包含低权限的工具访问。
 
+## Docker 环境
+
+在 Docker 部署中使用 API Key：
+
+### 创建 API Key
+
+```bash
+# 通过 docker exec 运行 CLI
+docker exec -it owliabot owliabot api-key create \
+  --name "monitor-bot" \
+  --scope tools:read
+
+# 或直接调用 HTTP API（需要将端口映射出来）
+curl -X POST http://localhost:8787/admin/api-keys \
+  -H "X-Gateway-Token: YOUR_GATEWAY_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{ "name": "monitor-bot", "scope": { "tools": "read", "system": false, "mcp": false } }'
+```
+
+### 管理 API Key
+
+```bash
+# 列出
+docker exec -it owliabot owliabot api-key list
+
+# 撤销
+docker exec -it owliabot owliabot api-key revoke ak_xxxx
+```
+
+### Docker Compose 端口配置
+
+确保 `docker-compose.yml` 中映射了 HTTP Gateway 端口：
+
+```yaml
+services:
+  owliabot:
+    image: ghcr.io/owliabot/owliabot:latest
+    ports:
+      - "8787:8787"   # HTTP Gateway
+    environment:
+      - OWLIABOT_GATEWAY_TOKEN=your-gateway-token
+    volumes:
+      - ./config:/app/config
+      - ./workspace:/home/owliabot/.owliabot/workspace
+```
+
+### 从外部访问
+
+Docker 容器内 CLI 会自动使用容器内的 gateway 地址。从宿主机或其他容器访问时：
+
+```bash
+# 宿主机访问
+export OWLIABOT_GATEWAY_URL=http://localhost:8787
+export OWLIABOT_GATEWAY_TOKEN=your-gateway-token
+owliabot api-key create --name "external-bot" --scope tools:read
+
+# 或直接 curl
+curl -X POST http://localhost:8787/command/tool \
+  -H "Authorization: Bearer owk_your_api_key_here" \
+  -H "Content-Type: application/json" \
+  -d '{ "tool_calls": [{ "name": "read_file", "arguments": { "path": "/etc/hostname" } }] }'
+```
+
+### 容器间访问
+
+同一 Docker 网络中的其他容器可通过服务名访问：
+
+```bash
+# 从同网络的其他容器
+curl -X POST http://owliabot:8787/command/tool \
+  -H "Authorization: Bearer owk_your_api_key_here" \
+  -H "Content-Type: application/json" \
+  -d '{ "tool_calls": [{ "name": "web_search", "arguments": { "query": "hello" } }] }'
+```
+
 ## 环境变量
 
 | 变量 | 说明 | 默认值 |
