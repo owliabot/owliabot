@@ -157,11 +157,18 @@ describe("gateway server", () => {
     });
 
     expect(startGatewayHttp).toHaveBeenCalledTimes(1);
-    expect(startGatewayHttp).toHaveBeenCalledWith({
-      config: config.gateway!.http!,
-      workspacePath: config.workspace,
-      system: config.system,
-    });
+    // Phase 1 Unification: now injects shared toolRegistry/sessionStore/transcripts
+    expect(startGatewayHttp).toHaveBeenCalledWith(
+      expect.objectContaining({
+        config: config.gateway!.http!,
+        workspacePath: config.workspace,
+        system: config.system,
+        // These are now injected from main gateway (Phase 1 unification)
+        toolRegistry: expect.anything(),
+        sessionStore: expect.anything(),
+        transcripts: expect.anything(),
+      })
+    );
 
     await stopGateway();
     expect(stopHttp).toHaveBeenCalledTimes(1);

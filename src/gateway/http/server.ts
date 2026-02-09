@@ -2,6 +2,9 @@ import http from "node:http";
 import { createStore } from "./store.js";
 import { executeToolCalls } from "../../agent/tools/executor.js";
 import type { ToolCall, ToolResult } from "../../agent/tools/interface.js";
+import type { ToolRegistry } from "../../agent/tools/registry.js";
+import type { SessionStore } from "../../agent/session-store.js";
+import type { SessionTranscriptStore } from "../../agent/session-transcript.js";
 import { createGatewayToolRegistry } from "./tooling.js";
 import { hashRequest, hashToken, isIpAllowed } from "./utils.js";
 import { executeSystemRequest } from "../../system/executor.js";
@@ -19,15 +22,34 @@ export interface GatewayHttpConfig {
   rateLimit: { windowMs: number; max: number };
 }
 
+/**
+ * Start the Gateway HTTP server.
+ *
+ * Phase 1 of Gateway Unification: accepts shared resources from main gateway.
+ * When toolRegistry/sessionStore/transcripts are provided, uses them directly
+ * instead of creating duplicates. Falls back to createGatewayToolRegistry for
+ * backward compatibility (standalone usage, tests).
+ *
+ * @see docs/plans/gateway-unification.md
+ */
 export async function startGatewayHttp(opts: {
   config: GatewayHttpConfig;
+  /** Shared tool registry from main gateway (Phase 1 unification) */
+  toolRegistry?: ToolRegistry;
+  /** Shared session store from main gateway (Phase 1 unification) */
+  sessionStore?: SessionStore;
+  /** Shared transcript store from main gateway (Phase 1 unification) */
+  transcripts?: SessionTranscriptStore;
   workspacePath?: string;
   system?: SystemCapabilityConfig;
 }) {
   const store = createStore(opts.config.sqlitePath);
-  const tools = await createGatewayToolRegistry(
-    opts.workspacePath ?? process.cwd()
-  );
+
+  // Phase 1: Use shared registry if provided, otherwise fall back to local creation
+  // (backward compat for tests and standalone usage)
+  const tools = opts.toolRegistry
+    ? opts.toolRegistry
+    : await createGatewayToolRegistry(opts.workspacePath ?? process.cwd());
   const server = http.createServer(async (req, res) => {
     const url = new URL(req.url ?? "/", "http://localhost");
     const remoteIp = getRemoteIp(req);

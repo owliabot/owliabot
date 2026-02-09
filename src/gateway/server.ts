@@ -316,10 +316,14 @@ export async function startGateway(
   log.info("Gateway started");
 
   // Start Gateway HTTP if enabled
+  // Phase 1 Unification: inject shared resources so HTTP server doesn't create duplicates
   let stopHttp: (() => Promise<void>) | undefined;
   if (config.gateway?.http?.enabled) {
     const httpGateway = await startGatewayHttp({
       config: config.gateway.http,
+      toolRegistry: tools,
+      sessionStore,
+      transcripts,
       workspacePath: config.workspace,
       system: config.system,
     });

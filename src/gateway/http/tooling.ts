@@ -1,3 +1,16 @@
+/**
+ * @deprecated Phase 1 Gateway Unification — this module is kept for backward compatibility only.
+ *
+ * When the main gateway starts the HTTP server, it now injects shared resources
+ * (toolRegistry, sessionStore, transcripts) directly. This fallback is only used
+ * when startGatewayHttp is called without those resources (e.g., in tests).
+ *
+ * This file will be removed in Phase 2 when the HTTP server no longer supports
+ * standalone operation.
+ *
+ * @see docs/plans/gateway-unification.md
+ */
+
 import { ToolRegistry } from "../../agent/tools/registry.js";
 import {
   createBuiltinTools,
@@ -11,6 +24,7 @@ import { randomUUID } from "node:crypto";
 
 /**
  * Options for creating the gateway tool registry
+ * @deprecated See module-level deprecation notice
  */
 export interface GatewayToolRegistryOptions {
   /** Workspace directory path */
@@ -71,6 +85,9 @@ function createNoopTranscriptStore(): SessionTranscriptStore {
 
 /**
  * Create gateway tool registry with proper config handling.
+ *
+ * @deprecated Phase 1 Gateway Unification — prefer injecting shared toolRegistry
+ * from main gateway instead of creating a duplicate registry here.
  *
  * @param workspacePathOrOpts - Workspace path (string) for backwards compat, or full options
  * @returns ToolRegistry instance
