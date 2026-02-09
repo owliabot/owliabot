@@ -55,6 +55,9 @@
 
 ### OnboardContext（共享状态）
 
+> **注意**：Context 中的类型应使用 onboarding 自己定义的 config shape 或 `src/config/schema.ts` 中的类型，
+> **不要**直接 import channel plugin 类型（如 `src/channels/discord/*`），以保持分层解耦。
+
 ```typescript
 interface OnboardContext {
   rl: RL;
@@ -64,11 +67,11 @@ interface OnboardContext {
   secrets: SecretsConfig;
   providers: ProviderConfig[];
   
-  // Platform config
+  // Platform config（使用 onboarding-specific 类型，不依赖 channel plugin）
   discordEnabled: boolean;
   telegramEnabled: boolean;
-  discordConfig?: DiscordConfig;     // from runDiscordSetup
-  telegramConfig?: TelegramConfig;
+  discordConfig?: OnboardDiscordConfig;  // onboarding-specific shape, not channel plugin type
+  telegramConfig?: OnboardTelegramConfig;
   
   // Other config
   workspace: string;
@@ -236,6 +239,7 @@ export async function runDockerOnboarding(options) {
 
 ## 风险
 
-1. **测试回归**：onboard 测试依赖 prompt 顺序和 mock answer 数组，重构后必须同步更新
+1. **测试回归**：onboard 测试依赖 prompt 顺序和 mock answer 数组，重构后（尤其 Phase 3 统一提示顺序时）必须同步更新所有测试的 mock answers。建议每个 Phase 完成后都跑一次全量测试确认。
 2. **Docker 模式 secret input**：docker 模式的 token 输入用 `secret=true`（raw mode），需要 TTY；非 TTY 环境（CI）要有 fallback
 3. **Backward compatibility**：生成的 yaml 格式不能变（现有用户的 config 还要能用）
+4. **类型分层**：`OnboardContext` 及 steps 中的类型不要直接依赖 channel plugin（`src/channels/*`），应使用 onboarding 自定义的 config shape 或 `src/config/schema.ts` 的类型，保持单向依赖（onboarding → config schema，不反向依赖 runtime channel 实现）
