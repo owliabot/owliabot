@@ -8,7 +8,7 @@ import { homedir } from "node:os";
 import type { ProviderConfig } from "../types.js";
 import type { SecretsConfig } from "../secrets.js";
 import { IS_DEV_MODE } from "../storage.js";
-import { COLORS, info, success, header, printBanner } from "../shared.js";
+import { info, success, header, printBanner } from "../shared.js";
 import type { DockerPaths, OnboardOptions } from "./types.js";
 import { DEFAULT_APP_CONFIG_PATH } from "../storage.js";
 

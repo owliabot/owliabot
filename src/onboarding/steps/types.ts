@@ -2,7 +2,6 @@
  * Shared types for onboarding step modules.
  */
 
-import type { createInterface } from "node:readline";
 import type { ProviderConfig } from "../types.js";
 import type { SecretsConfig } from "../secrets.js";
 import type { ExistingConfig } from "../shared.js";
