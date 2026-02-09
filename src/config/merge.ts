@@ -33,7 +33,7 @@ export async function mergeDiscordConfig(
   try {
     // Read existing config
     const raw = await readFile(appConfigPath, "utf-8");
-    const doc = parse(raw) as any;
+    const doc = (parse(raw) as any) ?? {};
 
     // Merge discord section
     doc.discord = {

@@ -102,7 +102,16 @@ function generateInviteUrl(clientId: string): string {
 function extractClientId(token: string): string | null {
   const parts = token.split(".");
   if (parts.length >= 3) {
-    return parts[0];
+    try {
+      // Discord bot tokens encode the application/client ID as base64 in the first segment
+      const decoded = Buffer.from(parts[0], "base64").toString("utf-8");
+      // Validate it looks like a snowflake (numeric string, 17-20 digits)
+      if (/^\d{17,20}$/.test(decoded)) {
+        return decoded;
+      }
+    } catch {
+      // Fall through
+    }
   }
   return null;
 }

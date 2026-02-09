@@ -45,8 +45,8 @@ export const discordGuildConfigSchema = z.object({
   channelAllowList: z.array(z.string()).optional(),
   /** Guild-specific member allowlist */
   memberAllowList: z.array(z.string()).optional(),
-  /** Guild-specific mention requirement */
-  requireMentionInGuild: z.boolean().default(true),
+  /** Guild-specific mention requirement (omit to inherit global setting) */
+  requireMentionInGuild: z.boolean().optional(),
   /** Guild-specific admin users (for Plan B slash commands) */
   adminUsers: z.array(z.string()).default([]),
 });

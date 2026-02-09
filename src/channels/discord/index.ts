@@ -174,17 +174,19 @@ export function createDiscordPlugin(config: DiscordConfig): ChannelPlugin {
 
           const requireMention = guildConfig.requireMentionInGuild;
 
-          log.debug(`Guild message: mentioned=${mentioned}, requireMention=${requireMention}, botUser=${botUser?.id}`);
+          log.debug(`Guild message: mentioned=${mentioned}, requireMention=${requireMention}, inAllowedChannel=${inAllowedChannel}, botUser=${botUser?.id}`);
 
-          // Strict mode: if mention is required, ONLY respond when the bot user is mentioned.
-          // (Channel allowlist does not bypass mention requirement.)
-          if (requireMention && !mentioned) {
-            return;
-          }
-
-          // If mention is not required, and a channel allowlist is set, gate by it.
-          if (!requireMention && guildConfig.channelAllowList && !inAllowedChannel) {
-            return;
+          // When requireMentionInGuild is true: respond if mentioned OR in an allowlisted channel.
+          // When requireMentionInGuild is false: respond in allowlisted channels (or all if no allowlist).
+          if (requireMention) {
+            if (!mentioned && !inAllowedChannel) {
+              return;
+            }
+          } else {
+            // No mention required, but if a channel allowlist is set, gate by it.
+            if (guildConfig.channelAllowList && guildConfig.channelAllowList.length > 0 && !inAllowedChannel) {
+              return;
+            }
           }
         }
 
