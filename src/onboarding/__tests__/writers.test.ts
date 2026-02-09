@@ -11,6 +11,38 @@ vi.mock("node:readline", () => ({ createInterface: vi.fn() }));
 vi.mock("../../auth/oauth.js", () => ({ startOAuthFlow: vi.fn() }));
 vi.mock("../clawlet-onboard.js", () => ({ runClawletOnboarding: vi.fn().mockResolvedValue({ enabled: false }) }));
 
+// fs mocks needed by writeDevConfig / writeDockerConfigLocalStyle
+vi.mock("node:fs", async (importOriginal) => {
+  const original = await importOriginal<typeof import("node:fs")>();
+  return {
+    ...original,
+    mkdirSync: vi.fn(),
+    writeFileSync: vi.fn(),
+    existsSync: vi.fn(() => false),
+  };
+});
+
+vi.mock("node:fs/promises", async (importOriginal) => {
+  const original = await importOriginal<typeof import("node:fs/promises")>();
+  return {
+    ...original,
+    mkdir: vi.fn().mockResolvedValue(undefined),
+    writeFile: vi.fn().mockResolvedValue(undefined),
+    chmod: vi.fn().mockResolvedValue(undefined),
+  };
+});
+
+// Mocks for saveAppConfig / saveSecrets used by writer functions
+vi.mock("../storage.js", () => ({
+  saveAppConfig: vi.fn().mockResolvedValue(undefined),
+  loadAppConfig: vi.fn().mockReturnValue({}),
+}));
+
+vi.mock("../secrets.js", () => ({
+  saveSecrets: vi.fn().mockResolvedValue(undefined),
+  loadSecrets: vi.fn().mockReturnValue({}),
+}));
+
 describe("writers step", () => {
   let consoleSpy: ReturnType<typeof vi.spyOn>;
 
@@ -67,17 +99,22 @@ describe("writers step", () => {
 
   describe("writeDevConfig", () => {
     it.skip("requires export after refactor — calls saveAppConfig and saveSecrets", async () => {
+      // const { saveAppConfig } = await import("../storage.js");
+      // const { saveSecrets } = await import("../secrets.js");
       // const config = { workspace: "/w", providers: [] };
       // const secrets = { anthropic: { apiKey: "key" } };
       // await writeDevConfig(config, secrets, "/fake/app.yaml");
-      // Verify saveAppConfig was called with config, "/fake/app.yaml"
-      // Verify saveSecrets was called with "/fake/app.yaml", secrets
+      // expect(saveAppConfig).toHaveBeenCalledWith(config, "/fake/app.yaml");
+      // expect(saveSecrets).toHaveBeenCalledWith("/fake/app.yaml", secrets);
     });
 
     it.skip("requires export after refactor — skips saveSecrets when secrets is empty", async () => {
+      // const { saveAppConfig } = await import("../storage.js");
+      // const { saveSecrets } = await import("../secrets.js");
       // const config = { workspace: "/w", providers: [] };
       // await writeDevConfig(config, {}, "/fake/app.yaml");
-      // Verify saveSecrets was NOT called
+      // expect(saveAppConfig).toHaveBeenCalledWith(config, "/fake/app.yaml");
+      // expect(saveSecrets).not.toHaveBeenCalled();
     });
   });
 
@@ -85,16 +122,23 @@ describe("writers step", () => {
 
   describe("writeDockerConfigLocalStyle", () => {
     it.skip("requires export after refactor — saves to configDir paths", async () => {
-      // const paths = { configDir: "/home/user/.owliabot", ... };
+      // const { saveAppConfig } = await import("../storage.js");
+      // const { saveSecrets } = await import("../secrets.js");
+      // const paths = { configDir: "/home/user/.owliabot" };
       // const config = { workspace: "/app/workspace", providers: [] };
       // await writeDockerConfigLocalStyle(paths, config, { anthropic: { apiKey: "k" } });
-      // Verify saveAppConfig called with join(paths.configDir, "app.yaml")
-      // Verify saveSecrets called
+      // expect(saveAppConfig).toHaveBeenCalledWith(config, expect.stringContaining("app.yaml"));
+      // expect(saveSecrets).toHaveBeenCalledWith(expect.stringContaining("app.yaml"), { anthropic: { apiKey: "k" } });
     });
 
     it.skip("requires export after refactor — skips secrets when empty", async () => {
+      // const { saveAppConfig } = await import("../storage.js");
+      // const { saveSecrets } = await import("../secrets.js");
+      // const paths = { configDir: "/home/user/.owliabot" };
+      // const config = { workspace: "/app/workspace", providers: [] };
       // await writeDockerConfigLocalStyle(paths, config, {});
-      // Verify saveSecrets NOT called
+      // expect(saveAppConfig).toHaveBeenCalled();
+      // expect(saveSecrets).not.toHaveBeenCalled();
     });
   });
 });

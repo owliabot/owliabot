@@ -9,6 +9,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import type { DetectedConfig } from "./test-helpers.js";
 
 // ---------------------------------------------------------------------------
 // Mocks
@@ -27,22 +28,6 @@ vi.mock("node:fs", async (importOriginal) => {
   const original = await importOriginal<typeof import("node:fs")>();
   return { ...original, existsSync: vi.fn(() => false) };
 });
-
-// ---------------------------------------------------------------------------
-// Type stubs (mirrors DetectedConfig from onboard.ts)
-// ---------------------------------------------------------------------------
-
-interface DetectedConfig {
-  anthropicKey?: string;
-  anthropicToken?: string;
-  openaiKey?: string;
-  openaiCompatKey?: string;
-  discordToken?: string;
-  telegramToken?: string;
-  gatewayToken?: string;
-  anthropicOAuth?: boolean;
-  openaiOAuth?: boolean;
-}
 
 // ---------------------------------------------------------------------------
 // Tests

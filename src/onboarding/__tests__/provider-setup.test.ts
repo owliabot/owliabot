@@ -10,6 +10,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import type { DetectedConfig, ProviderResult } from "./test-helpers.js";
 
 // ---------------------------------------------------------------------------
 // Mocks
@@ -39,26 +40,6 @@ vi.mock("../../auth/oauth.js", () => ({
 vi.mock("../clawlet-onboard.js", () => ({
   runClawletOnboarding: vi.fn().mockResolvedValue({ enabled: false }),
 }));
-
-// Type stubs
-interface DetectedConfig {
-  anthropicKey?: string;
-  anthropicToken?: string;
-  openaiKey?: string;
-  openaiCompatKey?: string;
-  discordToken?: string;
-  telegramToken?: string;
-  gatewayToken?: string;
-  anthropicOAuth?: boolean;
-  openaiOAuth?: boolean;
-}
-
-interface ProviderResult {
-  providers: any[];
-  secrets: Record<string, any>;
-  useAnthropic: boolean;
-  useOpenaiCodex: boolean;
-}
 
 describe("provider-setup step", () => {
   let consoleSpy: ReturnType<typeof vi.spyOn>;
@@ -297,8 +278,14 @@ describe("provider-setup step", () => {
     });
 
     it.skip("requires export after refactor — defaults to anthropic env when no provider configured", async () => {
-      // If askProviders returns empty providers, getProvidersSetup adds a default
-      // This is the fallback path (hard to trigger via mock, but test the output shape)
+      // When askProviders returns no providers (user enters empty/invalid selection),
+      // getProvidersSetup should add a default anthropic provider using ANTHROPIC_API_KEY env.
+      // answers = ["", ""];  // empty provider selection
+      // const result = await getProvidersSetup(rl, false, null, false);
+      // expect(result.providers).toHaveLength(1);
+      // expect(result.providers[0].id).toBe("anthropic");
+      // expect(result.useAnthropic).toBe(true);
+      // expect(result.secrets).toEqual({});  // no key entered, relies on env
     });
   });
 });

@@ -5,6 +5,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import type { DetectedConfig } from "./test-helpers.js";
 
 let answers: string[] = [];
 let promptLog: string[] = [];
@@ -30,13 +31,6 @@ vi.mock("../../auth/oauth.js", () => ({
 vi.mock("../clawlet-onboard.js", () => ({
   runClawletOnboarding: vi.fn().mockResolvedValue({ enabled: false }),
 }));
-
-interface DetectedConfig {
-  anthropicKey?: string;
-  discordToken?: string;
-  telegramToken?: string;
-  gatewayToken?: string;
-}
 
 describe("channel-setup step", () => {
   let consoleSpy: ReturnType<typeof vi.spyOn>;
