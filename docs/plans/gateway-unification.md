@@ -18,6 +18,8 @@
 
 > **注意**：Phase 1 从已有 `gateway/http` 整合基线出发（`gateway.http.enabled` 已合并），是延续而非平行迁移。
 
+> **Phase 1 状态 (2026-02-09)**：共享资源注入已完成（toolRegistry + sessionStore + transcripts）。独立入口 `http-entry.ts` 和 `npm run gateway` 已废弃，仅保留历史文档引用。下一步：Phase 2 完全合并。
+
 ## 目标
 
 将 Gateway 统一为**单一消息总线**，HTTP 层作为其中一个接入方式（与 Discord/Telegram channel 并列）：

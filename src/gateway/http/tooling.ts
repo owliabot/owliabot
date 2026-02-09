@@ -29,6 +29,10 @@ import { randomUUID } from "node:crypto";
 export interface GatewayToolRegistryOptions {
   /** Workspace directory path */
   workspace: string;
+  /** Shared session store — if provided, used instead of noop */
+  sessionStore?: SessionStore;
+  /** Shared transcript store — if provided, used instead of noop */
+  transcripts?: SessionTranscriptStore;
   /** Tool configuration */
   tools?: {
     /** Enable write tools (edit_file). Default: false */
@@ -104,8 +108,8 @@ export async function createGatewayToolRegistry(
 
   const tools = new ToolRegistry();
 
-  const sessionStore = createNoopSessionStore();
-  const transcripts = createNoopTranscriptStore();
+  const sessionStore = opts.sessionStore ?? createNoopSessionStore();
+  const transcripts = opts.transcripts ?? createNoopTranscriptStore();
 
   // Use createBuiltinTools which respects allowWrite and policy
   const builtinOpts: BuiltinToolsOptions = {

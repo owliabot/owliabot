@@ -46,10 +46,16 @@ export async function startGatewayHttp(opts: {
   const store = createStore(opts.config.sqlitePath);
 
   // Phase 1: Use shared registry if provided, otherwise fall back to local creation
-  // (backward compat for tests and standalone usage)
+  // (backward compat for tests and standalone usage).
+  // When falling back, wire through sessionStore/transcripts so tools that need
+  // them (e.g. clear_session) work correctly even in standalone mode.
   const tools = opts.toolRegistry
     ? opts.toolRegistry
-    : await createGatewayToolRegistry(opts.workspacePath ?? process.cwd());
+    : await createGatewayToolRegistry({
+        workspace: opts.workspacePath ?? process.cwd(),
+        sessionStore: opts.sessionStore,
+        transcripts: opts.transcripts,
+      });
   const server = http.createServer(async (req, res) => {
     const url = new URL(req.url ?? "/", "http://localhost");
     const remoteIp = getRemoteIp(req);
