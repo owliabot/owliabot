@@ -70,16 +70,23 @@ curl -X POST http://127.0.0.1:8787/command/tool \
   -H "Authorization: Bearer owk_abcdef1234567890abcdef1234567890" \
   -H "Content-Type: application/json" \
   -d '{
-    "tool_calls": [
-      { "name": "read_file", "arguments": { "path": "/etc/hostname" } }
-    ]
+    "payload": {
+      "toolCalls": [
+        { "name": "read_file", "arguments": { "path": "/etc/hostname" } }
+      ]
+    }
   }'
 
 # 系统调用（需要 scope 包含 system）
 curl -X POST http://127.0.0.1:8787/command/system \
   -H "Authorization: Bearer owk_abcdef1234567890abcdef1234567890" \
   -H "Content-Type: application/json" \
-  -d '{ "command": "status" }'
+  -d '{
+    "payload": {
+      "action": "web.search",
+      "args": { "query": "hello world" }
+    }
+  }'
 
 # 事件轮询
 curl http://127.0.0.1:8787/events/poll \
@@ -120,7 +127,7 @@ API Key 使用与设备相同的 `DeviceScope` 权限模型：
 | `tools` | `"write"` | 可调用读写工具（如 `edit_file`、`write_file`） |
 | `tools` | `"sign"` | 可调用所有工具，包括签名/交易类 |
 | `system` | `true/false` | 是否允许系统调用（`/command/system`） |
-| `mcp` | `true/false` | 是否允许 MCP 服务访问（`/mcp`） |
+| `mcp` | `true/false` | 是否允许 MCP 服务访问（`/mcp`，当前为 501 stub，Phase 3 后续实现） |
 
 **Scope 字符串格式**（CLI 用）：逗号分隔，如 `tools:write,system,mcp`
 
@@ -191,7 +198,7 @@ owliabot api-key create --name "external-bot" --scope tools:read
 curl -X POST http://localhost:8787/command/tool \
   -H "Authorization: Bearer owk_your_api_key_here" \
   -H "Content-Type: application/json" \
-  -d '{ "tool_calls": [{ "name": "read_file", "arguments": { "path": "/etc/hostname" } }] }'
+  -d '{ "payload": { "toolCalls": [{ "name": "read_file", "arguments": { "path": "/etc/hostname" } }] } }'
 ```
 
 ### 容器间访问
@@ -203,7 +210,7 @@ curl -X POST http://localhost:8787/command/tool \
 curl -X POST http://owliabot:8787/command/tool \
   -H "Authorization: Bearer owk_your_api_key_here" \
   -H "Content-Type: application/json" \
-  -d '{ "tool_calls": [{ "name": "web_search", "arguments": { "query": "hello" } }] }'
+  -d '{ "payload": { "toolCalls": [{ "name": "web_search", "arguments": { "query": "hello" } }] } }'
 ```
 
 ## 环境变量
@@ -272,7 +279,10 @@ curl -X POST http://owliabot:8787/command/tool \
 | HTTP | Code | 说明 |
 |------|------|------|
 | 401 | `ERR_UNAUTHORIZED` | Key 无效、已撤销或已过期 |
-| 403 | `ERR_SCOPE_INSUFFICIENT` | Key 的 scope 不足以执行此操作 |
+| 403 | `ERR_SCOPE_INSUFFICIENT_TOOLS` | Key 的工具权限不足（如 read scope 调用 write 工具） |
+| 403 | `ERR_SCOPE_INSUFFICIENT_SYSTEM` | Key 未授权系统调用（`system: false`） |
+| 403 | `ERR_SCOPE_INSUFFICIENT_MCP` | Key 未授权 MCP 访问（`mcp: false`） |
+| 403 | `ERR_UNKNOWN_TOOL` | 工具未注册或不存在（fail-closed） |
 | 400 | `ERR_INVALID_REQUEST` | 请求格式错误 |
 | 404 | `ERR_NOT_FOUND` | Key ID 不存在或已撤销 |
 
