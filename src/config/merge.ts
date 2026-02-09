@@ -35,11 +35,19 @@ export async function mergeDiscordConfig(
     const raw = await readFile(appConfigPath, "utf-8");
     const doc = (parse(raw) as any) ?? {};
 
-    // Merge discord section
+    // Deep-merge discord section (preserve existing per-guild configs)
+    const existing = doc.discord || {};
     doc.discord = {
-      ...(doc.discord || {}),
+      ...existing,
       ...discordPatch,
     };
+    // Deep-merge guilds: patch only the specified guilds, keep the rest
+    if (discordPatch.guilds && existing.guilds) {
+      doc.discord.guilds = {
+        ...existing.guilds,
+        ...discordPatch.guilds,
+      };
+    }
 
     // Write to temp file
     const tmpPath = `${appConfigPath}.tmp.${randomBytes(4).toString("hex")}`;
