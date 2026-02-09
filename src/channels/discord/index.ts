@@ -10,14 +10,25 @@ import type {
 
 const log = createLogger("discord");
 
+export interface DiscordGuildConfig {
+  channelAllowList?: string[];
+  memberAllowList?: string[];
+  requireMentionInGuild?: boolean;
+  adminUsers?: string[];
+}
+
 export interface DiscordConfig {
   token: string;
-  /** Allow list of Discord user IDs */
+  /** Allow list of Discord user IDs (global default) */
   memberAllowList?: string[];
-  /** Allow list of guild channel IDs where the bot will respond */
+  /** Allow list of guild channel IDs where the bot will respond (global default) */
   channelAllowList?: string[];
-  /** If true, only respond in guild when mentioned OR channel is allowlisted */
+  /** If true, only respond in guild when mentioned OR channel is allowlisted (global default) */
   requireMentionInGuild?: boolean;
+  /** Global admin users (for slash commands) */
+  adminUsers?: string[];
+  /** Per-guild configuration overrides */
+  guilds?: Record<string, DiscordGuildConfig>;
   /**
    * Optional pre-filter called before guild mention/channel gating.
    * If it returns true the message is forwarded to the handler immediately,
@@ -25,6 +36,42 @@ export interface DiscordConfig {
    * Used by WriteGate to let confirmation replies ("yes"/"no") through.
    */
   preFilter?: (ctx: MsgContext) => boolean;
+}
+
+/**
+ * Resolve guild-specific config with fallback to global defaults
+ */
+export function resolveGuildConfig(
+  config: DiscordConfig,
+  guildId: string | undefined
+): {
+  channelAllowList?: string[];
+  memberAllowList?: string[];
+  requireMentionInGuild: boolean;
+  adminUsers: string[];
+} {
+  if (!guildId || !config.guilds?.[guildId]) {
+    // No guild or no per-guild config, use global defaults
+    return {
+      channelAllowList: config.channelAllowList,
+      memberAllowList: config.memberAllowList,
+      requireMentionInGuild: config.requireMentionInGuild ?? true,
+      adminUsers: config.adminUsers ?? [],
+    };
+  }
+
+  const guildOverride = config.guilds[guildId];
+  return {
+    channelAllowList: guildOverride.channelAllowList ?? config.channelAllowList,
+    memberAllowList: guildOverride.memberAllowList ?? config.memberAllowList,
+    requireMentionInGuild: guildOverride.requireMentionInGuild ?? config.requireMentionInGuild ?? true,
+    adminUsers: [
+      ...new Set([
+        ...(config.adminUsers ?? []),
+        ...(guildOverride.adminUsers ?? []),
+      ]),
+    ],
+  };
 }
 
 export function createDiscordPlugin(config: DiscordConfig): ChannelPlugin {
@@ -61,17 +108,21 @@ export function createDiscordPlugin(config: DiscordConfig): ChannelPlugin {
 
       client.on(Events.MessageCreate, async (message) => {
         log.debug(`MessageCreate: from=${message.author.tag} content="${message.content.substring(0, 50)}..." guild=${message.guild?.name || 'DM'}`);
-        
+
         // Ignore bot messages
         if (message.author.bot) return;
         if (!messageHandler) return;
 
         const isDM = !message.guild;
+        const guildId = message.guild?.id;
+
+        // Resolve guild-specific config
+        const guildConfig = resolveGuildConfig(config, guildId);
 
         // Check user allowlist (applies to both DM + guild)
-        if (config.memberAllowList && config.memberAllowList.length > 0) {
-          if (!config.memberAllowList.includes(message.author.id)) {
-            log.warn(`User ${message.author.id} not in memberAllowList`);
+        if (guildConfig.memberAllowList && guildConfig.memberAllowList.length > 0) {
+          if (!guildConfig.memberAllowList.includes(message.author.id)) {
+            log.warn(`User ${message.author.id} not in memberAllowList for guild ${guildId}`);
             return;
           }
         }
@@ -117,12 +168,12 @@ export function createDiscordPlugin(config: DiscordConfig): ChannelPlugin {
         // Guild filtering rules
         if (!isDM) {
           const inAllowedChannel =
-            config.channelAllowList && config.channelAllowList.length > 0
-              ? config.channelAllowList.includes(message.channel.id)
+            guildConfig.channelAllowList && guildConfig.channelAllowList.length > 0
+              ? guildConfig.channelAllowList.includes(message.channel.id)
               : false;
 
-          const requireMention = config.requireMentionInGuild ?? true;
-          
+          const requireMention = guildConfig.requireMentionInGuild;
+
           log.debug(`Guild message: mentioned=${mentioned}, requireMention=${requireMention}, botUser=${botUser?.id}`);
 
           // Strict mode: if mention is required, ONLY respond when the bot user is mentioned.
@@ -132,7 +183,7 @@ export function createDiscordPlugin(config: DiscordConfig): ChannelPlugin {
           }
 
           // If mention is not required, and a channel allowlist is set, gate by it.
-          if (!requireMention && config.channelAllowList && !inAllowedChannel) {
+          if (!requireMention && guildConfig.channelAllowList && !inAllowedChannel) {
             return;
           }
         }

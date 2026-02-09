@@ -140,6 +140,26 @@ export async function selectOption(rl: RL, prompt: string, options: string[]): P
   }
 }
 
+/**
+ * Multi-select from numbered options. Returns array of selected indices.
+ */
+export async function multiSelect(rl: RL, prompt: string, options: string[]): Promise<number[]> {
+  console.log(prompt);
+  options.forEach((opt, i) => console.log(`  ${i + 1}) ${opt}`));
+  while (true) {
+    const ans = await ask(rl, `Select (comma-separated, e.g. 1,3,5) [1-${options.length}]: `);
+    if (!ans.trim()) return [];
+
+    const parts = ans.split(",").map((s) => s.trim()).filter(Boolean);
+    const nums = parts.map((p) => parseInt(p, 10));
+
+    if (nums.every((n) => !isNaN(n) && n >= 1 && n <= options.length)) {
+      return [...new Set(nums)].map((n) => n - 1); // Deduplicate and convert to 0-indexed
+    }
+    warn(`Please enter numbers between 1 and ${options.length}, separated by commas`);
+  }
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Default models
 // ─────────────────────────────────────────────────────────────────────────────

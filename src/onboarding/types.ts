@@ -84,6 +84,15 @@ export interface AppConfig {
     channelAllowList?: string[];
     /** Optional allowlist for user ids (DMs / guild) */
     memberAllowList?: string[];
+    /** Global admin users (for slash commands) */
+    adminUsers?: string[];
+    /** Per-guild configuration overrides */
+    guilds?: Record<string, {
+      channelAllowList?: string[];
+      memberAllowList?: string[];
+      requireMentionInGuild?: boolean;
+      adminUsers?: string[];
+    }>;
   };
 
   telegram?: {
