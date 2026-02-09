@@ -70,8 +70,9 @@ describe("onboarding", () => {
       setupToken,          // Setup-token
       "",                  // Model (default: claude-opus-4-5)
       "n",                 // Gateway: no
-      "111,222",           // Discord channelAllowList
-      "123456789",         // Discord memberAllowList
+      "111,222",           // Discord channelAllowList (manualDiscordSetup fallback)
+      "123456789",         // Discord memberAllowList (manualDiscordSetup fallback)
+      "y",                 // Require @mention in guild? (manualDiscordSetup fallback)
       "539066683",         // Telegram allowList
       // Note: Clawlet onboarding is skipped (no daemon in test environment)
       "",                  // writeToolAllowList (use default from channels)
@@ -284,9 +285,9 @@ describe("onboarding", () => {
 
     const config = await loadAppConfig(appConfigPath);
 
-    // New simplified flow uses defaults
+    // No token provided → skip guild config, so no channelAllowList/memberAllowList
     expect(config?.discord?.requireMentionInGuild).toBe(true);
-    expect(config?.discord?.channelAllowList).toEqual([]);
+    expect(config?.discord?.channelAllowList).toBeUndefined();
     expect(config?.discord?.memberAllowList).toBeUndefined();
     expect(config?.telegram?.allowList).toBeUndefined();
   });

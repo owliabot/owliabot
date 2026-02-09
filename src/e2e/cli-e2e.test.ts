@@ -33,7 +33,8 @@ async function runOnboardCli(opts: { cwd: string; appYamlPath: string; answers: 
     "Model [claude-opus-4-5]: ",                         // Model
     "Enable Gateway HTTP? [y/N]: ",                      // Gateway
     "Channel allowlist (comma-separated channel IDs, leave empty for all): ", // Discord channelAllowList
-    "Member allowlist - user IDs allowed to interact (comma-separated): ",    // Discord memberAllowList
+    "Member allowlist - user IDs allowed to interact (comma-separated, leave empty for all): ", // Discord memberAllowList
+    "Require @mention to respond in servers? (recommended) [Y/n]: ",          // Discord requireMention
     "User allowlist - user IDs allowed to interact (comma-separated): ",      // Telegram allowList
     "Additional user IDs to allow (comma-separated, leave empty to use only channel users): ", // writeGate (only shown if channel users exist)
   ];
@@ -125,6 +126,7 @@ describe.sequential("E2E: CLI onboard -> config/secrets -> gateway http", () => 
           "n",                             // Gateway HTTP: no
           "",                              // Discord channelAllowList (empty)
           "123456789",                     // Discord memberAllowList
+          "y",                             // Require @mention in guild
           "987654321",                     // Telegram allowList
           "",                              // writeGate additional IDs (use defaults from channel)
         ],
@@ -143,7 +145,8 @@ describe.sequential("E2E: CLI onboard -> config/secrets -> gateway http", () => 
 
       expect(app.discord).toBeTruthy();
       expect(app.discord.requireMentionInGuild).toBe(true);
-      expect(app.discord.channelAllowList).toEqual([]);
+      // manualDiscordSetup returns undefined for empty channelAllowList
+      expect(app.discord.channelAllowList).toBeUndefined();
       expect(app.discord.memberAllowList).toEqual(["123456789"]);
 
       // Telegram section includes allowList
