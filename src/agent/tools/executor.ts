@@ -180,7 +180,7 @@ export async function executeToolCall(
 
     if (!writeGateChannel || !workspacePath) {
       log.warn(
-        `Tool ${call.name} requires ${tool.security.level} level but WriteGate is not configured`,
+        `Tool ${call.name} requires ${tool.security?.level ?? "unknown"} level but WriteGate is not configured`,
       );
       return {
         success: false,
@@ -263,7 +263,7 @@ export async function executeToolCall(
         // Fail-closed for write/sign tools: assignee resolution not yet implemented.
         // Read-only (tier none) tools are exempt — restricting them provides no security value.
         // TODO: implement assignee ID resolution from config to allow the assignee through.
-        if (tool.security.level === "read" || decision.tier === "none") {
+        if (tool.security?.level === "read" || decision.tier === "none") {
           userAllowed = true;
         } else {
           log.warn(`allowedUsers "assignee-only" enforcement: denying ${call.name} (assignee resolution not implemented)`);
@@ -278,7 +278,7 @@ export async function executeToolCall(
           tool: call.name,
           tier: decision.tier,
           effectiveTier: decision.effectiveTier,
-          securityLevel: tool.security.level,
+          securityLevel: tool.security?.level,
           user: currentUserId,
           channel: "unknown",
           params: call.arguments as Record<string, unknown>,
@@ -302,7 +302,7 @@ export async function executeToolCall(
         tool: call.name,
         tier: decision.tier,
         effectiveTier: decision.effectiveTier,
-        securityLevel: tool.security.level,
+        securityLevel: tool.security?.level,
         user: stableUserId,
         channel: "unknown",
         params: call.arguments as Record<string, unknown>,
@@ -322,7 +322,7 @@ export async function executeToolCall(
       tool: call.name,
       tier: decision.tier,
       effectiveTier: decision.effectiveTier,
-      securityLevel: tool.security.level,
+      securityLevel: tool.security?.level,
       user: stableUserId,
       channel: "unknown",
       params: call.arguments as Record<string, unknown>,

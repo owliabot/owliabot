@@ -39,6 +39,7 @@ export function createMockToolRegistry(): ToolRegistry {
       properties: {},
       required: [],
     },
+    security: { level: "read" },
     execute: async () => ({ success: true, data: { result: "read" } }),
   });
 
@@ -54,6 +55,7 @@ export function createMockToolRegistry(): ToolRegistry {
       },
       required: ["path", "content"],
     },
+    security: { level: "write" },
     execute: async () => ({ success: true, data: { result: "written" } }),
   });
 
@@ -69,6 +71,7 @@ export function createMockToolRegistry(): ToolRegistry {
       },
       required: ["amount", "to"],
     },
+    security: { level: "sign" },
     execute: async () => ({ success: true, data: { result: "transferred" } }),
   });
 

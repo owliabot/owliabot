@@ -680,6 +680,7 @@ export async function startGatewayHttp(opts: GatewayHttpOptions): Promise<Gatewa
           agentId: "gateway/http",
           config: {},
         },
+        securityConfig: { writeGateEnabled: false },
       });
 
       const results = toolCalls.map((call) => {
