@@ -22,6 +22,7 @@ import {
   DEFAULT_MODELS,
   type ExistingConfig,
 } from "./shared.js";
+import { runDiscordSetup } from "./discord-setup.js";
 
 const log = createLogger("onboard");
 
@@ -391,32 +392,61 @@ export async function runOnboarding(options: OnboardOptions = {}): Promise<void>
     };
 
     if (discordEnabled) {
-      header("Discord configuration");
-      info("Ensure your bot has these permissions: View Channels, Send Messages, Send Messages in Threads, Read Message History");
-      info("See: https://github.com/owliabot/owliabot/blob/main/docs/discord-setup.md");
-      console.log("");
-      
-      const channelIds = await ask(rl, "Channel allowlist (comma-separated channel IDs, leave empty for all): ");
-      const channelAllowList = channelIds
-        .split(",")
-        .map((s) => s.trim())
-        .filter(Boolean);
+      if (secrets.discord?.token) {
+        // Interactive guild detection and configuration
+        try {
+          const discordSetup = await runDiscordSetup(rl, secrets.discord.token);
+          config.discord = {
+            requireMentionInGuild: discordSetup.requireMentionInGuild ?? true,
+            ...(discordSetup.channelAllowList && { channelAllowList: discordSetup.channelAllowList }),
+            ...(discordSetup.memberAllowList && { memberAllowList: discordSetup.memberAllowList }),
+            ...(discordSetup.adminUsers && { adminUsers: discordSetup.adminUsers }),
+            ...(discordSetup.guilds && { guilds: discordSetup.guilds }),
+          };
 
-      const memberIds = await ask(rl, "Member allowlist - user IDs allowed to interact (comma-separated): ");
-      const memberAllowList = memberIds
-        .split(",")
-        .map((s) => s.trim())
-        .filter(Boolean);
-      userAllowLists.discord = memberAllowList;
+          // Collect member allowlist for writeGate
+          if (discordSetup.memberAllowList) {
+            userAllowLists.discord = discordSetup.memberAllowList;
+          }
 
-      config.discord = {
-        requireMentionInGuild: true,
-        channelAllowList,
-        ...(memberAllowList.length > 0 && { memberAllowList }),
-      };
-      
-      if (memberAllowList.length > 0) {
-        success(`Discord member allowlist: ${memberAllowList.join(", ")}`);
+          // Also collect from per-guild configs
+          if (discordSetup.guilds) {
+            for (const guildConfig of Object.values(discordSetup.guilds)) {
+              if (guildConfig.memberAllowList) {
+                userAllowLists.discord.push(...guildConfig.memberAllowList);
+              }
+            }
+          }
+        } catch (err) {
+          warn(`Failed to run interactive Discord setup: ${err}`);
+          // Fallback to manual configuration
+          header("Discord configuration (manual)");
+          const channelIds = await ask(rl, "Channel allowlist (comma-separated channel IDs, leave empty for all): ");
+          const channelAllowList = channelIds
+            .split(",")
+            .map((s) => s.trim())
+            .filter(Boolean);
+
+          const memberIds = await ask(rl, "Member allowlist - user IDs allowed to interact (comma-separated): ");
+          const memberAllowList = memberIds
+            .split(",")
+            .map((s) => s.trim())
+            .filter(Boolean);
+          userAllowLists.discord = memberAllowList;
+
+          config.discord = {
+            requireMentionInGuild: true,
+            channelAllowList,
+            ...(memberAllowList.length > 0 && { memberAllowList }),
+          };
+        }
+      } else {
+        // No token yet, skip guild configuration
+        warn("Discord token not set. Skipping guild configuration.");
+        warn("Run 'owliabot onboard' again after setting token to configure guilds.");
+        config.discord = {
+          requireMentionInGuild: true,
+        };
       }
     }
 

@@ -39,6 +39,18 @@ export const telegramConfigSchema = z.object({
   groupAllowList: z.array(z.string()).optional(),
 });
 
+// Per-guild Discord configuration
+export const discordGuildConfigSchema = z.object({
+  /** Guild-specific channel allowlist */
+  channelAllowList: z.array(z.string()).optional(),
+  /** Guild-specific member allowlist */
+  memberAllowList: z.array(z.string()).optional(),
+  /** Guild-specific mention requirement (omit to inherit global setting) */
+  requireMentionInGuild: z.boolean().optional(),
+  /** Guild-specific admin users (for Plan B slash commands) */
+  adminUsers: z.array(z.string()).default([]),
+});
+
 export const discordConfigSchema = z.object({
   // token can be set via onboarding + secrets.yaml (or env) later
   token: z.string().optional(),
@@ -48,6 +60,10 @@ export const discordConfigSchema = z.object({
   channelAllowList: z.array(z.string()).optional(),
   /** If true (default), only respond in guild when mentioned OR channel is allowlisted */
   requireMentionInGuild: z.boolean().default(true),
+  /** Global admin users (for Plan B slash commands) */
+  adminUsers: z.array(z.string()).default([]),
+  /** Per-guild configuration overrides */
+  guilds: z.record(z.string(), discordGuildConfigSchema).optional(),
 });
 
 export const securitySchema = z.object({
