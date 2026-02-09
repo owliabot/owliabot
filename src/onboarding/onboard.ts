@@ -127,9 +127,16 @@ export async function runOnboarding(options: OnboardOptions = {}): Promise<void>
       
       if (discordEnabled && !secrets.discord?.token) {
         console.log("");
-        info("Discord developer portal: https://discord.com/developers/applications");
-        info("Setup guide: https://github.com/owliabot/owliabot/blob/main/docs/discord-setup.md");
-        info("⚠️  Remember to enable MESSAGE CONTENT INTENT in the developer portal!");
+        header("Discord Bot 创建步骤");
+        info("1. 前往 https://discord.com/developers/applications");
+        info("2. 点击 New Application → 输入名称 → 创建");
+        info("3. 左侧菜单 Bot → Reset Token → 复制 Token");
+        info("4. ⚠️  在 Bot 页面开启 MESSAGE CONTENT INTENT（必须！）");
+        info("5. 左侧菜单 OAuth2 → URL Generator → 勾选 bot → 选权限:");
+        info("   View Channels, Send Messages, Send Messages in Threads, Read Message History");
+        info("6. 复制生成的 URL，在浏览器中打开以邀请 Bot 到你的服务器");
+        info("");
+        info("详细指南: https://github.com/owliabot/owliabot/blob/main/docs/discord-setup.md");
         const token = await ask(rl, "Discord bot token (leave empty to set later): ");
         if (token) {
           secrets.discord = { token };
@@ -139,7 +146,13 @@ export async function runOnboarding(options: OnboardOptions = {}): Promise<void>
       
       if (telegramEnabled && !secrets.telegram?.token) {
         console.log("");
-        info("Telegram BotFather: https://t.me/BotFather");
+        header("Telegram Bot 创建步骤");
+        info("1. 在 Telegram 中打开 @BotFather: https://t.me/BotFather");
+        info("2. 发送 /newbot → 输入 Bot 名称 → 输入用户名（须以 bot 结尾）");
+        info("3. 复制返回的 Token（格式: 123456789:ABCdef...）");
+        info("4. 获取你的 User ID: 打开 @userinfobot 发送任意消息");
+        info("");
+        info("详细指南: https://github.com/owliabot/owliabot/blob/main/docs/telegram-setup.md");
         const token = await ask(rl, "Telegram bot token (leave empty to set later): ");
         if (token) {
           secrets.telegram = { token };
@@ -279,6 +292,9 @@ export async function runOnboarding(options: OnboardOptions = {}): Promise<void>
         info("  - vLLM:      http://localhost:8000/v1");
         info("  - LM Studio: http://localhost:1234/v1");
         info("  - LocalAI:   http://localhost:8080/v1");
+        console.log("");
+        info("💡 如果使用 Ollama，请先安装: curl -fsSL https://ollama.com/install.sh | sh");
+        info("   安装后运行: ollama pull llama3.2");
         console.log("");
         
         const baseUrl = await ask(rl, "API base URL: ");

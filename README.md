@@ -33,6 +33,21 @@ OwliaBot uses a 3-tier security model:
 - Memory subsystem with SQLite indexing
 - Audit logging with fail-closed design
 
+## Prerequisites
+
+Before running the install wizard, you'll need:
+
+- **Docker** installed and running ([Get Docker](https://docs.docker.com/get-docker/))
+- **A chat platform bot token** (at least one):
+  - **Discord** — Create a bot in the [Developer Portal](https://discord.com/developers/applications). See [Discord Setup Guide](docs/discord-setup.md) for step-by-step instructions (enable MESSAGE CONTENT INTENT!)
+  - **Telegram** — Create a bot via [@BotFather](https://t.me/BotFather). See [Telegram Setup Guide](docs/telegram-setup.md)
+- **An AI provider** (at least one):
+  - Anthropic API key or Claude Pro/Max subscription (OAuth)
+  - OpenAI API key or ChatGPT Plus/Pro subscription (OAuth)
+  - Local LLM via [Ollama](https://ollama.com/download) — install with `curl -fsSL https://ollama.com/install.sh | sh`, then `ollama pull llama3.2`
+
+> 💡 **Docker + Local LLM**: If running Ollama on the host, use `http://host.docker.internal:11434/v1` as the API URL (not `localhost`). The install wizard handles this automatically.
+
 ## Docker Quick Start (Recommended)
 
 The easiest way to run OwliaBot:
