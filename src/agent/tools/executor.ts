@@ -175,7 +175,7 @@ export async function executeToolCall(
 
   // Write / sign tools require the WriteGate permission check (Phase 1.5)
   const writeGateEnabled = options.securityConfig?.writeGateEnabled ?? true;
-  if (tool.security.level !== "read" && writeGateEnabled) {
+  if (tool.security?.level !== "read" && writeGateEnabled) {
     const { writeGateChannel, securityConfig, workspacePath, userId } = options;
 
     if (!writeGateChannel || !workspacePath) {

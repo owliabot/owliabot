@@ -138,6 +138,7 @@ describe("gateway server", () => {
       baseUrl: "http://127.0.0.1:9999",
       stop: stopHttp,
       store: {} as any,
+      channel: { id: "http", capabilities: {}, start: vi.fn(), stop: vi.fn(), onMessage: vi.fn(), send: vi.fn() } as any,
     });
 
     const config = configSchema.parse({
@@ -180,6 +181,7 @@ describe("gateway server", () => {
       baseUrl: "http://127.0.0.1:9999",
       stop: stopHttp,
       store: {} as any,
+      channel: { id: "http", capabilities: {}, start: vi.fn(), stop: vi.fn(), onMessage: vi.fn(), send: vi.fn() } as any,
     });
 
     // Provider with apiKey "oauth" (unresolved) — should NOT crash
