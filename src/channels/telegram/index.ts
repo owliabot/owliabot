@@ -103,9 +103,6 @@ export function createTelegramPlugin(config: TelegramConfig): ChannelPlugin {
         log.warn("Failed to fetch Telegram bot identity (getMe)", err);
       }
 
-      // Auto-send "typing..." while processing messages
-      bot.use(autoChatAction());
-
       bot.on("message:text", async (ctx) => {
         if (!messageHandler) return;
 
@@ -181,7 +178,13 @@ export function createTelegramPlugin(config: TelegramConfig): ChannelPlugin {
         };
 
         try {
-          await messageHandler(msgCtx);
+          // Send "typing..." only for messages the bot will actually handle.
+          // Use autoChatAction as local middleware so it keeps resending
+          // the indicator periodically for long-running responses.
+          const chatAction = autoChatAction();
+          await chatAction(ctx, async () => {
+            await messageHandler!(msgCtx);
+          });
         } catch (err) {
           log.error("Error handling message", err);
         }

@@ -8,6 +8,7 @@ vi.mock("grammy", () => {
     handlers: Record<string, any> = {};
     start = vi.fn().mockResolvedValue(undefined);
     stop = vi.fn().mockResolvedValue(undefined);
+    use = vi.fn();
     on = vi.fn((event: string, handler: any) => {
       this.handlers[event] = handler;
     });
@@ -25,6 +26,10 @@ vi.mock("grammy", () => {
     __getLastBot: () => lastBot,
   };
 });
+
+vi.mock("@grammyjs/auto-chat-action", () => ({
+  autoChatAction: () => async (_ctx: any, next: () => Promise<void>) => { await next(); },
+}));
 
 vi.mock("../../../utils/logger.js", () => ({
   createLogger: () => ({
