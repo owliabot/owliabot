@@ -107,6 +107,26 @@ describe.sequential("E2E: CLI onboard -> config/secrets -> gateway http", () => 
       toolRegistry.register(echoTool);
       toolRegistry.register(createEditFileTool({ workspacePath }));
 
+      // Register MCP-style tools (name with __ pattern) for MCP e2e tests
+      toolRegistry.register({
+        name: "testserver__echo",
+        description: "MCP echo tool for testing",
+        parameters: { type: "object", properties: { msg: { type: "string" } }, required: ["msg"] },
+        security: { level: "read" },
+        async execute(params: any) {
+          return { success: true, data: { echoed: params.msg } };
+        },
+      });
+      toolRegistry.register({
+        name: "testserver__write_thing",
+        description: "MCP write tool for testing scope enforcement",
+        parameters: { type: "object", properties: { val: { type: "string" } } },
+        security: { level: "write" },
+        async execute(params: any) {
+          return { success: true, data: { wrote: params.val } };
+        },
+      });
+
       gateway = await startGatewayHttp({
         toolRegistry,
         sessionStore: undefined as any,
@@ -620,6 +640,189 @@ describe.sequential("E2E: CLI onboard -> config/secrets -> gateway http", () => 
       expect(json.ok).toBe(true);
       // The tool execution may fail (file not found) but that's fine — we're testing auth/scope pass-through
       expect(json.data.results[0].name).toBe("edit_file");
+    },
+    180_000
+  );
+
+  // Helper: create an MCP-scoped API key
+  async function createMcpApiKey(g: NonNullable<typeof gateway>, name: string, scope: { tools: string; system: boolean; mcp: boolean }): Promise<string> {
+    const res = await fetch(g.baseUrl + "/admin/api-keys", {
+      method: "POST",
+      headers: { "content-type": "application/json", "X-Gateway-Token": "gw-token-e2e" },
+      body: JSON.stringify({ name, scope }),
+    });
+    expect(res.status).toBe(200);
+    const json: any = await res.json();
+    return json.data.key;
+  }
+
+  it(
+    "MCP: tools/list via API key with mcp scope",
+    async () => {
+      expect(gateway).toBeTruthy();
+      const g = gateway!;
+      const mcpKey = await createMcpApiKey(g, "e2e-mcp-tools-list", { tools: "read", system: false, mcp: true });
+
+      const res = await fetch(g.baseUrl + "/mcp", {
+        method: "POST",
+        headers: { "content-type": "application/json", "Authorization": `Bearer ${mcpKey}` },
+        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list", params: {} }),
+      });
+      expect(res.status).toBe(200);
+      const json: any = await res.json();
+      expect(json.jsonrpc).toBe("2.0");
+      expect(json.id).toBe(1);
+      expect(Array.isArray(json.result.tools)).toBe(true);
+      const names = json.result.tools.map((t: any) => t.name);
+      expect(names).toContain("testserver__echo");
+      expect(names).toContain("testserver__write_thing");
+      expect(names).not.toContain("echo");
+    },
+    180_000
+  );
+
+  it(
+    "MCP: tools/call executes MCP tool successfully",
+    async () => {
+      expect(gateway).toBeTruthy();
+      const g = gateway!;
+      const mcpKey = await createMcpApiKey(g, "e2e-mcp-tools-call", { tools: "read", system: false, mcp: true });
+
+      const res = await fetch(g.baseUrl + "/mcp", {
+        method: "POST",
+        headers: { "content-type": "application/json", "Authorization": `Bearer ${mcpKey}` },
+        body: JSON.stringify({ jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "testserver__echo", arguments: { msg: "hello-mcp" } } }),
+      });
+      expect(res.status).toBe(200);
+      const json: any = await res.json();
+      expect(json.jsonrpc).toBe("2.0");
+      expect(json.id).toBe(2);
+      expect(json.result.isError).toBe(false);
+      expect(Array.isArray(json.result.content)).toBe(true);
+      const text = json.result.content[0].text;
+      expect(text).toContain("hello-mcp");
+    },
+    180_000
+  );
+
+  it(
+    "MCP: servers/list returns server info",
+    async () => {
+      expect(gateway).toBeTruthy();
+      const g = gateway!;
+      const mcpKey = await createMcpApiKey(g, "e2e-mcp-servers-list", { tools: "read", system: false, mcp: true });
+
+      const res = await fetch(g.baseUrl + "/mcp", {
+        method: "POST",
+        headers: { "content-type": "application/json", "Authorization": `Bearer ${mcpKey}` },
+        body: JSON.stringify({ jsonrpc: "2.0", id: 3, method: "servers/list", params: {} }),
+      });
+      expect(res.status).toBe(200);
+      const json: any = await res.json();
+      expect(json.jsonrpc).toBe("2.0");
+      expect(json.id).toBe(3);
+      expect(Array.isArray(json.result.servers)).toBe(true);
+      const server = json.result.servers.find((s: any) => s.name === "testserver");
+      expect(server).toBeTruthy();
+      expect(server.toolCount).toBe(2);
+      expect(server.tools).toContain("testserver__echo");
+      expect(server.tools).toContain("testserver__write_thing");
+    },
+    180_000
+  );
+
+  it(
+    "MCP: tools/call via paired device with mcp scope",
+    async () => {
+      expect(gateway).toBeTruthy();
+      const g = gateway!;
+
+      const deviceId = "device-mcp-e2e";
+      g.store.addPending(deviceId, "127.0.0.1", "vitest-mcp");
+      const approveRes = await fetch(g.baseUrl + "/pairing/approve", {
+        method: "POST",
+        headers: { "content-type": "application/json", "X-Gateway-Token": "gw-token-e2e" },
+        body: JSON.stringify({ deviceId, scope: { tools: "read", system: false, mcp: true } }),
+      });
+      const approveJson: any = await approveRes.json();
+      const devToken = approveJson.data.deviceToken;
+
+      const res = await fetch(g.baseUrl + "/mcp", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "X-Device-Id": deviceId,
+          "X-Device-Token": devToken,
+        },
+        body: JSON.stringify({ jsonrpc: "2.0", id: 4, method: "tools/call", params: { name: "testserver__echo", arguments: { msg: "device-mcp" } } }),
+      });
+      expect(res.status).toBe(200);
+      const json: any = await res.json();
+      expect(json.jsonrpc).toBe("2.0");
+      expect(json.id).toBe(4);
+      expect(json.result.isError).toBe(false);
+      expect(json.result.content[0].text).toContain("device-mcp");
+    },
+    180_000
+  );
+
+  it(
+    "MCP: rejects request without mcp scope",
+    async () => {
+      expect(gateway).toBeTruthy();
+      const g = gateway!;
+      const noMcpKey = await createMcpApiKey(g, "e2e-no-mcp-key", { tools: "read", system: false, mcp: false });
+
+      const res = await fetch(g.baseUrl + "/mcp", {
+        method: "POST",
+        headers: { "content-type": "application/json", "Authorization": `Bearer ${noMcpKey}` },
+        body: JSON.stringify({ jsonrpc: "2.0", id: 5, method: "tools/list", params: {} }),
+      });
+      expect(res.status).toBe(403);
+    },
+    180_000
+  );
+
+  it(
+    "MCP: returns error for unknown JSON-RPC method",
+    async () => {
+      expect(gateway).toBeTruthy();
+      const g = gateway!;
+      const mcpKey = await createMcpApiKey(g, "e2e-mcp-unknown-method", { tools: "read", system: false, mcp: true });
+
+      const res = await fetch(g.baseUrl + "/mcp", {
+        method: "POST",
+        headers: { "content-type": "application/json", "Authorization": `Bearer ${mcpKey}` },
+        body: JSON.stringify({ jsonrpc: "2.0", id: 6, method: "foo/bar", params: {} }),
+      });
+      expect(res.status).toBe(200);
+      const json: any = await res.json();
+      expect(json.jsonrpc).toBe("2.0");
+      expect(json.id).toBe(6);
+      expect(json.error).toBeTruthy();
+      expect(json.error.code).toBe(-32601);
+    },
+    180_000
+  );
+
+  it(
+    "MCP: tools/call enforces tool-level scope",
+    async () => {
+      expect(gateway).toBeTruthy();
+      const g = gateway!;
+      const mcpKey = await createMcpApiKey(g, "e2e-mcp-scope-enforce", { tools: "read", system: false, mcp: true });
+
+      const res = await fetch(g.baseUrl + "/mcp", {
+        method: "POST",
+        headers: { "content-type": "application/json", "Authorization": `Bearer ${mcpKey}` },
+        body: JSON.stringify({ jsonrpc: "2.0", id: 7, method: "tools/call", params: { name: "testserver__write_thing", arguments: { val: "test" } } }),
+      });
+      expect(res.status).toBe(200);
+      const json: any = await res.json();
+      expect(json.jsonrpc).toBe("2.0");
+      expect(json.id).toBe(7);
+      expect(json.error).toBeTruthy();
+      expect(json.error.code).toBe(-32603);
     },
     180_000
   );
