@@ -354,11 +354,15 @@ config.example.yaml                # 更新注释
 - [x] Scope 权限在 pairing 时颁发，请求时校验，支持热更新和撤销
 - [x] 事件投递为 at-least-once，有 ACK 机制
 - [x] 所有现有测试通过 + 新增正向/负向测试覆盖
-- [x] MCP 路由已添加（stub，返回 501 Not Implemented）
+- [x] MCP 路由已添加并实现 JSON-RPC 2.0 endpoint
 - [x] Admin routes 完整实现（devices、approve、reject、revoke、scope、rotate-token）
 
 ### Phase 3
-- [ ] MCP 完整实现
+- [x] MCP 完整实现 (Phase 3.2, 2026-02-09)
+  - `POST /mcp` — JSON-RPC 2.0 endpoint (device token or API key, `scope.mcp: true`)
+  - `tools/list` — list MCP tools from registry (identified by `serverName__toolName` pattern)
+  - `tools/call` — execute MCP tool via `executeToolCalls`
+  - `servers/list` — list MCP server info derived from tool prefixes
 - [ ] WebSocket 支持（替代 events/poll）
 - [ ] 多 Gateway 实例支持
 - [x] API Key 管理 (Phase 3.1, 2026-02-09)

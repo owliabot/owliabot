@@ -10,7 +10,7 @@
  * - /pair/request, /pair/status — device auth
  * - /command/tool, /command/system — device token + scope check
  * - /events/poll — device token, ACK mechanism
- * - /mcp — device token + scope check (stub)
+ * - /mcp — device token + scope check (JSON-RPC 2.0)
  * - /admin/* — gateway token (devices, approve, reject, revoke, scope, token rotate)
  *
  * @see docs/plans/gateway-unification.md Phase 2
@@ -765,6 +765,17 @@ export async function startGatewayHttp(opts: GatewayHttpOptions): Promise<Gatewa
           });
           return;
         }
+        // P0 fix: MCP tools require mcp scope
+        if (call.name.includes("__")) {
+          const mcpScopeError = checkMcpScope(device.scope);
+          if (mcpScopeError) {
+            sendJson(res, 403, {
+              ok: false,
+              error: mcpScopeError,
+            });
+            return;
+          }
+        }
       }
 
       const now = Date.now();
@@ -953,7 +964,7 @@ export async function startGatewayHttp(opts: GatewayHttpOptions): Promise<Gatewa
       return;
     }
 
-    // MCP route (stub for now)
+    // MCP route — JSON-RPC 2.0 endpoint for MCP tools
     if (url.pathname === "/mcp" && req.method === "POST") {
       const authResult = await requireDeviceAuth(req, store, remoteIp);
       if (!authResult.ok) {
@@ -972,11 +983,121 @@ export async function startGatewayHttp(opts: GatewayHttpOptions): Promise<Gatewa
         return;
       }
 
-      // Stub: MCP integration pending
-      sendJson(res, 501, {
-        ok: false,
-        error: { code: "ERR_NOT_IMPLEMENTED", message: "MCP endpoint not yet implemented" },
-      });
+      let body: any;
+      try {
+        body = await readJsonBody(req);
+      } catch {
+        sendJsonRpc(res, null, { code: -32700, message: "Parse error" });
+        return;
+      }
+
+      if (!body || body.jsonrpc !== "2.0" || typeof body.method !== "string") {
+        sendJsonRpc(res, body?.id ?? null, { code: -32600, message: "Invalid Request" });
+        return;
+      }
+
+      const rpcId = body.id ?? null;
+
+      if (body.method === "tools/list") {
+        // Return all MCP-originated tools (names contain __)
+        const mcpTools = tools.getAll().filter((t) => t.name.includes("__"));
+        sendJsonRpc(res, rpcId, undefined, {
+          tools: mcpTools.map((t) => ({
+            name: t.name,
+            description: t.description ?? "",
+            inputSchema: t.parameters ?? { type: "object", properties: {} },
+          })),
+        });
+        return;
+      }
+
+      if (body.method === "tools/call") {
+        const params = body.params as any;
+        const toolName = params?.name;
+        const toolArgs = params?.arguments ?? {};
+
+        if (typeof toolName !== "string" || !toolName.includes("__")) {
+          sendJsonRpc(res, rpcId, { code: -32602, message: "Invalid params: name must be a valid MCP tool (serverName__toolName)" });
+          return;
+        }
+
+        if (!tools.get(toolName)) {
+          sendJsonRpc(res, rpcId, { code: -32602, message: `Tool not found: ${toolName}` });
+          return;
+        }
+
+        // P0 fix: check tool-level scope (read/write/sign) for MCP tools
+        const mcpToolTier = getToolTier(toolName, tools);
+        if (mcpToolTier === null) {
+          sendJsonRpc(res, rpcId, { code: -32603, message: `Unknown or insecure tool metadata: ${toolName}` });
+          return;
+        }
+        const toolScopeError = checkToolScope(device.scope, toolName, mcpToolTier);
+        if (toolScopeError) {
+          sendJsonRpc(res, rpcId, { code: -32603, message: toolScopeError.message ?? "Insufficient tool scope" });
+          return;
+        }
+
+        const { allowed, resetAt } = store.checkRateLimit(
+          `device:${device.deviceId}`,
+          config.rateLimit.windowMs,
+          config.rateLimit.max,
+          Date.now()
+        );
+        if (!allowed) {
+          sendJsonRpc(res, rpcId, { code: -32000, message: "Too many requests" });
+          return;
+        }
+
+        const mcpCallId = String(rpcId ?? `mcp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
+        const toolCall: ToolCall = { id: mcpCallId, name: toolName, arguments: toolArgs };
+        const resultsMap = await executeToolCalls([toolCall], {
+          registry: tools,
+          auditLogger: createNoopAuditLogger(),
+          context: {
+            sessionKey: `gateway:${device.deviceId}`,
+            agentId: "gateway/mcp",
+            config: {},
+          },
+          securityConfig: { writeGateEnabled: false },
+        });
+
+        const result = resultsMap.get(mcpCallId);
+        if (result && result.success) {
+          sendJsonRpc(res, rpcId, undefined, {
+            content: [{ type: "text", text: typeof result.data === "string" ? result.data : JSON.stringify(result.data) }],
+            isError: false,
+          });
+        } else {
+          sendJsonRpc(res, rpcId, undefined, {
+            content: [{ type: "text", text: result?.error ?? "Tool execution failed" }],
+            isError: true,
+          });
+        }
+        return;
+      }
+
+      if (body.method === "servers/list") {
+        // Derive server list from MCP tool name prefixes
+        const mcpTools = tools.getAll().filter((t) => t.name.includes("__"));
+        const serverMap = new Map<string, string[]>();
+        for (const t of mcpTools) {
+          const [serverName] = t.name.split("__", 2);
+          const list = serverMap.get(serverName) ?? [];
+          list.push(t.name);
+          serverMap.set(serverName, list);
+        }
+        const servers = Array.from(serverMap.entries()).map(([name, toolNames]) => ({
+          name,
+          toolCount: toolNames.length,
+          tools: toolNames,
+        }));
+        sendJsonRpc(res, rpcId, undefined, { servers });
+        return;
+      }
+
+      // Unknown method
+      sendJsonRpc(res, rpcId, { code: -32601, message: `Method not found: ${body.method}` });
       return;
     }
 
@@ -1098,6 +1219,22 @@ function sendJson(
   body: Record<string, unknown>
 ) {
   res.writeHead(status, { "content-type": "application/json" });
+  res.end(JSON.stringify(body));
+}
+
+function sendJsonRpc(
+  res: http.ServerResponse,
+  id: string | number | null,
+  error?: { code: number; message: string; data?: unknown },
+  result?: unknown,
+) {
+  const body: Record<string, unknown> = { jsonrpc: "2.0", id };
+  if (error) {
+    body.error = error;
+  } else {
+    body.result = result;
+  }
+  res.writeHead(200, { "content-type": "application/json" });
   res.end(JSON.stringify(body));
 }
 

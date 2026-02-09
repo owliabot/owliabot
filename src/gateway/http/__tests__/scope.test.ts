@@ -392,7 +392,7 @@ describe("scope enforcement", () => {
       await server.stop();
     });
 
-    it("returns 501 for /mcp with mcp scope (stub)", async () => {
+    it("returns tools/list for /mcp with mcp scope", async () => {
       const resources = createMockResources();
       const server = await startGatewayHttp({
         config: testConfig,
@@ -410,7 +410,7 @@ describe("scope enforcement", () => {
       });
       const { data }: any = await approve.json();
 
-      // Try MCP request (should return 501 Not Implemented)
+      // Try MCP request (should return JSON-RPC response)
       const res = await server.request("/mcp", {
         method: "POST",
         headers: {
@@ -418,12 +418,13 @@ describe("scope enforcement", () => {
           "X-Device-Id": "dev-mcp",
           "X-Device-Token": data.deviceToken,
         },
-        body: JSON.stringify({ method: "tools/list" }),
+        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }),
       });
 
       const json: any = await res.json();
-      expect(res.status).toBe(501);
-      expect(json.error.code).toBe("ERR_NOT_IMPLEMENTED");
+      expect(res.status).toBe(200);
+      expect(json.jsonrpc).toBe("2.0");
+      expect(json.result.tools).toBeDefined();
 
       await server.stop();
     });
