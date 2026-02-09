@@ -64,7 +64,7 @@ const makeMessage = (overrides: Partial<any> = {}) => ({
     username: "user1",
   },
   guild: undefined,
-  channel: { id: "channel-1" },
+  channel: { id: "channel-1", sendTyping: vi.fn().mockResolvedValue(undefined) },
   content: "Hello",
   createdTimestamp: 123456,
   id: "msg-1",
@@ -129,14 +129,14 @@ describe("discord plugin", () => {
 
     const noMention = makeMessage({
       guild: { name: "Guild" },
-      channel: { id: "channel-2" },
+      channel: { id: "channel-2", sendTyping: vi.fn().mockResolvedValue(undefined) },
     });
     await client.handlers.messageCreate(noMention);
     expect(handler).not.toHaveBeenCalled();
 
     const mentionMessage = makeMessage({
       guild: { name: "Guild" },
-      channel: { id: "channel-2" },
+      channel: { id: "channel-2", sendTyping: vi.fn().mockResolvedValue(undefined) },
       content: "<@123> Hello bot",
       mentions: { has: vi.fn(() => true) },
     });
@@ -165,14 +165,14 @@ describe("discord plugin", () => {
 
     const blocked = makeMessage({
       guild: { name: "Guild" },
-      channel: { id: "blocked-channel" },
+      channel: { id: "blocked-channel", sendTyping: vi.fn().mockResolvedValue(undefined) },
     });
     await client.handlers.messageCreate(blocked);
     expect(handler).not.toHaveBeenCalled();
 
     const allowed = makeMessage({
       guild: { name: "Guild" },
-      channel: { id: "allowed-channel" },
+      channel: { id: "allowed-channel", sendTyping: vi.fn().mockResolvedValue(undefined) },
     });
     await client.handlers.messageCreate(allowed);
     expect(handler).toHaveBeenCalledTimes(1);
