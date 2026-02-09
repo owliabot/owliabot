@@ -42,35 +42,46 @@ function getAuthFile(provider: SupportedOAuthProvider): string {
  * @param provider - 'openai-codex'
  */
 export async function startOAuthFlow(
-  provider: SupportedOAuthProvider = "openai-codex"
+  provider: SupportedOAuthProvider = "openai-codex",
+  options?: { headless?: boolean },
 ): Promise<OAuthCredentials> {
   log.info(`Starting ${provider} OAuth flow...`);
+  const headless = options?.headless ?? false;
 
   let credentials: OAuthCredentials;
+
+  const askUser = (message: string): Promise<string> => {
+    const rl = createInterface({ input: process.stdin, output: process.stdout });
+    return new Promise<string>((resolve) => {
+      rl.question(message + " ", (answer) => {
+        rl.close();
+        resolve(answer.trim());
+      });
+    });
+  };
 
   if (provider === "openai-codex") {
     credentials = await loginOpenAICodex({
       onAuth: (info) => {
-        log.info("Opening browser for OpenAI Codex authentication...");
-        log.info(`If browser doesn't open, visit: ${info.url}`);
-        if (info.instructions) {
-          log.info(info.instructions);
+        if (headless) {
+          log.info("Open this URL in your browser to authenticate:");
+          log.info(info.url);
+          log.info("After login, copy the redirect URL from your browser and paste it below.");
+        } else {
+          log.info("Opening browser for OpenAI Codex authentication...");
+          log.info(`If browser doesn't open, visit: ${info.url}`);
+          if (info.instructions) {
+            log.info(info.instructions);
+          }
+          open(info.url);
         }
-        open(info.url);
       },
-      onPrompt: async (prompt) => {
-        const rl = createInterface({
-          input: process.stdin,
-          output: process.stdout,
-        });
-
-        return new Promise<string>((resolve) => {
-          rl.question(prompt.message + " ", (code) => {
-            rl.close();
-            resolve(code.trim());
-          });
-        });
-      },
+      onPrompt: async (prompt) => askUser(prompt.message),
+      // In headless mode (Docker), immediately ask user to paste the callback URL
+      // instead of waiting 60s for a localhost callback that can't reach the container.
+      ...(headless && {
+        onManualCodeInput: () => askUser("Paste the redirect URL (or authorization code):"),
+      }),
       onProgress: (message) => {
         log.debug(message);
       },

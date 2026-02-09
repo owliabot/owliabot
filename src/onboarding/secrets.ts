@@ -7,6 +7,8 @@ export interface SecretsConfig {
   telegram?: { token?: string };
   /** OpenAI API key (for openai provider, not OAuth) */
   openai?: { apiKey?: string };
+  /** OpenAI-compatible (Ollama/vLLM/LM Studio/etc.) API key (optional) */
+  "openai-compatible"?: { apiKey?: string };
   /** 
    * Anthropic credentials
    * - token: setup-token from `claude setup-token` (starts with sk-ant-oat01-)
@@ -19,6 +21,10 @@ export interface SecretsConfig {
   };
   /** Clawlet wallet auth */
   clawlet?: {
+    token?: string;
+  };
+  /** Gateway token (primarily used for docker deployments) */
+  gateway?: {
     token?: string;
   };
 }

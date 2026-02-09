@@ -40,7 +40,7 @@ FROM node:22-alpine AS production
 
 # Install runtime dependencies for native modules
 # libc6-compat helps with some native bindings on Alpine
-RUN apk add --no-cache libc6-compat
+RUN apk add --no-cache libc6-compat coreutils
 
 # Create non-root user for security
 # Using numeric UID/GID for Kubernetes compatibility
@@ -53,6 +53,10 @@ WORKDIR /app
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/package.json ./
+
+# Copy persona + bundled skills (needed for workspace initialization and runtime)
+COPY persona/ ./persona/
+COPY skills/ ./skills/
 
 # Copy config example for reference (users should mount their own config)
 COPY config.example.yaml ./config.example.yaml

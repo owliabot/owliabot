@@ -48,6 +48,8 @@ coverage/
 docs/
 *.md
 !README.md
+!persona/**/*.md
+!skills/**/*.md
 
 # Development files
 .eslintrc*

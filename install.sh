@@ -7,6 +7,7 @@
 set -euo pipefail
 
 OWLIABOT_IMAGE="${OWLIABOT_IMAGE:-ghcr.io/owliabot/owliabot:latest}"
+BUILD_LOCAL=false
 
 # Colors
 RED='\033[0;31m'
@@ -82,6 +83,20 @@ check_docker() {
   fi
 }
 
+parse_args() {
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --build)
+        BUILD_LOCAL=true
+        shift
+        ;;
+      *)
+        die "Unknown option: $1"
+        ;;
+    esac
+  done
+}
+
 main() {
   # Banner
   echo ""
@@ -97,6 +112,9 @@ main() {
   echo "  Welcome to the OwliaBot Docker installer"
   echo ""
 
+  # Parse CLI arguments
+  parse_args "$@"
+
   # Check Docker environment
   check_docker
 
@@ -107,13 +125,28 @@ main() {
   chmod 700 ~/.owliabot ~/.owliabot/auth 2>/dev/null || true
   success "Created config/, workspace/, ~/.owliabot/"
 
-  # Pull image
-  header "Pulling Docker image"
-  info "Image: ${OWLIABOT_IMAGE}"
-  if docker pull "${OWLIABOT_IMAGE}"; then
-    success "Image pulled successfully"
+  # Build or pull image
+  if [ "$BUILD_LOCAL" = "true" ]; then
+    header "Building Docker image locally"
+    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    if [ ! -f "${SCRIPT_DIR}/Dockerfile" ]; then
+      die "Dockerfile not found in ${SCRIPT_DIR}. Cannot build locally."
+    fi
+    export OWLIABOT_IMAGE="owliabot:local"
+    info "Building ${OWLIABOT_IMAGE} from ${SCRIPT_DIR}/Dockerfile ..."
+    if docker build -t "${OWLIABOT_IMAGE}" "${SCRIPT_DIR}"; then
+      success "Image built successfully: ${OWLIABOT_IMAGE}"
+    else
+      die "Failed to build image. Check the Dockerfile and build output above."
+    fi
   else
-    die "Failed to pull image. Check your internet connection."
+    header "Pulling Docker image"
+    info "Image: ${OWLIABOT_IMAGE}"
+    if docker pull "${OWLIABOT_IMAGE}"; then
+      success "Image pulled successfully"
+    else
+      die "Failed to pull image. Check your internet connection."
+    fi
   fi
 
   # Run onboard interactively

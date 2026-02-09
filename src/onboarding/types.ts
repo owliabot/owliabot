@@ -77,6 +77,9 @@ export interface AppConfig {
   // Workspace path (can be relative to the config file location)
   workspace: string;
 
+  // Timezone (used in prompts)
+  timezone?: string;
+
   // Channels
   discord?: {
     /** Discord bot token is expected via onboarding secrets.yaml or env */
