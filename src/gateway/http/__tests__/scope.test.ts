@@ -222,6 +222,97 @@ describe("scope enforcement", () => {
 
       await server.stop();
     });
+
+    it("blocks unknown/unregistered tools (fail-closed)", async () => {
+      const resources = createMockResources();
+      const server = await startGatewayHttp({
+        config: testConfig,
+        ...resources,
+      });
+
+      // Approve device with full sign scope
+      const approve = await fetch(server.baseUrl + "/admin/approve", {
+        method: "POST",
+        headers: { "content-type": "application/json", "X-Gateway-Token": "gw" },
+        body: JSON.stringify({
+          deviceId: "dev-sign",
+          scope: { tools: "sign", system: false, mcp: false },
+        }),
+      });
+      const { data }: any = await approve.json();
+
+      // Try to call a tool that is NOT registered in ToolRegistry
+      const res = await fetch(server.baseUrl + "/command/tool", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "X-Device-Id": "dev-sign",
+          "X-Device-Token": data.deviceToken,
+        },
+        body: JSON.stringify({
+          payload: {
+            toolCalls: [{ id: "1", name: "some_write_tool_not_registered", arguments: {} }],
+          },
+        }),
+      });
+
+      const json: any = await res.json();
+      expect(res.status).toBe(403);
+      expect(json.ok).toBe(false);
+      expect(json.error.code).toBe("ERR_UNKNOWN_TOOL");
+
+      await server.stop();
+    });
+
+    it("blocks write-capable tool for device with tools:read scope", async () => {
+      const resources = createMockResources();
+      // Register a write tool with a non-hardcoded name
+      resources.toolRegistry.register({
+        name: "deploy_contract",
+        description: "Deploy a smart contract",
+        parameters: { type: "object", properties: {}, required: [] },
+        security: { level: "write" },
+        execute: async () => ({ success: true, data: { result: "deployed" } }),
+      });
+
+      const server = await startGatewayHttp({
+        config: testConfig,
+        ...resources,
+      });
+
+      // Approve device with read-only scope
+      const approve = await fetch(server.baseUrl + "/admin/approve", {
+        method: "POST",
+        headers: { "content-type": "application/json", "X-Gateway-Token": "gw" },
+        body: JSON.stringify({
+          deviceId: "dev-read",
+          scope: { tools: "read", system: false, mcp: false },
+        }),
+      });
+      const { data }: any = await approve.json();
+
+      // Try to call the write tool
+      const res = await fetch(server.baseUrl + "/command/tool", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "X-Device-Id": "dev-read",
+          "X-Device-Token": data.deviceToken,
+        },
+        body: JSON.stringify({
+          payload: {
+            toolCalls: [{ id: "1", name: "deploy_contract", arguments: {} }],
+          },
+        }),
+      });
+
+      const json: any = await res.json();
+      expect(res.status).toBe(403);
+      expect(json.ok).toBe(false);
+      expect(json.error.code).toBe("ERR_SCOPE_INSUFFICIENT_TOOLS");
+
+      await server.stop();
+    });
   });
 
   describe("system scope", () => {

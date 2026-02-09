@@ -48,6 +48,7 @@ export interface GatewayHttpConfig {
   eventTtlMs: number;
   rateLimit: { windowMs: number; max: number };
   /** Maximum events per device before dropping oldest (default: 1000) */
+  /** TODO: Currently unused — wire into pollEventsForDevice or remove in next cleanup pass */
   maxEventsPerDevice?: number;
   /** Events per poll batch (default: 100) */
   pollBatchSize?: number;
@@ -620,10 +621,19 @@ export async function startGatewayHttp(opts: GatewayHttpOptions): Promise<Gatewa
       }));
 
       // Scope check: verify device has permission for requested tools
-      // For now, we use a simple heuristic based on tool name prefixes
-      // Real implementation would check tool registry for tier metadata
+      // Derive tool tier from ToolRegistry metadata (fail-closed for unknown tools)
       for (const call of toolCalls) {
-        const tier = getToolTier(call.name);
+        const tier = getToolTier(call.name, tools);
+        if (tier === null) {
+          sendJson(res, 403, {
+            ok: false,
+            error: {
+              code: "ERR_UNKNOWN_TOOL",
+              message: `Unknown or unregistered tool: ${call.name}`,
+            },
+          });
+          return;
+        }
         const scopeError = checkToolScope(device.scope, call.name, tier);
         if (scopeError) {
           sendJson(res, 403, {
@@ -1017,25 +1027,26 @@ function normalizeToolResult(call: ToolCall, result: ToolResult) {
  * Get tool tier based on tool name.
  * This is a heuristic - real implementation would check tool registry metadata.
  */
-function getToolTier(toolName: string): "none" | "tier3" | "tier2" | "tier1" {
-  // Write/modification tools are tier3
-  const tier3Tools = [
-    "edit_file",
-    "write_file",
-    "create_file",
-    "delete_file",
-    "move_file",
-    "mkdir",
-  ];
-
-  // Sensitive/signing tools are tier1/tier2
-  const tier2Tools = ["wallet_transfer", "wallet_sign"];
-  const tier1Tools = ["wallet_withdraw"];
-
-  if (tier1Tools.includes(toolName)) return "tier1";
-  if (tier2Tools.includes(toolName)) return "tier2";
-  if (tier3Tools.includes(toolName)) return "tier3";
-  return "none";
+function getToolTier(
+  toolName: string,
+  toolRegistry: ToolRegistry,
+): "none" | "tier3" | "tier2" | "tier1" | null {
+  const tool = toolRegistry.get(toolName);
+  if (!tool?.security?.level) {
+    // Unknown tool or missing security metadata → fail closed
+    return null;
+  }
+  switch (tool.security.level) {
+    case "read":
+      return "none";
+    case "write":
+      return "tier3";
+    case "sign":
+      // Conservative: sign tools get tier1 (highest restriction)
+      return "tier1";
+    default:
+      return null;
+  }
 }
 
 async function readBodyString(req: http.IncomingMessage): Promise<string> {

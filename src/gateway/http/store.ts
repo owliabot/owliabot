@@ -347,8 +347,7 @@ export function createStore(path: string): Store {
       return { cursor, events: rows.map(mapEventRow) };
     },
     pollEventsForDevice(deviceId, since, limit, now) {
-      // Count dropped events (unacked events older than what we'll return)
-      // This is a simplification - real impl might track per-device backlog
+      // TODO: `dropped` is always 0 — implement actual backlog tracking or remove the field
       let dropped = 0;
 
       // Query events for this device that are not yet acked
