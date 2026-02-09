@@ -32,7 +32,7 @@ export class ToolRegistry {
   }
 
   getReadOnly(): ToolDefinition[] {
-    return this.getAll().filter((t) => t.security.level === "read");
+    return this.getAll().filter((t) => t.security?.level === "read");
   }
 
   toAnthropicFormat(): AnthropicTool[] {

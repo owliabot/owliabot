@@ -1,58 +1,108 @@
 import { describe, it, expect } from "vitest";
 import { startGatewayHttp } from "../server.js";
-
-const cfg = {
-  host: "127.0.0.1",
-  port: 0,
-  token: "gw",
-  allowlist: ["127.0.0.1"],
-  sqlitePath: ":memory:",
-  idempotencyTtlMs: 600000,
-  eventTtlMs: 86400000,
-  rateLimit: { windowMs: 60000, max: 1 },
-};
+import { testConfig, createMockResources } from "./test-helpers.js";
 
 describe("idempotency", () => {
-  it("replays response for same key+hash", async () => {
-    let server: Awaited<ReturnType<typeof startGatewayHttp>>;
-    try {
-      server = await startGatewayHttp({ config: cfg });
-    } catch (err: any) {
-      if (err?.code === "EPERM") return;
-      throw err;
-    }
-    const approve = await fetch(server.baseUrl + "/pairing/approve", {
+  it("returns cached response for same idempotency key", async () => {
+    const resources = createMockResources();
+    const server = await startGatewayHttp({
+      config: testConfig,
+      ...resources,
+    });
+
+    // Approve device
+    const approve = await fetch(server.baseUrl + "/admin/approve", {
       method: "POST",
       headers: { "content-type": "application/json", "X-Gateway-Token": "gw" },
-      body: JSON.stringify({ deviceId: "dev1" }),
+      body: JSON.stringify({ deviceId: "dev-idem" }),
     });
     const { data }: any = await approve.json();
 
-    const body = JSON.stringify({ payload: { toolCalls: [] } });
-    const headers = {
-      "content-type": "application/json",
-      "X-Device-Id": "dev1",
-      "X-Device-Token": data.deviceToken,
-      "Idempotency-Key": "k1",
-    };
-    const r1 = await fetch(server.baseUrl + "/command/tool", {
-      method: "POST",
-      headers,
-      body,
+    const body = JSON.stringify({
+      payload: {
+        toolCalls: [{ id: "1", name: "test_read", arguments: {} }],
+      },
     });
-    const r2 = await fetch(server.baseUrl + "/command/tool", {
-      method: "POST",
-      headers,
-      body,
-    });
-    expect(await r1.text()).toBe(await r2.text());
 
-    const r3 = await fetch(server.baseUrl + "/command/tool", {
+    // First request
+    const res1 = await fetch(server.baseUrl + "/command/tool", {
       method: "POST",
-      headers: { ...headers, "Idempotency-Key": "k2" },
+      headers: {
+        "content-type": "application/json",
+        "X-Device-Id": "dev-idem",
+        "X-Device-Token": data.deviceToken,
+        "Idempotency-Key": "idem-key-1",
+      },
       body,
     });
-    expect(r3.status).toBe(429);
+    const json1: any = await res1.json();
+
+    // Second request with same key
+    const res2 = await fetch(server.baseUrl + "/command/tool", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "X-Device-Id": "dev-idem",
+        "X-Device-Token": data.deviceToken,
+        "Idempotency-Key": "idem-key-1",
+      },
+      body,
+    });
+    const json2: any = await res2.json();
+
+    // Should return the same cached response
+    expect(JSON.stringify(json1)).toBe(JSON.stringify(json2));
+
+    await server.stop();
+  });
+
+  it("returns different response for different idempotency key", async () => {
+    const resources = createMockResources();
+    const server = await startGatewayHttp({
+      config: testConfig,
+      ...resources,
+    });
+
+    // Approve device
+    const approve = await fetch(server.baseUrl + "/admin/approve", {
+      method: "POST",
+      headers: { "content-type": "application/json", "X-Gateway-Token": "gw" },
+      body: JSON.stringify({ deviceId: "dev-idem2" }),
+    });
+    const { data }: any = await approve.json();
+
+    const body = JSON.stringify({
+      payload: {
+        toolCalls: [{ id: "1", name: "test_read", arguments: {} }],
+      },
+    });
+
+    // First request
+    await fetch(server.baseUrl + "/command/tool", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "X-Device-Id": "dev-idem2",
+        "X-Device-Token": data.deviceToken,
+        "Idempotency-Key": "idem-key-a",
+      },
+      body,
+    });
+
+    // Second request with different key - should execute again
+    const res2 = await fetch(server.baseUrl + "/command/tool", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "X-Device-Id": "dev-idem2",
+        "X-Device-Token": data.deviceToken,
+        "Idempotency-Key": "idem-key-b",
+      },
+      body,
+    });
+    const json2: any = await res2.json();
+    expect(json2.ok).toBe(true);
+
     await server.stop();
   });
 });

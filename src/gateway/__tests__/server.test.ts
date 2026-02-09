@@ -138,6 +138,7 @@ describe("gateway server", () => {
       baseUrl: "http://127.0.0.1:9999",
       stop: stopHttp,
       store: {} as any,
+      channel: { id: "http", capabilities: {}, start: vi.fn(), stop: vi.fn(), onMessage: vi.fn(), send: vi.fn() } as any,
     });
 
     const config = configSchema.parse({
@@ -157,11 +158,18 @@ describe("gateway server", () => {
     });
 
     expect(startGatewayHttp).toHaveBeenCalledTimes(1);
-    expect(startGatewayHttp).toHaveBeenCalledWith({
-      config: config.gateway!.http!,
-      workspacePath: config.workspace,
-      system: config.system,
-    });
+    // Phase 1 Unification: now injects shared toolRegistry/sessionStore/transcripts
+    expect(startGatewayHttp).toHaveBeenCalledWith(
+      expect.objectContaining({
+        config: config.gateway!.http!,
+        workspacePath: config.workspace,
+        system: config.system,
+        // These are now injected from main gateway (Phase 1 unification)
+        toolRegistry: expect.anything(),
+        sessionStore: expect.anything(),
+        transcripts: expect.anything(),
+      })
+    );
 
     await stopGateway();
     expect(stopHttp).toHaveBeenCalledTimes(1);
@@ -173,6 +181,7 @@ describe("gateway server", () => {
       baseUrl: "http://127.0.0.1:9999",
       stop: stopHttp,
       store: {} as any,
+      channel: { id: "http", capabilities: {}, start: vi.fn(), stop: vi.fn(), onMessage: vi.fn(), send: vi.fn() } as any,
     });
 
     // Provider with apiKey "oauth" (unresolved) — should NOT crash

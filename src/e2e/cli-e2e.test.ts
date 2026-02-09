@@ -8,6 +8,8 @@ import { parse } from "yaml";
 
 import { loadConfig } from "../config/loader.js";
 import { startGatewayHttp } from "../gateway/http/server.js";
+import { ToolRegistry } from "../agent/tools/registry.js";
+import { echoTool } from "../agent/tools/builtin/echo.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -170,7 +172,13 @@ describe.sequential("E2E: CLI onboard -> config/secrets -> gateway http", () => 
       expect(loaded.workspace).toBe(workspacePath);
 
       // Step 5 — Start gateway + send requests
+      const toolRegistry = new ToolRegistry();
+      toolRegistry.register(echoTool);
+
       gateway = await startGatewayHttp({
+        toolRegistry,
+        sessionStore: undefined as any,
+        transcripts: undefined as any,
         config: {
           host: "127.0.0.1",
           port: 0,
@@ -247,7 +255,7 @@ describe.sequential("E2E: CLI onboard -> config/secrets -> gateway http", () => 
             "content-type": "application/json",
             "X-Gateway-Token": "gw-token-e2e",
           },
-          body: JSON.stringify({ deviceId }),
+          body: JSON.stringify({ deviceId, scope: { tools: "sign", system: true, mcp: false } }),
         });
         expect(res.status).toBe(200);
         const json: any = await res.json();
@@ -327,7 +335,12 @@ describe.sequential("E2E: CLI onboard -> config/secrets -> gateway http", () => 
 
       // Events poll
       {
-        const res = await fetch(gateway.baseUrl + "/events/poll?since=0");
+        const res = await fetch(gateway.baseUrl + "/events/poll?since=0", {
+          headers: {
+            "X-Device-Id": deviceId,
+            "X-Device-Token": deviceToken,
+          },
+        });
         expect(res.status).toBe(200);
         const json: any = await res.json();
         expect(json.ok).toBe(true);

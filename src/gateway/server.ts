@@ -334,14 +334,26 @@ export async function startGateway(
   log.info("Gateway started");
 
   // Start Gateway HTTP if enabled
+  // Phase 2 Unification: HTTP API as a Channel Adapter, requiring shared resources
   let stopHttp: (() => Promise<void>) | undefined;
   if (config.gateway?.http?.enabled) {
     const httpGateway = await startGatewayHttp({
       config: config.gateway.http,
+      toolRegistry: tools,
+      sessionStore,
+      transcripts,
       workspacePath: config.workspace,
       system: config.system,
     });
     stopHttp = httpGateway.stop;
+
+    // Register HTTP channel as a peer of Discord/Telegram
+    channels.register(httpGateway.channel);
+    writeGateChannels.set(
+      "http",
+      createWriteGateChannelAdapter(httpGateway.channel, replyRouter),
+    );
+
     log.info(`Gateway HTTP server listening on ${httpGateway.baseUrl}`);
   }
 

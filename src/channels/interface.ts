@@ -3,7 +3,7 @@
  * @see design.md Section 5.1
  */
 
-export type ChannelId = "telegram" | "discord";
+export type ChannelId = "telegram" | "discord" | "http";
 
 export interface ChannelPlugin {
   id: ChannelId;
