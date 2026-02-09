@@ -167,6 +167,58 @@ describe("gateway server", () => {
     expect(stopHttp).toHaveBeenCalledTimes(1);
   });
 
+  it("starts normally when providers have no valid API keys (graceful degradation)", async () => {
+    const stopHttp = vi.fn(async () => {});
+    vi.mocked(startGatewayHttp).mockResolvedValue({
+      baseUrl: "http://127.0.0.1:9999",
+      stop: stopHttp,
+      store: {} as any,
+    });
+
+    // Provider with apiKey "oauth" (unresolved) — should NOT crash
+    const config = configSchema.parse({
+      providers: [{ id: "anthropic", model: "claude-sonnet-4-5", apiKey: "oauth", priority: 1 }],
+      workspace: "/tmp/workspace",
+      gateway: { http: { enabled: true } },
+      infra: { enabled: false },
+      skills: { enabled: false },
+      heartbeat: { enabled: false },
+      cron: { enabled: false },
+    });
+
+    // Should not throw — gateway starts in degraded mode
+    const stopGateway = await startGateway({
+      config,
+      workspace: {},
+      sessionsDir: "/tmp/sessions",
+    });
+
+    expect(startGatewayHttp).toHaveBeenCalledTimes(1);
+    await stopGateway();
+  });
+
+  it("starts normally when provider apiKey is undefined (graceful degradation)", async () => {
+    // Provider with no apiKey at all — should NOT crash
+    const config = configSchema.parse({
+      providers: [{ id: "anthropic", model: "claude-sonnet-4-5", priority: 1 }],
+      workspace: "/tmp/workspace",
+      gateway: { http: { enabled: false } },
+      infra: { enabled: false },
+      skills: { enabled: false },
+      heartbeat: { enabled: false },
+      cron: { enabled: false },
+    });
+
+    const stopGateway = await startGateway({
+      config,
+      workspace: {},
+      sessionsDir: "/tmp/sessions",
+    });
+
+    // Gateway started without crashing
+    await stopGateway();
+  });
+
   it("does not start gateway HTTP when disabled", async () => {
     const config = configSchema.parse({
       providers: [{ id: "test", model: "m", apiKey: "k", priority: 1 }],

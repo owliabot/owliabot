@@ -299,6 +299,18 @@ export async function startGateway(
     );
   }
 
+  // Check if any provider has valid credentials
+  const hasValidProvider = config.providers.some(
+    (p) => p.apiKey && p.apiKey !== "oauth" && p.apiKey !== "env" && p.apiKey !== "secrets"
+  );
+  if (!hasValidProvider) {
+    log.warn("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+    log.warn("  ⚠ No valid provider credentials found.");
+    log.warn("  Bot is running but cannot process messages.");
+    log.warn("  Run: owliabot auth setup");
+    log.warn("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+  }
+
   // Start all channels
   await channels.startAll();
   log.info("Gateway started");
@@ -535,6 +547,25 @@ async function handleMessage(
     model: config.providers[0].model,
     skills: skillsResult ?? undefined,
   });
+
+  // Check if any provider has valid credentials before entering the agentic loop
+  const hasValidProvider = config.providers.some(
+    (p) => p.apiKey && p.apiKey !== "oauth" && p.apiKey !== "env" && p.apiKey !== "secrets"
+  );
+  if (!hasValidProvider) {
+    const noProviderMsg =
+      "⚠️ AI provider not configured. Run `owliabot auth setup` to set up credentials.";
+    const channel = channels.get(ctx.channel);
+    if (channel) {
+      const target =
+        ctx.chatType === "direct" ? ctx.from : (ctx.groupId ?? ctx.from);
+      await channel.send(target, {
+        text: noProviderMsg,
+        replyToId: ctx.messageId,
+      });
+    }
+    return;
+  }
 
   // Agentic loop
   const MAX_ITERATIONS = 5;

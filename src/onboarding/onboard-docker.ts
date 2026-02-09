@@ -520,6 +520,12 @@ services:
     environment:
       - TZ=${tz}
     command: ["start", "-c", "/app/config/app.yaml"]
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8787/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
 
 volumes:
   owliabot_workspace:

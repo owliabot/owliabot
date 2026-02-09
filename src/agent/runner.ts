@@ -42,7 +42,7 @@ const log = createLogger("runner");
 export interface LLMProvider {
   id: string;
   model: string;
-  apiKey: string;
+  apiKey?: string;
   priority: number;
   baseUrl?: string;
 }
