@@ -10,7 +10,7 @@ export const providerSchema = z
   .object({
     id: z.string(),
     model: z.string(),
-    apiKey: z.string(),
+    apiKey: z.string().optional(),
     priority: z.number().int().positive(),
     baseUrl: z.string().url().optional(),
   })
