@@ -75,6 +75,23 @@ export function createMockToolRegistry(): ToolRegistry {
     execute: async () => ({ success: true, data: { result: "transferred" } }),
   });
 
+  // MCP-originated tools (name contains __)
+  registry.register({
+    name: "myserver__read_data",
+    description: "MCP read tool",
+    parameters: { type: "object", properties: {}, required: [] },
+    security: { level: "read" },
+    execute: async () => ({ success: true, data: { result: "mcp-read" } }),
+  });
+
+  registry.register({
+    name: "myserver__write_data",
+    description: "MCP write tool",
+    parameters: { type: "object", properties: {}, required: [] },
+    security: { level: "write" },
+    execute: async () => ({ success: true, data: { result: "mcp-write" } }),
+  });
+
   return registry;
 }
 

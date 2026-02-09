@@ -765,6 +765,17 @@ export async function startGatewayHttp(opts: GatewayHttpOptions): Promise<Gatewa
           });
           return;
         }
+        // P0 fix: MCP tools require mcp scope
+        if (call.name.includes("__")) {
+          const mcpScopeError = checkMcpScope(device.scope);
+          if (mcpScopeError) {
+            sendJson(res, 403, {
+              ok: false,
+              error: mcpScopeError,
+            });
+            return;
+          }
+        }
       }
 
       const now = Date.now();
@@ -1015,6 +1026,16 @@ export async function startGatewayHttp(opts: GatewayHttpOptions): Promise<Gatewa
           return;
         }
 
+        // P0 fix: check tool-level scope (read/write/sign) for MCP tools
+        const mcpToolTier = getToolTier(toolName, tools);
+        if (mcpToolTier !== null) {
+          const toolScopeError = checkToolScope(device.scope, toolName, mcpToolTier);
+          if (toolScopeError) {
+            sendJsonRpc(res, rpcId, { code: -32603, message: toolScopeError.message ?? "Insufficient tool scope" });
+            return;
+          }
+        }
+
         const { allowed, resetAt } = store.checkRateLimit(
           `device:${device.deviceId}`,
           config.rateLimit.windowMs,
@@ -1030,7 +1051,8 @@ export async function startGatewayHttp(opts: GatewayHttpOptions): Promise<Gatewa
           return;
         }
 
-        const toolCall: ToolCall = { id: "mcp-1", name: toolName, arguments: toolArgs };
+        const mcpCallId = String(rpcId ?? `mcp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
+        const toolCall: ToolCall = { id: mcpCallId, name: toolName, arguments: toolArgs };
         const resultsMap = await executeToolCalls([toolCall], {
           registry: tools,
           auditLogger: createNoopAuditLogger(),
@@ -1042,7 +1064,7 @@ export async function startGatewayHttp(opts: GatewayHttpOptions): Promise<Gatewa
           securityConfig: { writeGateEnabled: false },
         });
 
-        const result = resultsMap.get("mcp-1");
+        const result = resultsMap.get(mcpCallId);
         if (result && result.success) {
           sendJsonRpc(res, rpcId, undefined, {
             content: [{ type: "text", text: typeof result.data === "string" ? result.data : JSON.stringify(result.data) }],

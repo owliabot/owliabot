@@ -58,8 +58,8 @@ describe("/mcp endpoint", () => {
     expect(res.status).toBe(200);
     expect(json.jsonrpc).toBe("2.0");
     expect(json.id).toBe(1);
-    expect(json.result.tools).toHaveLength(1);
-    expect(json.result.tools[0].name).toBe("myserver__echo");
+    expect(json.result.tools.length).toBeGreaterThanOrEqual(1);
+    expect(json.result.tools.map((t: any) => t.name)).toContain("myserver__echo");
 
     await server.stop();
   });
@@ -153,7 +153,7 @@ describe("/mcp endpoint", () => {
     const json: any = await res.json();
 
     expect(res.status).toBe(200);
-    expect(json.result.tools).toHaveLength(1);
+    expect(json.result.tools.length).toBeGreaterThanOrEqual(1);
 
     await server.stop();
   });
@@ -171,9 +171,10 @@ describe("/mcp endpoint", () => {
     const json: any = await res.json();
 
     expect(res.status).toBe(200);
-    expect(json.result.servers).toHaveLength(1);
-    expect(json.result.servers[0].name).toBe("myserver");
-    expect(json.result.servers[0].toolCount).toBe(1);
+    expect(json.result.servers.length).toBeGreaterThanOrEqual(1);
+    const myserver = json.result.servers.find((s: any) => s.name === "myserver");
+    expect(myserver).toBeDefined();
+    expect(myserver.toolCount).toBeGreaterThanOrEqual(1);
 
     await server.stop();
   });
