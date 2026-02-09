@@ -1053,8 +1053,10 @@ async function requireDeviceAuth(
 ): Promise<DeviceAuthResult> {
   // Check for API key auth first (Authorization: Bearer owk_...)
   const authHeader = getHeader(req, "authorization");
-  if (authHeader?.startsWith("Bearer owk_")) {
-    const apiKey = authHeader.slice("Bearer ".length);
+  // Tolerate extra whitespace: "Bearer  owk_..." or "Bearer   owk_..."
+  const bearerMatch = authHeader?.match(/^Bearer\s+(owk_.+)$/i);
+  if (bearerMatch) {
+    const apiKey = bearerMatch[1];
     const keyHash = hashToken(apiKey);
     const record = store.getApiKeyByHash(keyHash);
     if (!record) {

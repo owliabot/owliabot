@@ -10,6 +10,7 @@ import { loadConfig } from "../config/loader.js";
 import { startGatewayHttp } from "../gateway/http/server.js";
 import { ToolRegistry } from "../agent/tools/registry.js";
 import { echoTool } from "../agent/tools/builtin/echo.js";
+import { createEditFileTool } from "../agent/tools/builtin/edit-file.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -174,6 +175,7 @@ describe.sequential("E2E: CLI onboard -> config/secrets -> gateway http", () => 
       // Step 5 — Start gateway + send requests
       const toolRegistry = new ToolRegistry();
       toolRegistry.register(echoTool);
+      toolRegistry.register(createEditFileTool({ workspacePath }));
 
       gateway = await startGatewayHttp({
         toolRegistry,
@@ -597,6 +599,167 @@ describe.sequential("E2E: CLI onboard -> config/secrets -> gateway http", () => 
           }),
         });
         expect(toolRes.status).toBe(401);
+      }
+    },
+    180_000
+  );
+
+  it(
+    "API Key: system scope key can call /command/system successfully",
+    async () => {
+      expect(gateway).toBeTruthy();
+
+      // Create key with system scope
+      const createRes = await fetch(gateway!.baseUrl + "/admin/api-keys", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "X-Gateway-Token": "gw-token-e2e",
+        },
+        body: JSON.stringify({
+          name: "e2e-system-positive",
+          scope: { tools: "read", system: true, mcp: false },
+        }),
+      });
+      const createJson: any = await createRes.json();
+      const sysKey = createJson.data.key;
+
+      // Call /command/system with web.fetch
+      const sysSrv = http.createServer((_, res) => {
+        res.writeHead(200, { "content-type": "text/plain" });
+        res.end("system-scope-works");
+      });
+      const port = await new Promise<number>((resolve) => {
+        sysSrv.listen(0, "127.0.0.1", () => {
+          const addr = sysSrv.address();
+          resolve(typeof addr === "object" && addr ? addr.port : 0);
+        });
+      });
+      try {
+        const res = await fetch(gateway!.baseUrl + "/command/system", {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            "Authorization": `Bearer ${sysKey}`,
+          },
+          body: JSON.stringify({
+            payload: { action: "web.fetch", args: { url: `http://127.0.0.1:${port}/` }, sessionId: "e2e-sys" },
+            security: { level: "read" },
+          }),
+        });
+        expect(res.status).toBe(200);
+        const json: any = await res.json();
+        expect(json.ok).toBe(true);
+        expect(json.data.result.success).toBe(true);
+        expect(json.data.result.data.bodyText).toBe("system-scope-works");
+      } finally {
+        await new Promise<void>((resolve) => sysSrv.close(() => resolve()));
+      }
+    },
+    180_000
+  );
+
+  it(
+    "API Key: write scope key can call tier3 (edit_file) tool",
+    async () => {
+      expect(gateway).toBeTruthy();
+
+      // Create key with write scope
+      const createRes = await fetch(gateway!.baseUrl + "/admin/api-keys", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "X-Gateway-Token": "gw-token-e2e",
+        },
+        body: JSON.stringify({
+          name: "e2e-write-key",
+          scope: { tools: "write", system: false, mcp: false },
+        }),
+      });
+      const createJson: any = await createRes.json();
+      const writeKey = createJson.data.key;
+
+      // Call edit_file (security.level = "write" → tier3)
+      // Use a non-existent file so it will fail at execution, but should pass auth + scope
+      const res = await fetch(gateway!.baseUrl + "/command/tool", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "Authorization": `Bearer ${writeKey}`,
+        },
+        body: JSON.stringify({
+          payload: {
+            toolCalls: [{ id: "wt1", name: "edit_file", arguments: { path: "nonexistent.txt", old_text: "a", new_text: "b" } }],
+          },
+        }),
+      });
+      // Should NOT be 401 or 403 — scope allows it
+      expect(res.status).toBe(200);
+      const json: any = await res.json();
+      expect(json.ok).toBe(true);
+      // The tool execution may fail (file not found) but that's fine — we're testing auth/scope pass-through
+      expect(json.data.results[0].name).toBe("edit_file");
+    },
+    180_000
+  );
+
+  it(
+    "API Key: Bearer header tolerates extra whitespace",
+    async () => {
+      expect(gateway).toBeTruthy();
+
+      // Create a key
+      const createRes = await fetch(gateway!.baseUrl + "/admin/api-keys", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "X-Gateway-Token": "gw-token-e2e",
+        },
+        body: JSON.stringify({
+          name: "e2e-whitespace-key",
+          scope: { tools: "read", system: false, mcp: false },
+        }),
+      });
+      const createJson: any = await createRes.json();
+      const key = createJson.data.key;
+
+      // Test with extra whitespace: "Bearer  owk_..."
+      {
+        const res = await fetch(gateway!.baseUrl + "/command/tool", {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            "Authorization": `Bearer  ${key}`,
+          },
+          body: JSON.stringify({
+            payload: {
+              toolCalls: [{ id: "ws1", name: "echo", arguments: { message: "whitespace" } }],
+            },
+          }),
+        });
+        expect(res.status).toBe(200);
+        const json: any = await res.json();
+        expect(json.ok).toBe(true);
+        expect(json.data.results[0].data.echoed).toBe("whitespace");
+      }
+
+      // Test with triple space
+      {
+        const res = await fetch(gateway!.baseUrl + "/command/tool", {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            "Authorization": `Bearer   ${key}`,
+          },
+          body: JSON.stringify({
+            payload: {
+              toolCalls: [{ id: "ws2", name: "echo", arguments: { message: "triple-space" } }],
+            },
+          }),
+        });
+        expect(res.status).toBe(200);
+        const json: any = await res.json();
+        expect(json.ok).toBe(true);
       }
     },
     180_000
