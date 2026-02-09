@@ -339,7 +339,8 @@ config.example.yaml                # 更新注释
 |------|--------|------|
 | Phase 1 | 0.5d | 合并资源、删除重复代码、迁移说明 |
 | Phase 2 | 1.5d | HTTP Channel Adapter + 路由统一 + AuthZ + 投递语义 |
-| Phase 3 | TBD | WebSocket / 多实例 / API Key |
+| Phase 3.1 | 0.5d ✅ | API Key Management |
+| Phase 3.x | TBD | WebSocket / 多实例 |
 
 ## 验收标准
 
@@ -356,8 +357,13 @@ config.example.yaml                # 更新注释
 - [x] MCP 路由已添加（stub，返回 501 Not Implemented）
 - [x] Admin routes 完整实现（devices、approve、reject、revoke、scope、rotate-token）
 
-### Phase 3 (未来)
+### Phase 3
 - [ ] MCP 完整实现
 - [ ] WebSocket 支持（替代 events/poll）
 - [ ] 多 Gateway 实例支持
-- [ ] API Key 管理 CLI
+- [x] API Key 管理 (Phase 3.1, 2026-02-09)
+  - `POST /admin/api-keys` — create key (body: `{ name, scope, expiresAt? }`)
+  - `GET /admin/api-keys` — list keys
+  - `DELETE /admin/api-keys/:id` — revoke key
+  - API keys (`owk_` prefix) authenticate via `Authorization: Bearer` on all device routes
+  - CLI: `owliabot api-key create|list|revoke`

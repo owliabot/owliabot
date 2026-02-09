@@ -456,4 +456,131 @@ program
     }
   });
 
+// API Key command group
+const apiKey = program.command("api-key").description("Manage API keys for programmatic access");
+
+apiKey
+  .command("create")
+  .description("Create a new API key")
+  .requiredOption("--name <name>", "Human-readable name for the key")
+  .option("--scope <scope>", "Comma-separated scopes (e.g. tools:read,system,mcp)", "tools:read")
+  .option("--expires-in <seconds>", "Key expiry in seconds from now")
+  .option("--gateway-url <url>", "Gateway HTTP URL", process.env.OWLIABOT_GATEWAY_URL ?? "http://127.0.0.1:8787")
+  .option("--gateway-token <token>", "Gateway token", process.env.OWLIABOT_GATEWAY_TOKEN)
+  .action(async (options) => {
+    try {
+      if (!options.gatewayToken) {
+        throw new Error("Gateway token required (--gateway-token or OWLIABOT_GATEWAY_TOKEN)");
+      }
+
+      // Parse scope string into DeviceScope
+      const scopeParts = (options.scope as string).split(",").map((s: string) => s.trim());
+      const scope: Record<string, any> = { tools: "read", system: false, mcp: false };
+      for (const part of scopeParts) {
+        if (part.startsWith("tools:")) {
+          scope.tools = part.slice("tools:".length);
+        } else if (part === "system") {
+          scope.system = true;
+        } else if (part === "mcp") {
+          scope.mcp = true;
+        }
+      }
+
+      const body: Record<string, any> = { name: options.name, scope };
+      if (options.expiresIn) {
+        body.expiresAt = Date.now() + parseInt(options.expiresIn, 10) * 1000;
+      }
+
+      const res = await fetch(`${options.gatewayUrl}/admin/api-keys`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Gateway-Token": options.gatewayToken,
+        },
+        body: JSON.stringify(body),
+      });
+
+      const json = (await res.json()) as any;
+      if (!json.ok) {
+        throw new Error(json.error?.message ?? "Failed to create API key");
+      }
+
+      log.info("API key created successfully!");
+      log.info(`  ID:    ${json.data.id}`);
+      log.info(`  Key:   ${json.data.key}`);
+      log.info(`  Scope: ${JSON.stringify(json.data.scope)}`);
+      if (json.data.expiresAt) {
+        log.info(`  Expires: ${new Date(json.data.expiresAt).toISOString()}`);
+      }
+      log.warn("⚠️  Store the key securely! It will not be shown again.");
+    } catch (err) {
+      log.error("Failed to create API key", err);
+      process.exit(1);
+    }
+  });
+
+apiKey
+  .command("list")
+  .description("List all API keys")
+  .option("--gateway-url <url>", "Gateway HTTP URL", process.env.OWLIABOT_GATEWAY_URL ?? "http://127.0.0.1:8787")
+  .option("--gateway-token <token>", "Gateway token", process.env.OWLIABOT_GATEWAY_TOKEN)
+  .action(async (options) => {
+    try {
+      if (!options.gatewayToken) {
+        throw new Error("Gateway token required (--gateway-token or OWLIABOT_GATEWAY_TOKEN)");
+      }
+
+      const res = await fetch(`${options.gatewayUrl}/admin/api-keys`, {
+        headers: { "X-Gateway-Token": options.gatewayToken },
+      });
+
+      const json = (await res.json()) as any;
+      if (!json.ok) {
+        throw new Error(json.error?.message ?? "Failed to list API keys");
+      }
+
+      if (json.data.keys.length === 0) {
+        log.info("No API keys found.");
+        return;
+      }
+
+      for (const key of json.data.keys) {
+        const status = key.revokedAt ? "REVOKED" : key.expiresAt && key.expiresAt <= Date.now() ? "EXPIRED" : "ACTIVE";
+        log.info(`${key.id}  ${key.name}  [${status}]  scope=${JSON.stringify(key.scope)}  created=${new Date(key.createdAt).toISOString()}`);
+      }
+    } catch (err) {
+      log.error("Failed to list API keys", err);
+      process.exit(1);
+    }
+  });
+
+apiKey
+  .command("revoke")
+  .description("Revoke an API key")
+  .argument("<id>", "API key ID (e.g. ak_xxxx)")
+  .option("--gateway-url <url>", "Gateway HTTP URL", process.env.OWLIABOT_GATEWAY_URL ?? "http://127.0.0.1:8787")
+  .option("--gateway-token <token>", "Gateway token", process.env.OWLIABOT_GATEWAY_TOKEN)
+  .action(async (id: string, options) => {
+    try {
+      if (!options.gatewayToken) {
+        throw new Error("Gateway token required (--gateway-token or OWLIABOT_GATEWAY_TOKEN)");
+      }
+
+      const res = await fetch(`${options.gatewayUrl}/admin/api-keys/${id}`, {
+        method: "DELETE",
+        headers: { "X-Gateway-Token": options.gatewayToken },
+      });
+
+      const json = (await res.json()) as any;
+      if (!json.ok) {
+        throw new Error(json.error?.message ?? "Failed to revoke API key");
+      }
+
+      log.info(`API key ${id} revoked successfully.`);
+    } catch (err) {
+      log.error("Failed to revoke API key", err);
+      process.exit(1);
+    }
+  });
+
 await program.parseAsync();

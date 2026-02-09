@@ -17,7 +17,7 @@
  */
 
 import http from "node:http";
-import { createStore, type Store } from "./store.js";
+import { createStore, type Store, type ApiKeyRecord } from "./store.js";
 import { executeToolCalls } from "../../agent/tools/executor.js";
 import type { ToolCall, ToolResult } from "../../agent/tools/interface.js";
 import type { ToolRegistry } from "../../agent/tools/registry.js";
@@ -376,6 +376,111 @@ export async function startGatewayHttp(opts: GatewayHttpOptions): Promise<Gatewa
         return;
       }
       sendJson(res, 200, { ok: true, data: { deviceId, deviceToken: newToken } });
+      return;
+    }
+
+    // =========================================================================
+    // ADMIN API KEY ROUTES (gateway token)
+    // =========================================================================
+
+    if (url.pathname === "/admin/api-keys" && req.method === "POST") {
+      if (!requireGatewayAuth(req, config.token)) {
+        sendJson(res, 401, {
+          ok: false,
+          error: { code: "ERR_UNAUTHORIZED", message: "Missing gateway token" },
+        });
+        return;
+      }
+      let body: any;
+      try {
+        body = await readJsonBody(req);
+      } catch {
+        sendJson(res, 400, {
+          ok: false,
+          error: { code: "ERR_INVALID_REQUEST", message: "Invalid JSON" },
+        });
+        return;
+      }
+      const name = body?.name;
+      if (typeof name !== "string" || name.length === 0) {
+        sendJson(res, 400, {
+          ok: false,
+          error: { code: "ERR_INVALID_REQUEST", message: "name required" },
+        });
+        return;
+      }
+      let scope: DeviceScope = DEFAULT_SCOPE;
+      if (body?.scope) {
+        try {
+          scope = DeviceScopeSchema.parse(body.scope);
+        } catch {
+          sendJson(res, 400, {
+            ok: false,
+            error: { code: "ERR_INVALID_REQUEST", message: "Invalid scope format" },
+          });
+          return;
+        }
+      }
+      const expiresAt = typeof body?.expiresAt === "number" ? body.expiresAt : undefined;
+      const result = store.createApiKey(name, scope, expiresAt);
+      sendJson(res, 200, {
+        ok: true,
+        data: { id: result.id, key: result.key, scope, expiresAt: expiresAt ?? null },
+      });
+      return;
+    }
+
+    if (url.pathname === "/admin/api-keys" && req.method === "GET") {
+      if (!requireGatewayAuth(req, config.token)) {
+        sendJson(res, 401, {
+          ok: false,
+          error: { code: "ERR_UNAUTHORIZED", message: "Missing gateway token" },
+        });
+        return;
+      }
+      const keys = store.listApiKeys();
+      sendJson(res, 200, {
+        ok: true,
+        data: {
+          keys: keys.map((k) => ({
+            id: k.id,
+            name: k.name,
+            scope: k.scope,
+            createdAt: k.createdAt,
+            expiresAt: k.expiresAt,
+            revokedAt: k.revokedAt,
+            lastUsedAt: k.lastUsedAt,
+          })),
+        },
+      });
+      return;
+    }
+
+    if (url.pathname.startsWith("/admin/api-keys/") && req.method === "DELETE") {
+      if (!requireGatewayAuth(req, config.token)) {
+        sendJson(res, 401, {
+          ok: false,
+          error: { code: "ERR_UNAUTHORIZED", message: "Missing gateway token" },
+        });
+        return;
+      }
+      const id = url.pathname.slice("/admin/api-keys/".length);
+      if (!id) {
+        sendJson(res, 400, {
+          ok: false,
+          error: { code: "ERR_INVALID_REQUEST", message: "Key ID required" },
+        });
+        return;
+      }
+      const revoked = store.revokeApiKey(id);
+      if (!revoked) {
+        sendJson(res, 404, {
+          ok: false,
+          error: { code: "ERR_NOT_FOUND", message: "API key not found or already revoked" },
+        });
+        return;
+      }
+      sendJson(res, 200, { ok: true });
       return;
     }
 
@@ -946,6 +1051,52 @@ async function requireDeviceAuth(
   store: Store,
   remoteIp: string
 ): Promise<DeviceAuthResult> {
+  // Check for API key auth first (Authorization: Bearer owk_...)
+  const authHeader = getHeader(req, "authorization");
+  if (authHeader?.startsWith("Bearer owk_")) {
+    const apiKey = authHeader.slice("Bearer ".length);
+    const keyHash = hashToken(apiKey);
+    const record = store.getApiKeyByHash(keyHash);
+    if (!record) {
+      return {
+        ok: false,
+        status: 401,
+        error: {
+          ok: false,
+          error: { code: "ERR_UNAUTHORIZED", message: "Invalid API key" },
+        },
+      };
+    }
+    if (record.revokedAt) {
+      return {
+        ok: false,
+        status: 401,
+        error: {
+          ok: false,
+          error: { code: "ERR_UNAUTHORIZED", message: "API key revoked" },
+        },
+      };
+    }
+    if (record.expiresAt && record.expiresAt <= Date.now()) {
+      return {
+        ok: false,
+        status: 401,
+        error: {
+          ok: false,
+          error: { code: "ERR_UNAUTHORIZED", message: "API key expired" },
+        },
+      };
+    }
+    store.touchApiKeyUsed(record.id, Date.now());
+    return {
+      ok: true,
+      device: {
+        deviceId: `apikey:${record.id}`,
+        scope: record.scope,
+      },
+    };
+  }
+
   const deviceId = getHeader(req, "x-device-id");
   const deviceToken = getHeader(req, "x-device-token");
 

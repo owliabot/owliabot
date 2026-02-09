@@ -30,6 +30,16 @@ export interface EventRecord {
   ackedAt: number | null;
 }
 
+export interface ApiKeyRecord {
+  id: string;
+  name: string;
+  scope: DeviceScope;
+  createdAt: number;
+  expiresAt: number | null;
+  revokedAt: number | null;
+  lastUsedAt: number | null;
+}
+
 export interface Store {
   getDevice(deviceId: string): DeviceRecord | null;
   listDevices(): DeviceRecord[];
@@ -74,6 +84,11 @@ export interface Store {
     now: number
   ): { allowed: boolean; resetAt: number };
   cleanup(now: number): void;
+  createApiKey(name: string, scope: DeviceScope, expiresAt?: number): { id: string; key: string };
+  getApiKeyByHash(keyHash: string): ApiKeyRecord | null;
+  listApiKeys(): ApiKeyRecord[];
+  revokeApiKey(id: string): boolean;
+  touchApiKeyUsed(id: string, now: number): void;
 }
 
 interface DeviceRow {
@@ -108,6 +123,17 @@ interface EventRow {
   message: string;
   metadata_json: string | null;
   acked_at: number | null;
+}
+
+interface ApiKeyRow {
+  id: string;
+  name: string;
+  key_hash: string;
+  scope_json: string;
+  created_at: number;
+  expires_at: number | null;
+  revoked_at: number | null;
+  last_used_at: number | null;
 }
 
 interface RateLimitRow {
@@ -173,6 +199,16 @@ export function createStore(path: string): Store {
       bucket TEXT PRIMARY KEY,
       count INTEGER,
       reset_at INTEGER
+    );
+    CREATE TABLE IF NOT EXISTS api_keys (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      key_hash TEXT NOT NULL,
+      scope_json TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      expires_at INTEGER,
+      revoked_at INTEGER,
+      last_used_at INTEGER
     );
   `);
 
@@ -416,6 +452,59 @@ export function createStore(path: string): Store {
     cleanup(now) {
       db.prepare("DELETE FROM idempotency WHERE expires_at <= ?").run(now);
       db.prepare("DELETE FROM events WHERE expires_at <= ?").run(now);
+    },
+    createApiKey(name, scope, expiresAt) {
+      const id = `ak_${randomBytes(8).toString("hex")}`;
+      const key = `owk_${randomBytes(16).toString("hex")}`;
+      const keyHash = hashToken(key);
+      const scopeJson = serializeScope(scope);
+      const now = Date.now();
+      db.prepare(
+        "INSERT INTO api_keys(id, name, key_hash, scope_json, created_at, expires_at) VALUES(?,?,?,?,?,?)"
+      ).run(id, name, keyHash, scopeJson, now, expiresAt ?? null);
+      return { id, key };
+    },
+    getApiKeyByHash(keyHash) {
+      const row = db
+        .prepare<[string], ApiKeyRow>(
+          "SELECT id, name, key_hash, scope_json, created_at, expires_at, revoked_at, last_used_at FROM api_keys WHERE key_hash=?"
+        )
+        .get(keyHash);
+      if (!row) return null;
+      return {
+        id: row.id,
+        name: row.name,
+        scope: parseScope(row.scope_json),
+        createdAt: row.created_at,
+        expiresAt: row.expires_at,
+        revokedAt: row.revoked_at,
+        lastUsedAt: row.last_used_at,
+      };
+    },
+    listApiKeys() {
+      const rows = db
+        .prepare<[], ApiKeyRow>(
+          "SELECT id, name, key_hash, scope_json, created_at, expires_at, revoked_at, last_used_at FROM api_keys ORDER BY created_at DESC"
+        )
+        .all();
+      return rows.map((row) => ({
+        id: row.id,
+        name: row.name,
+        scope: parseScope(row.scope_json),
+        createdAt: row.created_at,
+        expiresAt: row.expires_at,
+        revokedAt: row.revoked_at,
+        lastUsedAt: row.last_used_at,
+      }));
+    },
+    revokeApiKey(id) {
+      const result = db.prepare(
+        "UPDATE api_keys SET revoked_at=? WHERE id=? AND revoked_at IS NULL"
+      ).run(Date.now(), id);
+      return result.changes > 0;
+    },
+    touchApiKeyUsed(id, now) {
+      db.prepare("UPDATE api_keys SET last_used_at=? WHERE id=?").run(now, id);
     },
   };
 }
