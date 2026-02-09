@@ -699,7 +699,7 @@ export async function startGatewayHttp(opts: GatewayHttpOptions): Promise<Gatewa
         status: allOk ? "success" : "error",
         source: device.deviceId,
         message: "tool calls executed",
-        metadataJson: JSON.stringify({ results }),
+        metadataJson: JSON.stringify({ results, targetDeviceId: device.deviceId }),
         expiresAt: eventTime + config.eventTtlMs,
       });
 
@@ -802,7 +802,7 @@ export async function startGatewayHttp(opts: GatewayHttpOptions): Promise<Gatewa
         status: result.success ? "success" : "error",
         source: device.deviceId,
         message: "system action executed",
-        metadataJson: JSON.stringify({ result }),
+        metadataJson: JSON.stringify({ result, targetDeviceId: device.deviceId }),
         expiresAt: eventTime + config.eventTtlMs,
       });
 
