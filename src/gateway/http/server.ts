@@ -10,7 +10,7 @@
  * - /pair/request, /pair/status — device auth
  * - /command/tool, /command/system — device token + scope check
  * - /events/poll — device token, ACK mechanism
- * - /mcp — device token + scope check (stub)
+ * - /mcp — device token + scope check (JSON-RPC 2.0)
  * - /admin/* — gateway token (devices, approve, reject, revoke, scope, token rotate)
  *
  * @see docs/plans/gateway-unification.md Phase 2
@@ -1028,12 +1028,14 @@ export async function startGatewayHttp(opts: GatewayHttpOptions): Promise<Gatewa
 
         // P0 fix: check tool-level scope (read/write/sign) for MCP tools
         const mcpToolTier = getToolTier(toolName, tools);
-        if (mcpToolTier !== null) {
-          const toolScopeError = checkToolScope(device.scope, toolName, mcpToolTier);
-          if (toolScopeError) {
-            sendJsonRpc(res, rpcId, { code: -32603, message: toolScopeError.message ?? "Insufficient tool scope" });
-            return;
-          }
+        if (mcpToolTier === null) {
+          sendJsonRpc(res, rpcId, { code: -32603, message: `Unknown or insecure tool metadata: ${toolName}` });
+          return;
+        }
+        const toolScopeError = checkToolScope(device.scope, toolName, mcpToolTier);
+        if (toolScopeError) {
+          sendJsonRpc(res, rpcId, { code: -32603, message: toolScopeError.message ?? "Insufficient tool scope" });
+          return;
         }
 
         const { allowed, resetAt } = store.checkRateLimit(
@@ -1043,11 +1045,7 @@ export async function startGatewayHttp(opts: GatewayHttpOptions): Promise<Gatewa
           Date.now()
         );
         if (!allowed) {
-          sendJson(res, 429, {
-            ok: false,
-            error: { code: "ERR_RATE_LIMIT", message: "Too many requests" },
-            resetAt,
-          });
+          sendJsonRpc(res, rpcId, { code: -32000, message: "Too many requests" });
           return;
         }
 

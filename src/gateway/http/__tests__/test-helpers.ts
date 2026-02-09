@@ -92,6 +92,14 @@ export function createMockToolRegistry(): ToolRegistry {
     execute: async () => ({ success: true, data: { result: "mcp-write" } }),
   });
 
+  // MCP tool with missing security metadata (for fail-closed test)
+  registry.register({
+    name: "myserver__no_security",
+    description: "MCP tool without security level",
+    parameters: { type: "object", properties: {}, required: [] },
+    execute: async () => ({ success: true, data: { result: "should-not-reach" } }),
+  } as any);
+
   return registry;
 }
 

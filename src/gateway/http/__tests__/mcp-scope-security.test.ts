@@ -117,6 +117,37 @@ describe("P0 #2: Missing tool-level scope in /mcp tools/call", () => {
   });
 });
 
+describe("P1: Fail-closed for missing security metadata", () => {
+  it("denies tools/call for MCP tool missing security.level", async () => {
+    const resources = createMockResources();
+    const server = await startGatewayHttp({ config: testConfig, ...resources });
+    const token = await approve(server.baseUrl, "dev-fc", { tools: "write", system: false, mcp: true });
+
+    const res = await fetch(server.baseUrl + "/mcp", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-device-id": "dev-fc",
+        "x-device-token": token,
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 99,
+        method: "tools/call",
+        params: { name: "myserver__no_security", arguments: {} },
+      }),
+    });
+
+    const json: any = await res.json();
+    expect(json.jsonrpc).toBe("2.0");
+    expect(json.id).toBe(99);
+    expect(json.error).toBeDefined();
+    expect(json.error.code).toBe(-32603);
+    expect(json.error.message).toContain("myserver__no_security");
+    await server.stop();
+  });
+});
+
 describe("P1: Hardcoded tool call ID", () => {
   it("uses JSON-RPC request id, not hardcoded mcp-1", async () => {
     const resources = createMockResources();
