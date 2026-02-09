@@ -1,14 +1,41 @@
+/**
+ * Gateway HTTP Server
+ *
+ * Phase 2 of Gateway Unification: HTTP API as a Channel Adapter.
+ * Requires shared resources from main gateway (no fallback/standalone mode).
+ *
+ * Route organization:
+ * - /health — no auth
+ * - /status — gateway token
+ * - /pair/request, /pair/status — device auth
+ * - /command/tool, /command/system — device token + scope check
+ * - /events/poll — device token, ACK mechanism
+ * - /mcp — device token + scope check (stub)
+ * - /admin/* — gateway token (devices, approve, reject, revoke, scope, token rotate)
+ *
+ * @see docs/plans/gateway-unification.md Phase 2
+ */
+
 import http from "node:http";
-import { createStore } from "./store.js";
+import { createStore, type Store } from "./store.js";
 import { executeToolCalls } from "../../agent/tools/executor.js";
 import type { ToolCall, ToolResult } from "../../agent/tools/interface.js";
 import type { ToolRegistry } from "../../agent/tools/registry.js";
 import type { SessionStore } from "../../agent/session-store.js";
 import type { SessionTranscriptStore } from "../../agent/session-transcript.js";
-import { createGatewayToolRegistry } from "./tooling.js";
 import { hashRequest, hashToken, isIpAllowed } from "./utils.js";
 import { executeSystemRequest } from "../../system/executor.js";
 import type { SystemCapabilityConfig } from "../../system/interface.js";
+import {
+  checkToolScope,
+  checkSystemScope,
+  checkMcpScope,
+  DeviceScopeSchema,
+  DEFAULT_SCOPE,
+  type DeviceScope,
+} from "./scope.js";
+import { createHttpChannel } from "./channel.js";
+import type { ChannelPlugin } from "../../channels/interface.js";
 
 export interface GatewayHttpConfig {
   enabled?: boolean;
@@ -20,53 +47,59 @@ export interface GatewayHttpConfig {
   idempotencyTtlMs: number;
   eventTtlMs: number;
   rateLimit: { windowMs: number; max: number };
+  /** Maximum events per device before dropping oldest (default: 1000) */
+  maxEventsPerDevice?: number;
+  /** Events per poll batch (default: 100) */
+  pollBatchSize?: number;
+}
+
+export interface GatewayHttpOptions {
+  config: GatewayHttpConfig;
+  /** Shared tool registry from main gateway (REQUIRED) */
+  toolRegistry: ToolRegistry;
+  /** Shared session store from main gateway (REQUIRED) */
+  sessionStore: SessionStore;
+  /** Shared transcript store from main gateway (REQUIRED) */
+  transcripts: SessionTranscriptStore;
+  workspacePath: string;
+  system?: SystemCapabilityConfig;
+}
+
+export interface GatewayHttpResult {
+  baseUrl: string;
+  stop: () => Promise<void>;
+  store: Store;
+  channel: ChannelPlugin;
 }
 
 /**
  * Start the Gateway HTTP server.
  *
- * Phase 1 of Gateway Unification: accepts shared resources from main gateway.
- * When toolRegistry/sessionStore/transcripts are provided, uses them directly
- * instead of creating duplicates. Falls back to createGatewayToolRegistry for
- * backward compatibility (standalone usage, tests).
+ * Phase 2 of Gateway Unification: requires shared resources from main gateway.
+ * No fallback to standalone mode - main gateway must provide all dependencies.
  *
  * @see docs/plans/gateway-unification.md
  */
-export async function startGatewayHttp(opts: {
-  config: GatewayHttpConfig;
-  /** Shared tool registry from main gateway (Phase 1 unification) */
-  toolRegistry?: ToolRegistry;
-  /** Shared session store from main gateway (Phase 1 unification) */
-  sessionStore?: SessionStore;
-  /** Shared transcript store from main gateway (Phase 1 unification) */
-  transcripts?: SessionTranscriptStore;
-  workspacePath?: string;
-  system?: SystemCapabilityConfig;
-}) {
-  const store = createStore(opts.config.sqlitePath);
+export async function startGatewayHttp(opts: GatewayHttpOptions): Promise<GatewayHttpResult> {
+  const { config, toolRegistry: tools, workspacePath } = opts;
 
-  // Phase 1: Use shared registry if provided, otherwise fall back to local creation
-  // (backward compat for tests and standalone usage).
-  // When falling back, wire through sessionStore/transcripts so tools that need
-  // them (e.g. clear_session) work correctly even in standalone mode.
-  const tools = opts.toolRegistry
-    ? opts.toolRegistry
-    : await createGatewayToolRegistry({
-        workspace: opts.workspacePath ?? process.cwd(),
-        sessionStore: opts.sessionStore,
-        transcripts: opts.transcripts,
-      });
+  const store = createStore(config.sqlitePath);
+  const pollBatchSize = config.pollBatchSize ?? 100;
+
+  // Create HTTP channel plugin for message delivery
+  const httpChannel = createHttpChannel({ store });
+
   const server = http.createServer(async (req, res) => {
     const url = new URL(req.url ?? "/", "http://localhost");
     const remoteIp = getRemoteIp(req);
 
-    // Opportunistic cleanup to keep sqlite tables bounded.
-    // (Cheap: single DELETE on TTL tables.)
+    // Opportunistic cleanup to keep sqlite tables bounded
     store.cleanup(Date.now());
 
+    // IP allowlist check
     if (
-      opts.config.allowlist.length > 0 &&
-      !isIpAllowed(remoteIp, opts.config.allowlist)
+      config.allowlist.length > 0 &&
+      !isIpAllowed(remoteIp, config.allowlist)
     ) {
       sendJson(res, 403, {
         ok: false,
@@ -75,16 +108,24 @@ export async function startGatewayHttp(opts: {
       return;
     }
 
+    // =========================================================================
+    // PUBLIC ROUTES (no auth)
+    // =========================================================================
+
     if (req.method === "GET" && url.pathname === "/health") {
       res.writeHead(200, { "content-type": "application/json" });
       res.end(
-        JSON.stringify({ ok: true, version: "0.1.0", uptime: process.uptime() })
+        JSON.stringify({ ok: true, version: "0.2.0", uptime: process.uptime() })
       );
       return;
     }
 
+    // =========================================================================
+    // GATEWAY TOKEN ROUTES
+    // =========================================================================
+
     if (url.pathname === "/status" && req.method === "GET") {
-      if (!requireGatewayAuth(req, opts.config.token)) {
+      if (!requireGatewayAuth(req, config.token)) {
         sendJson(res, 401, {
           ok: false,
           error: { code: "ERR_UNAUTHORIZED", message: "Missing gateway token" },
@@ -94,23 +135,43 @@ export async function startGatewayHttp(opts: {
       const pending = store.listPending();
       const devices = store.listDevices().map((d) => ({
         deviceId: d.deviceId,
+        scope: d.scope,
         revokedAt: d.revokedAt,
         pairedAt: d.pairedAt,
         lastSeenAt: d.lastSeenAt,
-        // never expose token hash via status
       }));
       sendJson(res, 200, {
         ok: true,
-        data: {
-          devices,
-          pending,
-        },
+        data: { devices, pending },
       });
       return;
     }
 
-    if (url.pathname === "/pairing/pending" && req.method === "GET") {
-      if (!requireGatewayAuth(req, opts.config.token)) {
+    // =========================================================================
+    // ADMIN ROUTES (gateway token)
+    // =========================================================================
+
+    if (url.pathname === "/admin/devices" && req.method === "GET") {
+      if (!requireGatewayAuth(req, config.token)) {
+        sendJson(res, 401, {
+          ok: false,
+          error: { code: "ERR_UNAUTHORIZED", message: "Missing gateway token" },
+        });
+        return;
+      }
+      const devices = store.listDevices().map((d) => ({
+        deviceId: d.deviceId,
+        scope: d.scope,
+        revokedAt: d.revokedAt,
+        pairedAt: d.pairedAt,
+        lastSeenAt: d.lastSeenAt,
+      }));
+      sendJson(res, 200, { ok: true, data: { devices } });
+      return;
+    }
+
+    if (url.pathname === "/admin/pending" && req.method === "GET") {
+      if (!requireGatewayAuth(req, config.token)) {
         sendJson(res, 401, {
           ok: false,
           error: { code: "ERR_UNAUTHORIZED", message: "Missing gateway token" },
@@ -122,23 +183,8 @@ export async function startGatewayHttp(opts: {
       return;
     }
 
-    if (url.pathname === "/pairing/request" && req.method === "POST") {
-      const deviceId = getHeader(req, "x-device-id");
-      if (!deviceId) {
-        sendJson(res, 400, {
-          ok: false,
-          error: { code: "ERR_INVALID_REQUEST", message: "Missing X-Device-Id" },
-        });
-        return;
-      }
-      const userAgent = String(req.headers["user-agent"] ?? "");
-      store.addPending(deviceId, remoteIp, userAgent);
-      sendJson(res, 200, { ok: true, data: { deviceId, status: "pending" } });
-      return;
-    }
-
-    if (url.pathname === "/pairing/approve" && req.method === "POST") {
-      if (!requireGatewayAuth(req, opts.config.token)) {
+    if (url.pathname === "/admin/approve" && req.method === "POST") {
+      if (!requireGatewayAuth(req, config.token)) {
         sendJson(res, 401, {
           ok: false,
           error: { code: "ERR_UNAUTHORIZED", message: "Missing gateway token" },
@@ -163,16 +209,60 @@ export async function startGatewayHttp(opts: {
         });
         return;
       }
-      const deviceToken = store.approveDevice(deviceId);
+      // Parse scope from request, falling back to default
+      let scope: DeviceScope = DEFAULT_SCOPE;
+      if (body?.scope) {
+        try {
+          scope = DeviceScopeSchema.parse(body.scope);
+        } catch {
+          sendJson(res, 400, {
+            ok: false,
+            error: { code: "ERR_INVALID_REQUEST", message: "Invalid scope format" },
+          });
+          return;
+        }
+      }
+      const deviceToken = store.approveDevice(deviceId, scope);
       sendJson(res, 200, {
         ok: true,
-        data: { deviceId, deviceToken },
+        data: { deviceId, deviceToken, scope },
       });
       return;
     }
 
-    if (url.pathname === "/pairing/revoke" && req.method === "POST") {
-      if (!requireGatewayAuth(req, opts.config.token)) {
+    if (url.pathname === "/admin/reject" && req.method === "POST") {
+      if (!requireGatewayAuth(req, config.token)) {
+        sendJson(res, 401, {
+          ok: false,
+          error: { code: "ERR_UNAUTHORIZED", message: "Missing gateway token" },
+        });
+        return;
+      }
+      let body: any;
+      try {
+        body = await readJsonBody(req);
+      } catch {
+        sendJson(res, 400, {
+          ok: false,
+          error: { code: "ERR_INVALID_REQUEST", message: "Invalid JSON" },
+        });
+        return;
+      }
+      const deviceId = body?.deviceId;
+      if (typeof deviceId !== "string" || deviceId.length === 0) {
+        sendJson(res, 400, {
+          ok: false,
+          error: { code: "ERR_INVALID_REQUEST", message: "deviceId required" },
+        });
+        return;
+      }
+      store.removePending(deviceId);
+      sendJson(res, 200, { ok: true });
+      return;
+    }
+
+    if (url.pathname === "/admin/revoke" && req.method === "POST") {
+      if (!requireGatewayAuth(req, config.token)) {
         sendJson(res, 401, {
           ok: false,
           error: { code: "ERR_UNAUTHORIZED", message: "Missing gateway token" },
@@ -202,64 +292,305 @@ export async function startGatewayHttp(opts: {
       return;
     }
 
+    if (url.pathname === "/admin/scope" && req.method === "POST") {
+      if (!requireGatewayAuth(req, config.token)) {
+        sendJson(res, 401, {
+          ok: false,
+          error: { code: "ERR_UNAUTHORIZED", message: "Missing gateway token" },
+        });
+        return;
+      }
+      let body: any;
+      try {
+        body = await readJsonBody(req);
+      } catch {
+        sendJson(res, 400, {
+          ok: false,
+          error: { code: "ERR_INVALID_REQUEST", message: "Invalid JSON" },
+        });
+        return;
+      }
+      const deviceId = body?.deviceId;
+      if (typeof deviceId !== "string" || deviceId.length === 0) {
+        sendJson(res, 400, {
+          ok: false,
+          error: { code: "ERR_INVALID_REQUEST", message: "deviceId required" },
+        });
+        return;
+      }
+      let scope: DeviceScope;
+      try {
+        scope = DeviceScopeSchema.parse(body?.scope);
+      } catch {
+        sendJson(res, 400, {
+          ok: false,
+          error: { code: "ERR_INVALID_REQUEST", message: "Invalid scope format" },
+        });
+        return;
+      }
+      const updated = store.updateScope(deviceId, scope);
+      if (!updated) {
+        sendJson(res, 404, {
+          ok: false,
+          error: { code: "ERR_NOT_FOUND", message: "Device not found or revoked" },
+        });
+        return;
+      }
+      sendJson(res, 200, { ok: true, data: { deviceId, scope } });
+      return;
+    }
+
+    if (url.pathname === "/admin/rotate-token" && req.method === "POST") {
+      if (!requireGatewayAuth(req, config.token)) {
+        sendJson(res, 401, {
+          ok: false,
+          error: { code: "ERR_UNAUTHORIZED", message: "Missing gateway token" },
+        });
+        return;
+      }
+      let body: any;
+      try {
+        body = await readJsonBody(req);
+      } catch {
+        sendJson(res, 400, {
+          ok: false,
+          error: { code: "ERR_INVALID_REQUEST", message: "Invalid JSON" },
+        });
+        return;
+      }
+      const deviceId = body?.deviceId;
+      if (typeof deviceId !== "string" || deviceId.length === 0) {
+        sendJson(res, 400, {
+          ok: false,
+          error: { code: "ERR_INVALID_REQUEST", message: "deviceId required" },
+        });
+        return;
+      }
+      const newToken = store.rotateToken(deviceId);
+      if (!newToken) {
+        sendJson(res, 404, {
+          ok: false,
+          error: { code: "ERR_NOT_FOUND", message: "Device not found or revoked" },
+        });
+        return;
+      }
+      sendJson(res, 200, { ok: true, data: { deviceId, deviceToken: newToken } });
+      return;
+    }
+
+    // =========================================================================
+    // PAIRING ROUTES (device auth)
+    // =========================================================================
+
+    // Legacy route for backward compatibility
+    if (url.pathname === "/pairing/pending" && req.method === "GET") {
+      if (!requireGatewayAuth(req, config.token)) {
+        sendJson(res, 401, {
+          ok: false,
+          error: { code: "ERR_UNAUTHORIZED", message: "Missing gateway token" },
+        });
+        return;
+      }
+      const pending = store.listPending();
+      sendJson(res, 200, { ok: true, data: { pending } });
+      return;
+    }
+
+    if (url.pathname === "/pair/request" && req.method === "POST") {
+      const deviceId = getHeader(req, "x-device-id");
+      if (!deviceId) {
+        sendJson(res, 400, {
+          ok: false,
+          error: { code: "ERR_INVALID_REQUEST", message: "Missing X-Device-Id" },
+        });
+        return;
+      }
+      const userAgent = String(req.headers["user-agent"] ?? "");
+      store.addPending(deviceId, remoteIp, userAgent);
+      sendJson(res, 200, { ok: true, data: { deviceId, status: "pending" } });
+      return;
+    }
+
+    // Legacy route for backward compatibility
+    if (url.pathname === "/pairing/request" && req.method === "POST") {
+      const deviceId = getHeader(req, "x-device-id");
+      if (!deviceId) {
+        sendJson(res, 400, {
+          ok: false,
+          error: { code: "ERR_INVALID_REQUEST", message: "Missing X-Device-Id" },
+        });
+        return;
+      }
+      const userAgent = String(req.headers["user-agent"] ?? "");
+      store.addPending(deviceId, remoteIp, userAgent);
+      sendJson(res, 200, { ok: true, data: { deviceId, status: "pending" } });
+      return;
+    }
+
+    if (url.pathname === "/pair/status" && req.method === "GET") {
+      const deviceId = getHeader(req, "x-device-id");
+      const deviceToken = getHeader(req, "x-device-token");
+      if (!deviceId) {
+        sendJson(res, 400, {
+          ok: false,
+          error: { code: "ERR_INVALID_REQUEST", message: "Missing X-Device-Id" },
+        });
+        return;
+      }
+      const device = store.getDevice(deviceId);
+      if (!device) {
+        // Check if pending
+        const pending = store.listPending().find((p) => p.deviceId === deviceId);
+        if (pending) {
+          sendJson(res, 200, { ok: true, data: { status: "pending" } });
+        } else {
+          sendJson(res, 200, { ok: true, data: { status: "unknown" } });
+        }
+        return;
+      }
+      if (device.revokedAt) {
+        sendJson(res, 200, { ok: true, data: { status: "revoked" } });
+        return;
+      }
+      if (deviceToken && hashToken(deviceToken) === device.tokenHash) {
+        sendJson(res, 200, {
+          ok: true,
+          data: { status: "paired", scope: device.scope },
+        });
+      } else {
+        sendJson(res, 200, { ok: true, data: { status: "paired" } });
+      }
+      return;
+    }
+
+    // Legacy route for backward compatibility
+    if (url.pathname === "/pairing/approve" && req.method === "POST") {
+      if (!requireGatewayAuth(req, config.token)) {
+        sendJson(res, 401, {
+          ok: false,
+          error: { code: "ERR_UNAUTHORIZED", message: "Missing gateway token" },
+        });
+        return;
+      }
+      let body: any;
+      try {
+        body = await readJsonBody(req);
+      } catch {
+        sendJson(res, 400, {
+          ok: false,
+          error: { code: "ERR_INVALID_REQUEST", message: "Invalid JSON" },
+        });
+        return;
+      }
+      const deviceId = body?.deviceId;
+      if (typeof deviceId !== "string" || deviceId.length === 0) {
+        sendJson(res, 400, {
+          ok: false,
+          error: { code: "ERR_INVALID_REQUEST", message: "deviceId required" },
+        });
+        return;
+      }
+      let scope: DeviceScope = DEFAULT_SCOPE;
+      if (body?.scope) {
+        try {
+          scope = DeviceScopeSchema.parse(body.scope);
+        } catch {
+          sendJson(res, 400, {
+            ok: false,
+            error: { code: "ERR_INVALID_REQUEST", message: "Invalid scope format" },
+          });
+          return;
+        }
+      }
+      const deviceToken = store.approveDevice(deviceId, scope);
+      sendJson(res, 200, {
+        ok: true,
+        data: { deviceId, deviceToken, scope },
+      });
+      return;
+    }
+
+    // Legacy route for backward compatibility
+    if (url.pathname === "/pairing/revoke" && req.method === "POST") {
+      if (!requireGatewayAuth(req, config.token)) {
+        sendJson(res, 401, {
+          ok: false,
+          error: { code: "ERR_UNAUTHORIZED", message: "Missing gateway token" },
+        });
+        return;
+      }
+      let body: any;
+      try {
+        body = await readJsonBody(req);
+      } catch {
+        sendJson(res, 400, {
+          ok: false,
+          error: { code: "ERR_INVALID_REQUEST", message: "Invalid JSON" },
+        });
+        return;
+      }
+      const deviceId = body?.deviceId;
+      if (typeof deviceId !== "string" || deviceId.length === 0) {
+        sendJson(res, 400, {
+          ok: false,
+          error: { code: "ERR_INVALID_REQUEST", message: "deviceId required" },
+        });
+        return;
+      }
+      store.revokeDevice(deviceId);
+      sendJson(res, 200, { ok: true });
+      return;
+    }
+
+    // =========================================================================
+    // DEVICE ROUTES (device token + scope check)
+    // =========================================================================
+
     if (url.pathname === "/events/poll" && req.method === "GET") {
+      const authResult = await requireDeviceAuth(req, store, remoteIp);
+      if (!authResult.ok) {
+        sendJson(res, authResult.status, authResult.error);
+        return;
+      }
+      const { device } = authResult;
+
+      // ACK mechanism: acknowledge events up to this ID
+      const ackParam = url.searchParams.get("ack");
+      if (ackParam) {
+        const ackId = Number(ackParam);
+        if (Number.isFinite(ackId) && ackId > 0) {
+          store.ackEvents(device.deviceId, ackId, Date.now());
+        }
+      }
+
       const sinceParam = url.searchParams.get("since");
       const since = sinceParam ? Number(sinceParam) : null;
       const now = Date.now();
-      const { cursor, events } = store.pollEvents(
+
+      const { cursor, events, dropped } = store.pollEventsForDevice(
+        device.deviceId,
         Number.isFinite(since) ? since : null,
-        100,
+        pollBatchSize,
         now
       );
-      sendJson(res, 200, { ok: true, cursor, events });
+
+      const headers: Record<string, string> = { "content-type": "application/json" };
+      if (dropped > 0) {
+        headers["X-Events-Dropped"] = String(dropped);
+      }
+
+      res.writeHead(200, headers);
+      res.end(JSON.stringify({ ok: true, cursor, events }));
       return;
     }
 
     if (url.pathname === "/command/tool" && req.method === "POST") {
-      const deviceId = getHeader(req, "x-device-id");
-      const deviceToken = getHeader(req, "x-device-token");
-
-      if (!deviceId) {
-        sendJson(res, 401, {
-          ok: false,
-          error: { code: "ERR_UNAUTHORIZED", message: "Missing X-Device-Id" },
-        });
+      const authResult = await requireDeviceAuth(req, store, remoteIp);
+      if (!authResult.ok) {
+        sendJson(res, authResult.status, authResult.error);
         return;
       }
-
-      if (!deviceToken) {
-        // Auto-enroll into pairing pending to match the intended flow.
-        const userAgent = String(req.headers["user-agent"] ?? "");
-        store.addPending(deviceId, remoteIp, userAgent);
-        sendJson(res, 401, {
-          ok: false,
-          error: { code: "ERR_DEVICE_NOT_PAIRED", message: "Device not paired" },
-          data: { deviceId, pairing: "pending" },
-        });
-        return;
-      }
-
-      const device = store.getDevice(deviceId);
-      if (!device || device.revokedAt || !device.tokenHash) {
-        const userAgent = String(req.headers["user-agent"] ?? "");
-        store.addPending(deviceId, remoteIp, userAgent);
-        sendJson(res, 401, {
-          ok: false,
-          error: { code: "ERR_DEVICE_NOT_PAIRED", message: "Device not paired" },
-          data: { deviceId, pairing: "pending" },
-        });
-        return;
-      }
-      if (hashToken(deviceToken) !== device.tokenHash) {
-        sendJson(res, 401, {
-          ok: false,
-          error: { code: "ERR_UNAUTHORIZED", message: "Invalid device token" },
-        });
-        return;
-      }
-
-      // Update last_seen_at for observability.
-      store.touchDeviceSeen(deviceId, Date.now());
+      const { device } = authResult;
 
       let rawBody = "";
       let body: any;
@@ -288,13 +619,28 @@ export async function startGatewayHttp(opts: {
         arguments: call.arguments ?? {},
       }));
 
+      // Scope check: verify device has permission for requested tools
+      // For now, we use a simple heuristic based on tool name prefixes
+      // Real implementation would check tool registry for tier metadata
+      for (const call of toolCalls) {
+        const tier = getToolTier(call.name);
+        const scopeError = checkToolScope(device.scope, call.name, tier);
+        if (scopeError) {
+          sendJson(res, 403, {
+            ok: false,
+            error: scopeError,
+          });
+          return;
+        }
+      }
+
       const now = Date.now();
       const idempotencyKey = getHeader(req, "idempotency-key");
       const requestHash = hashRequest(
         req.method ?? "POST",
         url.pathname,
         rawBody,
-        deviceId
+        device.deviceId
       );
       if (idempotencyKey) {
         const cached = store.getIdempotency(idempotencyKey);
@@ -310,9 +656,9 @@ export async function startGatewayHttp(opts: {
       }
 
       const { allowed, resetAt } = store.checkRateLimit(
-        `device:${deviceId}`,
-        opts.config.rateLimit.windowMs,
-        opts.config.rateLimit.max,
+        `device:${device.deviceId}`,
+        config.rateLimit.windowMs,
+        config.rateLimit.max,
         now
       );
       if (!allowed) {
@@ -330,7 +676,7 @@ export async function startGatewayHttp(opts: {
       const resultsMap = await executeToolCalls(toolCalls, {
         registry: tools,
         context: {
-          sessionKey: `gateway:${deviceId}`,
+          sessionKey: `gateway:${device.deviceId}`,
           agentId: "gateway/http",
           config: {},
         },
@@ -350,10 +696,10 @@ export async function startGatewayHttp(opts: {
         type: "command.tool",
         time: eventTime,
         status: allOk ? "success" : "error",
-        source: deviceId,
+        source: device.deviceId,
         message: "tool calls executed",
         metadataJson: JSON.stringify({ results }),
-        expiresAt: eventTime + opts.config.eventTtlMs,
+        expiresAt: eventTime + config.eventTtlMs,
       });
 
       const responsePayload = { ok: true, data: { results } };
@@ -363,34 +709,26 @@ export async function startGatewayHttp(opts: {
           idempotencyKey,
           requestHash,
           responsePayload,
-          now + opts.config.idempotencyTtlMs
+          now + config.idempotencyTtlMs
         );
       }
       return;
     }
 
     if (url.pathname === "/command/system" && req.method === "POST") {
-      const deviceId = getHeader(req, "x-device-id");
-      const deviceToken = getHeader(req, "x-device-token");
-      if (!deviceId || !deviceToken) {
-        sendJson(res, 401, {
-          ok: false,
-          error: { code: "ERR_UNAUTHORIZED", message: "Missing device auth" },
-        });
+      const authResult = await requireDeviceAuth(req, store, remoteIp);
+      if (!authResult.ok) {
+        sendJson(res, authResult.status, authResult.error);
         return;
       }
-      const device = store.getDevice(deviceId);
-      if (!device || device.revokedAt || !device.tokenHash) {
-        sendJson(res, 401, {
+      const { device } = authResult;
+
+      // Scope check: require system permission
+      const scopeError = checkSystemScope(device.scope);
+      if (scopeError) {
+        sendJson(res, 403, {
           ok: false,
-          error: { code: "ERR_UNAUTHORIZED", message: "Device not paired" },
-        });
-        return;
-      }
-      if (hashToken(deviceToken) !== device.tokenHash) {
-        sendJson(res, 401, {
-          ok: false,
-          error: { code: "ERR_UNAUTHORIZED", message: "Invalid device token" },
+          error: scopeError,
         });
         return;
       }
@@ -414,7 +752,7 @@ export async function startGatewayHttp(opts: {
         req.method ?? "POST",
         url.pathname,
         rawBody,
-        deviceId
+        device.deviceId
       );
       if (idempotencyKey) {
         const cached = store.getIdempotency(idempotencyKey);
@@ -430,9 +768,9 @@ export async function startGatewayHttp(opts: {
       }
 
       const { allowed, resetAt } = store.checkRateLimit(
-        `device:${deviceId}`,
-        opts.config.rateLimit.windowMs,
-        opts.config.rateLimit.max,
+        `device:${device.deviceId}`,
+        config.rateLimit.windowMs,
+        config.rateLimit.max,
         now
       );
       if (!allowed) {
@@ -450,7 +788,7 @@ export async function startGatewayHttp(opts: {
       const result = await executeSystemRequest(
         body,
         {
-          workspacePath: opts.workspacePath ?? process.cwd(),
+          workspacePath,
           fetchImpl: fetch,
         },
         opts.system
@@ -461,10 +799,10 @@ export async function startGatewayHttp(opts: {
         type: "command.system",
         time: eventTime,
         status: result.success ? "success" : "error",
-        source: deviceId,
+        source: device.deviceId,
         message: "system action executed",
         metadataJson: JSON.stringify({ result }),
-        expiresAt: eventTime + opts.config.eventTtlMs,
+        expiresAt: eventTime + config.eventTtlMs,
       });
 
       const responsePayload = { ok: true, data: { result } };
@@ -474,11 +812,42 @@ export async function startGatewayHttp(opts: {
           idempotencyKey,
           requestHash,
           responsePayload,
-          now + opts.config.idempotencyTtlMs
+          now + config.idempotencyTtlMs
         );
       }
       return;
     }
+
+    // MCP route (stub for now)
+    if (url.pathname === "/mcp" && req.method === "POST") {
+      const authResult = await requireDeviceAuth(req, store, remoteIp);
+      if (!authResult.ok) {
+        sendJson(res, authResult.status, authResult.error);
+        return;
+      }
+      const { device } = authResult;
+
+      // Scope check: require MCP permission
+      const scopeError = checkMcpScope(device.scope);
+      if (scopeError) {
+        sendJson(res, 403, {
+          ok: false,
+          error: scopeError,
+        });
+        return;
+      }
+
+      // Stub: MCP integration pending
+      sendJson(res, 501, {
+        ok: false,
+        error: { code: "ERR_NOT_IMPLEMENTED", message: "MCP endpoint not yet implemented" },
+      });
+      return;
+    }
+
+    // =========================================================================
+    // 404 Not Found
+    // =========================================================================
 
     res.writeHead(404, { "content-type": "application/json" });
     res.end(
@@ -490,19 +859,24 @@ export async function startGatewayHttp(opts: {
   });
 
   await new Promise<void>((resolve) => {
-    server.listen(opts.config.port, opts.config.host, () => resolve());
+    server.listen(config.port, config.host, () => resolve());
   });
 
   const address = server.address();
   const port =
-    typeof address === "object" && address ? address.port : opts.config.port;
+    typeof address === "object" && address ? address.port : config.port;
 
   return {
-    baseUrl: `http://${opts.config.host}:${port}`,
+    baseUrl: `http://${config.host}:${port}`,
     stop: () => new Promise<void>((resolve) => server.close(() => resolve())),
     store,
+    channel: httpChannel,
   };
 }
+
+// =============================================================================
+// Helper Functions
+// =============================================================================
 
 function sendJson(
   res: http.ServerResponse,
@@ -540,6 +914,94 @@ function requireGatewayAuth(
   return typeof provided === "string" && provided === token;
 }
 
+interface DeviceAuthSuccess {
+  ok: true;
+  device: {
+    deviceId: string;
+    scope: DeviceScope;
+  };
+}
+
+interface DeviceAuthFailure {
+  ok: false;
+  status: number;
+  error: { ok: false; error: { code: string; message: string }; data?: any };
+}
+
+type DeviceAuthResult = DeviceAuthSuccess | DeviceAuthFailure;
+
+async function requireDeviceAuth(
+  req: http.IncomingMessage,
+  store: Store,
+  remoteIp: string
+): Promise<DeviceAuthResult> {
+  const deviceId = getHeader(req, "x-device-id");
+  const deviceToken = getHeader(req, "x-device-token");
+
+  if (!deviceId) {
+    return {
+      ok: false,
+      status: 401,
+      error: {
+        ok: false,
+        error: { code: "ERR_UNAUTHORIZED", message: "Missing X-Device-Id" },
+      },
+    };
+  }
+
+  if (!deviceToken) {
+    // Auto-enroll into pairing pending
+    const userAgent = String(req.headers["user-agent"] ?? "");
+    store.addPending(deviceId, remoteIp, userAgent);
+    return {
+      ok: false,
+      status: 401,
+      error: {
+        ok: false,
+        error: { code: "ERR_DEVICE_NOT_PAIRED", message: "Device not paired" },
+        data: { deviceId, pairing: "pending" },
+      },
+    };
+  }
+
+  const device = store.getDevice(deviceId);
+  if (!device || device.revokedAt || !device.tokenHash) {
+    const userAgent = String(req.headers["user-agent"] ?? "");
+    store.addPending(deviceId, remoteIp, userAgent);
+    return {
+      ok: false,
+      status: 401,
+      error: {
+        ok: false,
+        error: { code: "ERR_DEVICE_NOT_PAIRED", message: "Device not paired" },
+        data: { deviceId, pairing: "pending" },
+      },
+    };
+  }
+
+  if (hashToken(deviceToken) !== device.tokenHash) {
+    return {
+      ok: false,
+      status: 401,
+      error: {
+        ok: false,
+        error: { code: "ERR_UNAUTHORIZED", message: "Invalid device token" },
+      },
+    };
+  }
+
+  // Update last_seen_at for observability
+  store.touchDeviceSeen(deviceId, Date.now());
+
+  return {
+    ok: true,
+    device: {
+      deviceId,
+      scope: device.scope,
+    },
+  };
+}
+
 function normalizeToolResult(call: ToolCall, result: ToolResult) {
   return {
     id: call.id,
@@ -548,6 +1010,31 @@ function normalizeToolResult(call: ToolCall, result: ToolResult) {
     data: result.data,
     error: result.error,
   };
+}
+
+/**
+ * Get tool tier based on tool name.
+ * This is a heuristic - real implementation would check tool registry metadata.
+ */
+function getToolTier(toolName: string): "none" | "tier3" | "tier2" | "tier1" {
+  // Write/modification tools are tier3
+  const tier3Tools = [
+    "edit_file",
+    "write_file",
+    "create_file",
+    "delete_file",
+    "move_file",
+    "mkdir",
+  ];
+
+  // Sensitive/signing tools are tier1/tier2
+  const tier2Tools = ["wallet_transfer", "wallet_sign"];
+  const tier1Tools = ["wallet_withdraw"];
+
+  if (tier1Tools.includes(toolName)) return "tier1";
+  if (tier2Tools.includes(toolName)) return "tier2";
+  if (tier3Tools.includes(toolName)) return "tier3";
+  return "none";
 }
 
 async function readBodyString(req: http.IncomingMessage): Promise<string> {

@@ -316,7 +316,7 @@ export async function startGateway(
   log.info("Gateway started");
 
   // Start Gateway HTTP if enabled
-  // Phase 1 Unification: inject shared resources so HTTP server doesn't create duplicates
+  // Phase 2 Unification: HTTP API as a Channel Adapter, requiring shared resources
   let stopHttp: (() => Promise<void>) | undefined;
   if (config.gateway?.http?.enabled) {
     const httpGateway = await startGatewayHttp({
@@ -328,6 +328,14 @@ export async function startGateway(
       system: config.system,
     });
     stopHttp = httpGateway.stop;
+
+    // Register HTTP channel as a peer of Discord/Telegram
+    channels.register(httpGateway.channel);
+    writeGateChannels.set(
+      "http",
+      createWriteGateChannelAdapter(httpGateway.channel, replyRouter),
+    );
+
     log.info(`Gateway HTTP server listening on ${httpGateway.baseUrl}`);
   }
 

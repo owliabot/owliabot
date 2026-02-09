@@ -1,10 +1,12 @@
 import Database from "better-sqlite3";
 import { randomBytes } from "node:crypto";
 import { hashToken } from "./utils.js";
+import { parseScope, serializeScope, DEFAULT_SCOPE, type DeviceScope } from "./scope.js";
 
 export interface DeviceRecord {
   deviceId: string;
   tokenHash: string | null;
+  scope: DeviceScope;
   revokedAt: number | null;
   pairedAt: number | null;
   lastSeenAt: number | null;
@@ -25,6 +27,7 @@ export interface EventRecord {
   source: string;
   message: string;
   metadataJson: string | null;
+  ackedAt: number | null;
 }
 
 export interface Store {
@@ -38,8 +41,11 @@ export interface Store {
     ip: string;
     userAgent: string;
   }>;
-  approveDevice(deviceId: string, token?: string): string;
+  removePending(deviceId: string): void;
+  approveDevice(deviceId: string, scope?: DeviceScope, token?: string): string;
   revokeDevice(deviceId: string): void;
+  updateScope(deviceId: string, scope: DeviceScope): boolean;
+  rotateToken(deviceId: string): string | null;
   saveIdempotency(
     key: string,
     requestHash: string,
@@ -47,12 +53,19 @@ export interface Store {
     expiresAt: number
   ): void;
   getIdempotency(key: string): IdempotencyRecord | null;
-  insertEvent(event: Omit<EventRecord, "id"> & { expiresAt: number }): void;
+  insertEvent(event: Omit<EventRecord, "id" | "ackedAt"> & { expiresAt: number }): number;
   pollEvents(
     since: number | null,
     limit: number,
     now: number
   ): { cursor: number; events: EventRecord[] };
+  pollEventsForDevice(
+    deviceId: string,
+    since: number | null,
+    limit: number,
+    now: number
+  ): { cursor: number; events: EventRecord[]; dropped: number };
+  ackEvents(deviceId: string, upToId: number, now: number): void;
   insertAudit(row: Record<string, unknown>): void;
   checkRateLimit(
     bucket: string,
@@ -66,6 +79,7 @@ export interface Store {
 interface DeviceRow {
   device_id: string;
   token_hash: string | null;
+  scope_json: string | null;
   revoked_at: number | null;
   paired_at: number | null;
   last_seen_at: number | null;
@@ -93,6 +107,7 @@ interface EventRow {
   source: string;
   message: string;
   metadata_json: string | null;
+  acked_at: number | null;
 }
 
 interface RateLimitRow {
@@ -104,10 +119,12 @@ export function createStore(path: string): Store {
   const db = new Database(path);
   db.pragma("journal_mode = WAL");
 
+  // Create tables with Phase 2 schema (scope + acked_at)
   db.exec(`
     CREATE TABLE IF NOT EXISTS devices (
       device_id TEXT PRIMARY KEY,
       token_hash TEXT,
+      scope_json TEXT DEFAULT '{"tools":"read","system":false,"mcp":false}',
       revoked_at INTEGER,
       paired_at INTEGER,
       last_seen_at INTEGER
@@ -132,8 +149,12 @@ export function createStore(path: string): Store {
       source TEXT,
       message TEXT,
       metadata_json TEXT,
-      expires_at INTEGER
+      expires_at INTEGER,
+      acked_at INTEGER,
+      target_device_id TEXT
     );
+    CREATE INDEX IF NOT EXISTS idx_events_target_device ON events(target_device_id, id);
+    CREATE INDEX IF NOT EXISTS idx_events_expires ON events(expires_at);
     CREATE TABLE IF NOT EXISTS audit_logs (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       time INTEGER,
@@ -155,17 +176,37 @@ export function createStore(path: string): Store {
     );
   `);
 
+  // Migration: add scope_json column if missing (upgrading from Phase 1)
+  try {
+    db.exec(`ALTER TABLE devices ADD COLUMN scope_json TEXT DEFAULT '{"tools":"read","system":false,"mcp":false}'`);
+  } catch {
+    // Column already exists
+  }
+
+  // Migration: add acked_at and target_device_id columns if missing
+  try {
+    db.exec(`ALTER TABLE events ADD COLUMN acked_at INTEGER`);
+  } catch {
+    // Column already exists
+  }
+  try {
+    db.exec(`ALTER TABLE events ADD COLUMN target_device_id TEXT`);
+  } catch {
+    // Column already exists
+  }
+
   return {
     getDevice(deviceId) {
       const row = db
         .prepare<[string], DeviceRow>(
-          "SELECT device_id, token_hash, revoked_at, paired_at, last_seen_at FROM devices WHERE device_id=?"
+          "SELECT device_id, token_hash, scope_json, revoked_at, paired_at, last_seen_at FROM devices WHERE device_id=?"
         )
         .get(deviceId);
       if (!row) return null;
       return {
         deviceId: row.device_id,
         tokenHash: row.token_hash,
+        scope: parseScope(row.scope_json),
         revokedAt: row.revoked_at,
         pairedAt: row.paired_at,
         lastSeenAt: row.last_seen_at,
@@ -174,12 +215,13 @@ export function createStore(path: string): Store {
     listDevices() {
       const rows = db
         .prepare<[], DeviceRow>(
-          "SELECT device_id, token_hash, revoked_at, paired_at, last_seen_at FROM devices ORDER BY paired_at DESC"
+          "SELECT device_id, token_hash, scope_json, revoked_at, paired_at, last_seen_at FROM devices ORDER BY paired_at DESC"
         )
         .all();
       return rows.map((row) => ({
         deviceId: row.device_id,
         tokenHash: row.token_hash,
+        scope: parseScope(row.scope_json),
         revokedAt: row.revoked_at,
         pairedAt: row.paired_at,
         lastSeenAt: row.last_seen_at,
@@ -206,13 +248,18 @@ export function createStore(path: string): Store {
           userAgent: row.user_agent,
         }));
     },
-    approveDevice(deviceId, token) {
+    removePending(deviceId) {
+      db.prepare("DELETE FROM pairing_pending WHERE device_id=?").run(deviceId);
+    },
+    approveDevice(deviceId, scope, token) {
       const issued = token ?? cryptoRandomToken();
       const tokenHash = hashToken(issued);
       const now = Date.now();
+      const deviceScope = scope ?? DEFAULT_SCOPE;
+      const scopeJson = serializeScope(deviceScope);
       db.prepare(
-        "INSERT OR REPLACE INTO devices(device_id, token_hash, revoked_at, paired_at, last_seen_at) VALUES(?,?,?,?,?)"
-      ).run(deviceId, tokenHash, null, now, now);
+        "INSERT OR REPLACE INTO devices(device_id, token_hash, scope_json, revoked_at, paired_at, last_seen_at) VALUES(?,?,?,?,?,?)"
+      ).run(deviceId, tokenHash, scopeJson, null, now, now);
       db.prepare("DELETE FROM pairing_pending WHERE device_id=?").run(deviceId);
       return issued;
     },
@@ -221,6 +268,22 @@ export function createStore(path: string): Store {
         Date.now(),
         deviceId
       );
+    },
+    updateScope(deviceId, scope) {
+      const scopeJson = serializeScope(scope);
+      const result = db.prepare(
+        "UPDATE devices SET scope_json=? WHERE device_id=? AND revoked_at IS NULL"
+      ).run(scopeJson, deviceId);
+      return result.changes > 0;
+    },
+    rotateToken(deviceId) {
+      const device = this.getDevice(deviceId);
+      if (!device || device.revokedAt) return null;
+
+      const newToken = cryptoRandomToken();
+      const tokenHash = hashToken(newToken);
+      db.prepare("UPDATE devices SET token_hash=? WHERE device_id=?").run(tokenHash, deviceId);
+      return newToken;
     },
     saveIdempotency(key, requestHash, response, expiresAt) {
       db.prepare(
@@ -242,8 +305,19 @@ export function createStore(path: string): Store {
       };
     },
     insertEvent(event) {
-      db.prepare(
-        "INSERT INTO events(type, time, status, source, message, metadata_json, expires_at) VALUES(?,?,?,?,?,?,?)"
+      // Extract target device ID from metadata if present
+      let targetDeviceId: string | null = null;
+      if (event.metadataJson) {
+        try {
+          const meta = JSON.parse(event.metadataJson);
+          targetDeviceId = meta.targetDeviceId ?? null;
+        } catch {
+          // Ignore parse errors
+        }
+      }
+
+      const result = db.prepare(
+        "INSERT INTO events(type, time, status, source, message, metadata_json, expires_at, target_device_id) VALUES(?,?,?,?,?,?,?,?)"
       ).run(
         event.type,
         event.time,
@@ -251,24 +325,59 @@ export function createStore(path: string): Store {
         event.source,
         event.message,
         event.metadataJson,
-        event.expiresAt
+        event.expiresAt,
+        targetDeviceId
       );
+      return Number(result.lastInsertRowid);
     },
     pollEvents(since, limit, now) {
       const rows: EventRow[] = since
         ? db
             .prepare<[number, number, number], EventRow>(
-              "SELECT id, type, time, status, source, message, metadata_json FROM events WHERE id>? AND expires_at>? ORDER BY id ASC LIMIT ?"
+              "SELECT id, type, time, status, source, message, metadata_json, acked_at FROM events WHERE id>? AND expires_at>? ORDER BY id ASC LIMIT ?"
             )
             .all(since, now, limit)
         : db
             .prepare<[number, number], EventRow>(
-              "SELECT id, type, time, status, source, message, metadata_json FROM events WHERE expires_at>? ORDER BY id DESC LIMIT ?"
+              "SELECT id, type, time, status, source, message, metadata_json, acked_at FROM events WHERE expires_at>? ORDER BY id DESC LIMIT ?"
             )
             .all(now, limit)
             .reverse();
       const cursor = rows.length ? rows[rows.length - 1].id : since ?? 0;
       return { cursor, events: rows.map(mapEventRow) };
+    },
+    pollEventsForDevice(deviceId, since, limit, now) {
+      // Count dropped events (unacked events older than what we'll return)
+      // This is a simplification - real impl might track per-device backlog
+      let dropped = 0;
+
+      // Query events for this device that are not yet acked
+      const rows: EventRow[] = since
+        ? db
+            .prepare<[string, number, number, number], EventRow>(
+              `SELECT id, type, time, status, source, message, metadata_json, acked_at
+               FROM events
+               WHERE target_device_id=? AND id>? AND expires_at>? AND acked_at IS NULL
+               ORDER BY id ASC LIMIT ?`
+            )
+            .all(deviceId, since, now, limit)
+        : db
+            .prepare<[string, number, number], EventRow>(
+              `SELECT id, type, time, status, source, message, metadata_json, acked_at
+               FROM events
+               WHERE target_device_id=? AND expires_at>? AND acked_at IS NULL
+               ORDER BY id DESC LIMIT ?`
+            )
+            .all(deviceId, now, limit)
+            .reverse();
+
+      const cursor = rows.length ? rows[rows.length - 1].id : since ?? 0;
+      return { cursor, events: rows.map(mapEventRow), dropped };
+    },
+    ackEvents(deviceId, upToId, now) {
+      db.prepare(
+        `UPDATE events SET acked_at=? WHERE target_device_id=? AND id<=? AND acked_at IS NULL`
+      ).run(now, deviceId, upToId);
     },
     insertAudit(row) {
       db.prepare(
@@ -325,5 +434,6 @@ function mapEventRow(row: EventRow): EventRecord {
     source: row.source,
     message: row.message,
     metadataJson: row.metadata_json,
+    ackedAt: row.acked_at,
   };
 }

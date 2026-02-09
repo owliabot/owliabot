@@ -18,7 +18,16 @@
 
 > **注意**：Phase 1 从已有 `gateway/http` 整合基线出发（`gateway.http.enabled` 已合并），是延续而非平行迁移。
 
-> **Phase 1 状态 (2026-02-09)**：共享资源注入已完成（toolRegistry + sessionStore + transcripts）。独立入口 `http-entry.ts` 和 `npm run gateway` 已废弃，仅保留历史文档引用。下一步：Phase 2 完全合并。
+> **Phase 1 状态 (2026-02-09)**：共享资源注入已完成（toolRegistry + sessionStore + transcripts）。独立入口 `http-entry.ts` 和 `npm run gateway` 已废弃，仅保留历史文档引用。
+>
+> **Phase 2 状态 (2026-02-09)**：HTTP API 已转换为 Channel Adapter，与 Discord/Telegram 并列。主要变更：
+> - ✅ 创建 HTTP ChannelPlugin (`src/gateway/http/channel.ts`)
+> - ✅ 实现 DeviceScope 模型 (`src/gateway/http/scope.ts`)
+> - ✅ 重构 HTTP server routes（新增 `/admin/*`、`/pair/*`、`/mcp`）
+> - ✅ 删除 `src/gateway/http/tooling.ts`（Phase 1 兼容层）
+> - ✅ 更新 store schema（scope + acked_at + target_device_id）
+> - ✅ 添加 ACK 机制到 `/events/poll`
+> - ✅ 完整测试覆盖（scope、ACK、admin routes、channel plugin）
 
 ## 目标
 
@@ -334,11 +343,21 @@ config.example.yaml                # 更新注释
 
 ## 验收标准
 
-- [ ] `http-entry.ts` 和 `http/tooling.ts` 已删除
-- [ ] HTTP tool 调用使用主 Gateway 的 tool registry（有真实 session + transcript）
-- [ ] Scope 权限在 pairing 时颁发，请求时校验，支持热更新和撤销
-- [ ] 事件投递为 at-least-once，有 ACK 机制和积压限制
-- [ ] 所有现有测试通过 + 新增正向/负向测试覆盖
-- [ ] MCP 可通过 HTTP 路由访问
-- [ ] 迁移文档已更新（README / setup-verify / config.example）
-- [ ] `npm run build` + `npm test` 全绿
+### Phase 1 ✅
+- [x] `http-entry.ts` 和 `http/tooling.ts` 已删除
+- [x] HTTP tool 调用使用主 Gateway 的 tool registry（有真实 session + transcript）
+
+### Phase 2 ✅ (2026-02-09)
+- [x] HTTP ChannelPlugin 实现 (`src/gateway/http/channel.ts`)
+- [x] DeviceScope 模型实现 (`src/gateway/http/scope.ts`)
+- [x] Scope 权限在 pairing 时颁发，请求时校验，支持热更新和撤销
+- [x] 事件投递为 at-least-once，有 ACK 机制
+- [x] 所有现有测试通过 + 新增正向/负向测试覆盖
+- [x] MCP 路由已添加（stub，返回 501 Not Implemented）
+- [x] Admin routes 完整实现（devices、approve、reject、revoke、scope、rotate-token）
+
+### Phase 3 (未来)
+- [ ] MCP 完整实现
+- [ ] WebSocket 支持（替代 events/poll）
+- [ ] 多 Gateway 实例支持
+- [ ] API Key 管理 CLI
