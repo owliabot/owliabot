@@ -9,7 +9,10 @@ import { loadSecrets } from "../secrets.js";
 import { ensureOwliabotHomeEnv } from "../../utils/paths.js";
 import { loadOAuthCredentials } from "../../auth/oauth.js";
 import { validateAnthropicSetupToken } from "../../auth/setup-token.js";
+import { createLogger } from "../../utils/logger.js";
 import type { AppConfig } from "../types.js";
+
+const log = createLogger("onboard:config-detection");
 
 type TelegramGroups = NonNullable<NonNullable<AppConfig["telegram"]>["groups"]>;
 
@@ -74,6 +77,7 @@ export async function detectExistingConfig(
           }
         } catch {
           // File exists but credentials are invalid/unreadable — skip
+          log.debug("OAuth token file found but invalid/expired; skipping reuse");
         }
       }
 

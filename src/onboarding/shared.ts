@@ -201,6 +201,11 @@ export interface ExistingConfig {
 /**
  * Detect existing configuration from secrets.yaml and auth directory.
  * @param configDir Directory containing secrets.yaml and auth/
+ *
+ * **Note:** This is a lightweight, synchronous version used for quick checks.
+ * The canonical async version in `steps/config-detection.ts` uses the secrets
+ * loader, validates OAuth credentials (refresh, expiry), and reads app.yaml
+ * for Telegram settings. Keep both in sync when changing detection logic.
  */
 export function detectExistingConfig(configDir: string): ExistingConfig | null {
   const secretsPath = join(configDir, "secrets.yaml");

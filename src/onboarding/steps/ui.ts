@@ -46,9 +46,11 @@ export function printExistingConfigSummary(
     const validLabel = existing.anthropicTokenValid === false ? " ⚠️ invalid format" : " ✅";
     info(`Anthropic: setup-token is set${validLabel}`);
   }
+  // Only show Anthropic OAuth status in Docker mode (interactive mode uses setup-token instead)
   if (dockerMode && existing.hasOAuthAnthro) info("Anthropic: OAuth token is present");
   if (existing.openaiKey) info(`OpenAI: API key is set (${existing.openaiKey.slice(0, 10)}...)`);
   if (existing.hasOAuthCodex) {
+    // oauthCodexExpires is already in milliseconds (from loadOAuthCredentials / Date.now())
     const expiryStr = existing.oauthCodexExpires
       ? ` (expires: ${new Date(existing.oauthCodexExpires).toISOString().slice(0, 16)})`
       : "";
