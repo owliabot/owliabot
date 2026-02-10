@@ -8,11 +8,13 @@
 # Stage 1: Build
 # Compile TypeScript and install all dependencies (including devDependencies)
 # ==============================================================================
-FROM node:22-alpine AS builder
+FROM node:22-slim AS builder
 
 # Install build dependencies for native modules (better-sqlite3)
 # python3 + make + g++ are required for node-gyp
-RUN apk add --no-cache python3 make g++
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3 make g++ \
+    && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
