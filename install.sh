@@ -368,6 +368,26 @@ main() {
   # --- Auto-trigger OAuth setup if needed (BEFORE starting the container) ---
   OAUTH_OK=true
   APP_YAML="$HOME/.owliabot/app.yaml"
+  # --- DEBUG: OAuth skip trace (remove after debugging) ---
+  echo ""
+  info "[DEBUG] HOME=$HOME"
+  info "[DEBUG] APP_YAML=$APP_YAML"
+  info "[DEBUG] APP_YAML exists: $([ -f "${APP_YAML}" ] && echo YES || echo NO)"
+  info "[DEBUG] grep oauth count: $(grep -cE 'apiKey: "?oauth"?' "${APP_YAML}" 2>/dev/null || echo 0)"
+  AUTH_FILE_DBG="$HOME/.owliabot/auth/auth-openai-codex.json"
+  info "[DEBUG] AUTH_FILE exists: $([ -f "${AUTH_FILE_DBG}" ] && echo YES || echo NO)"
+  if [ -f "${AUTH_FILE_DBG}" ]; then
+    DBG_EXPIRES="$(sed -nE 's/.*\"expires\"[[:space:]]*:[[:space:]]*([0-9]+).*/\1/p' "${AUTH_FILE_DBG}" | head -n1)"
+    DBG_NOW="$(($(date +%s) * 1000))"
+    info "[DEBUG] EXPIRES_MS=${DBG_EXPIRES:-<empty>} NOW_MS=${DBG_NOW}"
+    if [ -n "${DBG_EXPIRES}" ] && [ "${DBG_EXPIRES}" -gt "${DBG_NOW}" ] 2>/dev/null; then
+      info "[DEBUG] Token is VALID (would skip)"
+    else
+      info "[DEBUG] Token is EXPIRED or parse failed"
+    fi
+  fi
+  echo ""
+  # --- END DEBUG ---
   if [ -f "${APP_YAML}" ] && grep -qE 'apiKey: "?oauth"?' "${APP_YAML}" 2>/dev/null; then
     # If we already have a valid OAuth token on disk, don't force an interactive
     # auth setup again. This avoids redundant re-auth in cases like:
