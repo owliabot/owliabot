@@ -17,8 +17,8 @@ export interface DetectedConfig {
   discordToken?: string;
   telegramToken?: string;
   gatewayToken?: string;
-  anthropicOAuth?: boolean;
-  openaiOAuth?: boolean;
+  hasOAuthAnthro?: boolean;
+  hasOAuthCodex?: boolean;
 }
 
 export interface ProviderResult {
