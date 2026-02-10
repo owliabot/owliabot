@@ -587,37 +587,12 @@ export async function startGatewayHttp(opts: GatewayHttpOptions): Promise<Gatewa
       }
 
       // ── Verify trade capability ───────────────────────────────────────────
-      // Derive tradeCapable from verified token permissions, not request scope.
-      // Test: attempt a minimal invalid transfer; UNAUTHORIZED = no trade scope.
+      // Determine trade capability from requested scope.
+      // We trust the scope parameter rather than probing with a live transfer,
+      // which could trigger real on-chain transactions during connection setup.
+      // If the token lacks the claimed scope, trade operations will fail at use-time.
       const scopeStr = typeof scope === "string" ? scope : "read,trade";
-      const scopeRequestsTrade = scopeStr.includes("trade");
-      let tradeCapable = false;
-
-      if (scopeRequestsTrade) {
-        try {
-          // Attempt transfer with minimal amount to test permissions
-          // (Expected to fail with validation error if token has trade scope,
-          //  or UNAUTHORIZED if token lacks trade scope)
-          await client.transfer({
-            to: walletAddress, // self-transfer to avoid external effects
-            amount: "0.000000000000000001", // minimal non-zero amount
-            token_type: "ETH",
-            chain_id: resolvedChainId,
-          });
-          // If we got here without error, token has trade capability
-          tradeCapable = true;
-        } catch (err: any) {
-          // Check if error is due to lack of authorization
-          if (err?.code === "UNAUTHORIZED") {
-            tradeCapable = false;
-            log.warn("Token lacks trade permissions despite scope request");
-          } else {
-            // Any other error (validation, insufficient balance, etc.) means
-            // the token has trade permissions but the request was invalid
-            tradeCapable = true;
-          }
-        }
-      }
+      const tradeCapable = scopeStr.includes("trade");
 
       // ── Register tools ────────────────────────────────────────────────────
       // Always unregister both first to handle reconnect with different scope
