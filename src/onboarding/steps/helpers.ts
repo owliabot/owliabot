@@ -70,30 +70,12 @@ export function printDockerNextSteps(
   paths: DockerPaths,
   gatewayPort: string,
   gatewayToken: string,
-  tz: string,
-  defaultImage: string,
-  useAnthropic: boolean,
-  useOpenaiCodex: boolean,
-  secrets: SecretsConfig,
+  _tz?: string,
+  _defaultImage?: string,
+  _useAnthropic?: boolean,
+  _useOpenaiCodex?: boolean,
+  _secrets?: SecretsConfig,
 ): void {
-  header("Docker commands");
-  console.log("Docker run command:");
-  console.log(`
-docker run -d \\
-  --name owliabot \\
-  --restart unless-stopped \\
-  -p 127.0.0.1:${gatewayPort}:8787 \\
-  -v ${paths.shellConfigPath}:/home/owliabot/.owliabot \\
-  -v ${getDockerRunWorkspaceMount(paths)} \\
-  -e TZ=${tz} \\
-  \${OWLIABOT_IMAGE:-${defaultImage}} \\
-  start -c /home/owliabot/.owliabot/app.yaml
-`);
-
-  console.log("To start:");
-  console.log("  docker compose up -d     # Docker Compose v2");
-  console.log("  docker-compose up -d     # Docker Compose v1");
-
   header("Done");
 
   console.log("Files created:");
@@ -102,27 +84,6 @@ docker run -d \\
   console.log("  - ~/.owliabot/secrets.yaml   (sensitive)");
   console.log("  - ~/.owliabot/workspace/     (workspace, skills, bootstrap)");
   console.log(`  - ${join(paths.outputDir, "docker-compose.yml")}       (Docker Compose)`);
-  console.log("");
-
-  const needsOAuth = (useAnthropic && !secrets.anthropic?.apiKey) || useOpenaiCodex;
-  console.log("Next steps:");
-  console.log("  1. Start the container:");
-  console.log("     docker compose up -d");
-  console.log("");
-  if (needsOAuth) {
-    console.log("  2. Set up OAuth authentication (run after container is started):");
-    if (useAnthropic && !secrets.anthropic?.apiKey) {
-      console.log("     docker exec -it owliabot owliabot auth setup anthropic");
-    }
-    if (useOpenaiCodex) {
-      console.log("     docker exec -it owliabot owliabot auth setup openai-codex");
-    }
-    console.log("");
-    console.log("  3. Check logs:");
-  } else {
-    console.log("  2. Check logs:");
-  }
-  console.log("     docker compose logs -f");
   console.log("");
 
   console.log("Gateway HTTP:");
