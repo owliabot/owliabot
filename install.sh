@@ -388,7 +388,9 @@ main() {
   fi
   echo ""
   # --- END DEBUG ---
-  if [ -f "${APP_YAML}" ] && grep -qE 'apiKey: "?oauth"?' "${APP_YAML}" 2>/dev/null; then
+  OAUTH_COUNT="$(grep -cE 'apiKey: "?oauth"?' "${APP_YAML}" 2>/dev/null || true)"
+  info "[DEBUG3] OAUTH_COUNT=${OAUTH_COUNT}"
+  if [ -f "${APP_YAML}" ] && [ "${OAUTH_COUNT}" -gt 0 ] 2>/dev/null; then
     # If we already have a valid OAuth token on disk, don't force an interactive
     # auth setup again. This avoids redundant re-auth in cases like:
     # - onboard detects an existing valid token and keeps it
