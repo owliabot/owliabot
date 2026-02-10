@@ -6,6 +6,7 @@ import { mkdtemp, rm, writeFile, mkdir } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import * as piAi from "@mariozechner/pi-ai";
 
 let answers: string[] = [];
 let promptLog: string[] = [];
@@ -39,6 +40,10 @@ vi.mock("../../auth/oauth.js", () => ({
   }),
 }));
 
+vi.mock("@mariozechner/pi-ai", () => ({
+  getModels: vi.fn(),
+}));
+
 // Mock clawlet onboarding to skip wallet prompts (no daemon in test)
 vi.mock("../clawlet-onboard.js", () => ({
   runClawletOnboarding: vi.fn().mockResolvedValue({ enabled: false }),
@@ -49,6 +54,21 @@ describe("onboarding", () => {
 
   beforeEach(async () => {
     dir = await mkdtemp(join(tmpdir(), "owliabot-onboard-"));
+    vi.mocked(piAi.getModels).mockImplementation((provider: any) => {
+      if (provider === "anthropic") {
+        return [
+          { provider: "anthropic", id: "claude-opus-4-5", name: "Opus" },
+          { provider: "anthropic", id: "claude-sonnet-4-5", name: "Sonnet" },
+        ] as any;
+      }
+      if (provider === "openai") {
+        return [
+          { provider: "openai", id: "gpt-5.2", name: "GPT-5.2" },
+          { provider: "openai", id: "gpt-4o-mini", name: "GPT-4o-mini" },
+        ] as any;
+      }
+      return [] as any;
+    });
   });
 
   afterEach(async () => {
@@ -76,7 +96,7 @@ describe("onboarding", () => {
     answers = [
       "1",                 // AI provider: 1 = Anthropic
       setupToken,          // Anthropic setup-token
-      "",                  // Model (default: claude-opus-4-5)
+      "1",                 // Model: 1 = default (claude-opus-4-5)
       "3",                 // Chat platform: 3 = Both (Discord + Telegram)
       "discord-secret",    // Discord token
       "telegram-secret",   // Telegram token
@@ -134,7 +154,7 @@ describe("onboarding", () => {
       answers = [
         "1", // AI provider: 1 = Anthropic
         "",  // Anthropic key/token (empty = env)
-        "",  // Model (default)
+        "1", // Model: 1 = default
         "1", // Chat platform: 1 = Discord
         "",  // Discord token (skip)
         "",  // Discord channelAllowList (empty)
@@ -164,7 +184,7 @@ describe("onboarding", () => {
     answers = [
       "2",                 // AI provider: 2 = OpenAI
       "sk-test-key",       // OpenAI API key
-      "gpt-4o-mini",       // Model
+      "2",                 // Model: 2 = gpt-4o-mini
       "1",                 // Chat platform: 1 = Discord
       "",                  // Discord token (skip)
       "",                  // Discord channelAllowList (empty)
@@ -212,7 +232,7 @@ describe("onboarding", () => {
     answers = [
       "1",                 // AI provider: 1 = Anthropic
       "sk-ant-api03-test-key",  // Anthropic standard API key
-      "",                  // Model (default)
+      "1",                 // Model: 1 = default
       "1",                 // Chat platform: 1 = Discord
       "",                  // Discord token (skip)
       "",                  // Discord channelAllowList (empty)
@@ -239,7 +259,7 @@ describe("onboarding", () => {
     answers = [
       "1",                 // AI provider: 1 = Anthropic
       "",                  // API key (empty = use env var)
-      "",                  // Model (default)
+      "1",                 // Model: 1 = default
       "1",                 // Chat platform: 1 = Discord
       "",                  // Discord token (skip)
       "",                  // Discord channelAllowList (empty)
@@ -261,7 +281,7 @@ describe("onboarding", () => {
     answers = [
       "2",                 // AI provider: 2 = OpenAI
       "",                  // OpenAI API key (empty = use env)
-      "",                  // Model (default)
+      "1",                 // Model: 1 = default
       "2",                 // Chat platform: 2 = Telegram
       "",                  // Telegram token (skip)
       "",                  // Telegram allowList (empty)
@@ -284,7 +304,7 @@ describe("onboarding", () => {
     answers = [
       "1",                 // AI provider: 1 = Anthropic
       "",                  // API key (env)
-      "",                  // Model (default)
+      "1",                 // Model: 1 = default
       "1",                 // Chat platform: 1 = Discord
       "",                  // Discord token (skip)
       "",                  // Discord channelAllowList (empty)
@@ -305,7 +325,7 @@ describe("onboarding", () => {
     answers = [
       "1",                 // AI provider: 1 = Anthropic
       "",                  // API key (env)
-      "",                  // Model (default)
+      "1",                 // Model: 1 = default
       "3",                 // Chat platform: 3 = Both
       "",                  // Discord token (skip)
       "",                  // Telegram token (skip)
@@ -360,7 +380,7 @@ describe("onboarding", () => {
         "n",         // Want to keep using these settings? -> no (test Telegram-specific reuse)
         "1",         // AI provider: 1 = Anthropic
         "",          // Anthropic key/token (empty = env)
-        "",          // Model (default)
+        "1",         // Model: 1 = default
         "2",         // Chat platform: 2 = Telegram
         "y",         // Reuse existing Telegram config?
       ];
@@ -427,7 +447,7 @@ describe("onboarding", () => {
         "n", // Want to keep using these settings? -> no (exercise Telegram-specific reuse prompt)
         "1", // AI provider: 1 = Anthropic
         "",  // Anthropic key/token (empty = env)
-        "",  // Model (default)
+        "1", // Model: 1 = default
         "2", // Chat platform: 2 = Telegram
         "y", // Reuse existing Telegram setup?
       ];
@@ -476,7 +496,7 @@ describe("onboarding", () => {
         "n", // Want to keep using these settings? -> no (test Telegram-specific reuse)
         "1", // AI provider: 1 = Anthropic
         "",  // Anthropic key/token (empty = env)
-        "",  // Model (default)
+        "1", // Model: 1 = default
         "2", // Chat platform: 2 = Telegram
         "y", // Reuse existing Telegram config?
         "",  // Telegram bot token (leave empty to keep env-based setup)
@@ -532,8 +552,8 @@ describe("onboarding", () => {
         "y", // "Want to keep using these settings?" -> yes
         "1", // "Which AI should OwliaBot use?" -> 1 (Anthropic)
         "",  // "Anthropic setup-token / API key" -> empty (use env)
-        "",  // "Which model should I use?" -> default
-        "",  // "Reuse existing Telegram configuration (token + allowList/groups)?" -> default yes
+        "1", // "Which model should I use?" -> 1 = default
+        // No reuse prompt — token only, silently reused
         "",  // "Which port should I use on your machine for Gateway HTTP?" -> default
         "",  // "Extra allowlisted user IDs for write/edit tools?" -> none
       ];
@@ -541,11 +561,10 @@ describe("onboarding", () => {
       await runOnboarding({ docker: true, outputDir: dir });
 
       const prompts = promptLog.join("\n");
-      expect(prompts).toContain("Reuse your existing Telegram setup");
+      // Token-only: no reuse prompt, silently reused
+      expect(prompts).not.toContain("Reuse your existing Telegram setup");
 
       const out = stripAnsi(logs.join("\n"));
-      expect(out).toContain("token only");
-      expect(out).not.toContain("allowList");
       expect(out).toContain("Saved docker-compose.yml in ");
       expect(out).not.toContain("Created ");
     } finally {
