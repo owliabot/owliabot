@@ -626,8 +626,10 @@ async function loadGatewayInfo(configOverride?: string): Promise<{ gatewayUrl: s
   const http = config.gateway?.http;
   let host = http?.host ?? "127.0.0.1";
   // Normalize wildcard bind addresses to localhost for client requests
-  if (host === "0.0.0.0" || host === "::") {
+  if (host === "0.0.0.0") {
     host = "127.0.0.1";
+  } else if (host === "::") {
+    host = "::1";
   }
   const port = http?.port ?? 8787;
   // Bracket IPv6 literals in URLs (e.g. ::1 → [::1])
@@ -646,7 +648,7 @@ wallet
   .option("--base-url <url>", "Clawlet daemon base URL", "http://127.0.0.1:9100")
   .option("--token <token>", "Clawlet auth token (or set CLAWLET_TOKEN env)")
   .option("--chain-id <id>", "Default chain ID", "8453")
-  .option("--scope <scope>", "Token scope: read, trade, or read,trade", "read")
+  .option("--scope <scope>", "Token scope: read, trade, or read,trade", "read,trade")
   .action(async (options) => {
     try {
       const info = await loadGatewayInfo(options.config);
