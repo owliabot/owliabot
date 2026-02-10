@@ -152,6 +152,25 @@ program
   });
 
 program
+  .command("doctor")
+  .description("Diagnose startup failures (config/tokens) and guide fixes")
+  .option(
+    "-c, --config <path>",
+    "Config file path (default: $OWLIABOT_HOME/app.yaml)",
+    process.env.OWLIABOT_CONFIG_PATH ?? defaultConfigPath()
+  )
+  .action(async (options) => {
+    try {
+      ensureOwliabotHomeEnv();
+      log.info("Doctor: not implemented yet");
+      log.debug(options);
+    } catch (err) {
+      log.error("Doctor failed", err);
+      process.exit(1);
+    }
+  });
+
+program
   .command("onboard")
   .description("Interactive onboarding: configure providers, channels, and generate config files")
   .option("--path <path>", "App config output path (dev mode)", DEV_APP_CONFIG_PATH)
