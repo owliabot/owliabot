@@ -215,6 +215,11 @@ main() {
   echo -e "${NC}"
   echo ""
 
+  # Honor OWLIABOT_BUILD env var
+  if [ "${OWLIABOT_BUILD:-}" = "1" ] || [ "${OWLIABOT_BUILD:-}" = "true" ]; then
+    BUILD_LOCAL=true
+  fi
+
   # Parse CLI arguments
   parse_args "$@"
 

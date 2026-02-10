@@ -22,5 +22,6 @@ else
     echo "Error: Failed to download install.sh" >&2
     exit 1
   fi
-  exec bash "$TMPSCRIPT" --channel develop "$@"
+  bash "$TMPSCRIPT" --channel develop "$@"
+  exit $?
 fi
