@@ -200,26 +200,6 @@ export function printDockerNextSteps(
   useOpenaiCodex: boolean,
   secrets: SecretsConfig,
 ): void {
-  const envFlags = envLines.map((v) => `  -e ${v} \\`).join("\n");
-
-  header("Docker");
-  console.log("Prefer `docker run`? Here's the command:");
-  console.log(`
-docker run -d \\
-  --name owliabot \\
-  --restart unless-stopped \\
-  -p 127.0.0.1:${gatewayPort}:8787 \\
-  -v ${paths.shellConfigPath}:/home/owliabot/.owliabot \\
-  -v ${paths.shellConfigPath}/workspace:/app/workspace \\
-${envFlags}
-  \${OWLIABOT_IMAGE:-${defaultImage}} \\
-  start -c /home/owliabot/.owliabot/app.yaml
-`);
-
-  console.log("Using Docker Compose? Run one of these:");
-  console.log("  docker compose up -d     # Docker Compose v2");
-  console.log("  docker-compose up -d     # Docker Compose v1");
-
   header("You're ready");
 
   console.log("Here's what I saved:");
@@ -228,24 +208,6 @@ ${envFlags}
   console.log("  - ~/.owliabot/secrets.yaml   (private values)");
   console.log("  - ~/.owliabot/workspace/     (workspace, skills, bootstrap)");
   console.log(`  - ${join(paths.outputDir, "docker-compose.yml")}       (Docker Compose file)`);
-  console.log("");
-
-  const needsOAuth = useOpenaiCodex;
-  console.log("Next, run:");
-  console.log("  1. Start the container:");
-  console.log("     docker compose up -d");
-  console.log("");
-  if (needsOAuth) {
-    console.log("  2. Finish sign-in (run after the container is started):");
-    if (useOpenaiCodex) {
-      console.log("     docker exec -it owliabot owliabot auth setup openai-codex");
-    }
-    console.log("");
-    console.log("  3. Follow along:");
-  } else {
-    console.log("  2. Follow along:");
-  }
-  console.log("     docker compose logs -f");
   console.log("");
 
   console.log("Gateway endpoint:");
