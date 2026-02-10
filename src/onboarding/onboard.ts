@@ -223,7 +223,11 @@ async function maybeConfigureAnthropic(
   info("    It looks like: sk-ant-api03-...");
   console.log("");
 
-  const tokenAns = await ask(rl, "Paste your setup-token / API key (or press Enter to use an env var): ", true);
+  const tokenAns = await ask(
+    rl,
+    "Paste your setup-token or API key (or press Enter to use an environment variable): ",
+    true,
+  );
   if (tokenAns) {
     if (isSetupToken(tokenAns)) {
       const err = validateAnthropicSetupToken(tokenAns);
@@ -256,8 +260,12 @@ async function maybeConfigureOpenAI(
   if (!(aiChoice === 1 || aiChoice === 4)) return;
 
   console.log("");
-  info("Need an OpenAI API key? Create one here: https://platform.openai.com/api-keys");
-  const apiKey = await ask(rl, "Paste your OpenAI API key (or press Enter to use an env var): ", true);
+  info("If you don't have an OpenAI API key yet, you can create one here: https://platform.openai.com/api-keys");
+  const apiKey = await ask(
+    rl,
+    "Paste your OpenAI API key (or press Enter to use an environment variable): ",
+    true,
+  );
   if (apiKey) {
     state.secrets.openai = { apiKey };
     success("Got it. I'll use that OpenAI API key.");
@@ -1118,7 +1126,7 @@ function printDockerNextSteps(
   const envFlags = envLines.map((v) => `  -e ${v} \\`).join("\n");
 
   header("Docker");
-  console.log("If you prefer `docker run`, here's the command:");
+  console.log("Prefer `docker run`? Here's the command:");
   console.log(`
 docker run -d \\
   --name owliabot \\
@@ -1131,13 +1139,13 @@ ${envFlags}
   start -c /home/owliabot/.owliabot/app.yaml
 `);
 
-  console.log("If you're using Docker Compose:");
+  console.log("Using Docker Compose? Run one of these:");
   console.log("  docker compose up -d     # Docker Compose v2");
   console.log("  docker-compose up -d     # Docker Compose v1");
 
   header("You're ready");
 
-  console.log("I created these files:");
+  console.log("Here's what I saved:");
   console.log("  - ~/.owliabot/auth/          (saved sign-in tokens)");
   console.log("  - ~/.owliabot/app.yaml       (settings)");
   console.log("  - ~/.owliabot/secrets.yaml   (private values)");
@@ -1146,7 +1154,7 @@ ${envFlags}
   console.log("");
 
   const needsOAuth = useOpenaiCodex;
-  console.log("Next:");
+  console.log("Next, run:");
   console.log("  1. Start the container:");
   console.log("     docker compose up -d");
   console.log("");
@@ -1156,9 +1164,9 @@ ${envFlags}
       console.log("     docker exec -it owliabot owliabot auth setup openai-codex");
     }
     console.log("");
-    console.log("  3. Watch the container output:");
+    console.log("  3. Follow along:");
   } else {
-    console.log("  2. Watch the container output:");
+    console.log("  2. Follow along:");
   }
   console.log("     docker compose logs -f");
   console.log("");
@@ -1238,7 +1246,7 @@ function printDevNextStepsText(
     console.log("  • Add your Telegram token later: owliabot token set telegram");
   }
   if (providers.some((p) => p.apiKey === "env")) {
-    console.log("  • If you're using env vars, set ANTHROPIC_API_KEY / OPENAI_API_KEY");
+    console.log("  • If you're using environment variables, set ANTHROPIC_API_KEY or OPENAI_API_KEY");
   }
   if (providers.some((p) => p.apiKey === "oauth" && p.id === "openai-codex")) {
     console.log("  • Finish sign-in: owliabot auth setup openai-codex");
