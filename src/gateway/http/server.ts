@@ -585,13 +585,35 @@ export async function startGatewayHttp(opts: GatewayHttpOptions): Promise<Gatewa
         return;
       }
 
-      // ── Register tools (test passed) ──────────────────────────────────────
-      const { createWalletTools } = await import("../../agent/tools/builtin/wallet.js");
+      // ── Probe trade capability (don't block connect) ──────────────────────
+      let tradeCapable = false;
+      try {
+        // Try a self-transfer with minimum amount to probe trade scope.
+        // Read-only tokens throw UNAUTHORIZED before any on-chain action.
+        await client.transfer({
+          to: walletAddress,
+          amount: "0.000000000000000001",
+          token_type: "ETH",
+          chain_id: resolvedChainId,
+        });
+        tradeCapable = true;
+      } catch (err: any) {
+        const code = err?.code ?? "";
+        if (code === "UNAUTHORIZED") {
+          tradeCapable = false;
+        } else {
+          // Non-auth errors mean trade scope exists but transfer was rejected for other reasons
+          tradeCapable = true;
+        }
+      }
 
-      const walletTools = createWalletTools({
-        clawletConfig,
-        defaultChainId: resolvedChainId,
-      });
+      // ── Register tools (test passed) ──────────────────────────────────────
+      const { createWalletBalanceTool, createWalletTransferTool } = await import("../../agent/tools/builtin/wallet.js");
+
+      const walletTools = [createWalletBalanceTool({ clawletConfig, defaultChainId: resolvedChainId })];
+      if (tradeCapable) {
+        walletTools.push(createWalletTransferTool({ clawletConfig, defaultChainId: resolvedChainId }));
+      }
 
       const registeredNames: string[] = [];
       for (const tool of walletTools) {
@@ -604,7 +626,7 @@ export async function startGatewayHttp(opts: GatewayHttpOptions): Promise<Gatewa
         data: {
           message: "Wallet tools registered",
           tools: registeredNames,
-          wallet: { address: walletAddress, ethBalance },
+          wallet: { address: walletAddress, ethBalance, tradeCapable },
           config: { baseUrl, defaultChainId: resolvedChainId },
         },
       });

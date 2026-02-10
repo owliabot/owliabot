@@ -52,7 +52,16 @@ export async function startOAuthFlow(
 
   const askUser = (message: string): Promise<string> => {
     const rl = createInterface({ input: process.stdin, output: process.stdout });
-    return new Promise<string>((resolve) => {
+    return new Promise<string>((resolve, reject) => {
+      rl.on("close", () => {
+        // If readline closes without an answer (e.g. Ctrl+C or EOF), abort
+        reject(new Error("User cancelled input"));
+      });
+      rl.on("SIGINT", () => {
+        rl.close();
+        // Exit immediately on Ctrl+C
+        process.exit(130);
+      });
       rl.question(message + " ", (answer) => {
         rl.close();
         resolve(answer.trim());
