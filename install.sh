@@ -43,6 +43,20 @@ header() {
   echo ""
 }
 
+big_success_banner() {
+  # Pure ASCII banner for the final "started successfully" message.
+  echo ""
+  printf "%b\n" "${CYAN}  ____          _ _       ____        _     _${NC}"
+  printf "%b\n" "${CYAN} / __ \\\\        (_) |     |  _ \\\\      | |   (_)_${NC}"
+  printf "%b\n" "${CYAN}| |  | |_      _| | __ _  | |_) | ___ | |_   _| |${NC}"
+  printf "%b\n" "${CYAN}| |  | \\\\ \\\\ /\\\\ / / | |/ _\` |  _ < / _ \\\\| __| | | |${NC}"
+  printf "%b\n" "${CYAN}| |__| |\\\\ V  V /| | | (_| | |_) | (_) | |_  | | |${NC}"
+  printf "%b\n" "${CYAN} \\\\____/  \\\\_/\\\\_/ |_|_|\\\\__,_|____/ \\\\___/ \\\\__| |_|_|${NC}"
+  printf "%b\n" "${CYAN}${NC}"
+  printf "%b\n" "${CYAN}  OwliaBot is running!${NC}"
+  echo ""
+}
+
 check_docker() {
   header "Checking Docker environment"
   
@@ -410,7 +424,7 @@ main() {
   fi
 
   # --- Final success message ---
-  header "OwliaBot is running! 🦉"
+  big_success_banner
   success "Your bot is up and running."
   if [ "$CHANNEL" != "stable" ] || [ -n "$OWLIABOT_TAG" ]; then
     echo ""
