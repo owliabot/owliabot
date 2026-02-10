@@ -263,20 +263,20 @@ export async function startGateway(
   }
 
   // ─────────────────────────────────────────────────────────────────────────
-	  // MCP (Model Context Protocol) servers
-	  // ─────────────────────────────────────────────────────────────────────────
-	  let mcpManager: MCPManager | null = null;
-		  if (config.mcp && config.mcp.autoStart !== false) {
-		    const mcpConfig = config.mcp;
-		    // Expand presets into server configs
-		    const presetServers = expandMCPPresets(mcpConfig.presets ?? []);
-		    const allServers = [...presetServers, ...(mcpConfig.servers ?? [])];
+  // MCP (Model Context Protocol) servers
+  // ─────────────────────────────────────────────────────────────────────────
+  let mcpManager: MCPManager | null = null;
+  if (config.mcp && config.mcp.autoStart !== false) {
+    const mcpConfig = config.mcp;
+    // Expand presets into server configs
+    const presetServers = expandMCPPresets(mcpConfig.presets ?? []);
+    const allServers = [...presetServers, ...(mcpConfig.servers ?? [])];
 
-		    if (allServers.length > 0) {
-		      mcpManager = createMCPManager({
-		        defaults: mcpConfig.defaults,
-		        securityOverrides: mcpConfig.securityOverrides,
-		      });
+    if (allServers.length > 0) {
+      mcpManager = createMCPManager({
+        defaults: mcpConfig.defaults,
+        securityOverrides: mcpConfig.securityOverrides,
+      });
 
       for (const serverConfig of allServers) {
         try {
@@ -863,19 +863,19 @@ async function handleMessage(
         effectiveBody;
     }
 
-	    // Sender label injection so the LLM can attribute authors.
-	    const groupTitle = (ctx.groupName ?? "Unknown").trim() || "Unknown";
-	    const sender =
-	      ctx.senderUsername && ctx.senderUsername.trim().length > 0
-	        ? `${ctx.senderName} (@${ctx.senderUsername})`
-	        : ctx.senderName;
-	    const groupLabel =
-	      ctx.channel === "telegram"
-	        ? "Telegram group"
-	        : ctx.channel === "discord"
-	          ? "Discord guild"
-	          : "Group";
-	    effectiveBody = `[${groupLabel} "${groupTitle}" | ${sender}]\n${effectiveBody}`;
+    // Sender label injection so the LLM can attribute authors.
+    const groupTitle = (ctx.groupName ?? "Unknown").trim() || "Unknown";
+    const sender =
+      ctx.senderUsername && ctx.senderUsername.trim().length > 0
+        ? `${ctx.senderName} (@${ctx.senderUsername})`
+        : ctx.senderName;
+    const groupLabel =
+      ctx.channel === "telegram"
+        ? "Telegram group"
+        : ctx.channel === "discord"
+          ? "Discord guild"
+          : "Group";
+    effectiveBody = `[${groupLabel} "${groupTitle}" | ${sender}]\n${effectiveBody}`;
 
     // Inject recent context only when the bot is explicitly invoked.
     if (ctx.mentioned) {
