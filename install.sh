@@ -62,7 +62,6 @@ big_success_banner() {
     echo ""
     return 0
   fi
-
   printf "%b\n" "${CYAN}  ____          _ _       ____        _     _${NC}"
   printf "%b\n" "${CYAN} / __ \\\\        (_) |     |  _ \\\\      | |   (_)_${NC}"
   printf "%b\n" "${CYAN}| |  | |_      _| | __ _  | |_) | ___ | |_   _| |${NC}"
