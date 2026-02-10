@@ -45,14 +45,31 @@ header() {
 
 big_success_banner() {
   # Pure ASCII banner for the final "started successfully" message.
+  local cols=""
+  cols="${COLUMNS:-}"
+  if [ -z "${cols}" ] && command -v tput &>/dev/null; then
+    cols="$(tput cols 2>/dev/null || true)"
+  fi
+  if ! [[ "${cols}" =~ ^[0-9]+$ ]]; then
+    cols="80"
+  fi
+
   echo ""
+  if [ "${cols}" -lt 74 ]; then
+    printf "%b\n" "${CYAN}+----------------------+${NC}"
+    printf "%b\n" "${CYAN}| OwliaBot is running! |${NC}"
+    printf "%b\n" "${CYAN}+----------------------+${NC}"
+    echo ""
+    return 0
+  fi
+
   printf "%b\n" "${CYAN}  ____          _ _       ____        _     _${NC}"
   printf "%b\n" "${CYAN} / __ \\\\        (_) |     |  _ \\\\      | |   (_)_${NC}"
   printf "%b\n" "${CYAN}| |  | |_      _| | __ _  | |_) | ___ | |_   _| |${NC}"
   printf "%b\n" "${CYAN}| |  | \\\\ \\\\ /\\\\ / / | |/ _\` |  _ < / _ \\\\| __| | | |${NC}"
   printf "%b\n" "${CYAN}| |__| |\\\\ V  V /| | | (_| | |_) | (_) | |_  | | |${NC}"
   printf "%b\n" "${CYAN} \\\\____/  \\\\_/\\\\_/ |_|_|\\\\__,_|____/ \\\\___/ \\\\__| |_|_|${NC}"
-  printf "%b\n" "${CYAN}${NC}"
+  echo ""
   printf "%b\n" "${CYAN}  OwliaBot is running!${NC}"
   echo ""
 }
