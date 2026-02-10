@@ -3,7 +3,6 @@ name: Docker Build & Push
 on:
   push:
     branches: [main, develop]
-    tags: ['v*']
   pull_request:
     branches: [main]
     paths:
@@ -11,6 +10,8 @@ on:
       - 'docker-compose.yml'
       - '.dockerignore'
       - '.github/workflows/docker.yml'
+  release:
+    types: [published]
 
 env:
   REGISTRY: ghcr.io
@@ -52,19 +53,17 @@ jobs:
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
-            # --- main branch: latest + semver + sha ---
-            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
-            type=raw,value=${{ steps.pkg.outputs.version }},enable=${{ github.ref == 'refs/heads/main' }}
-            type=raw,value=${{ steps.pkg.outputs.major_minor }},enable=${{ github.ref == 'refs/heads/main' }}
-            # --- develop branch: develop + prerelease + sha ---
+            # --- main branch: prerelease rc tags + sha (no latest, no clean semver) ---
+            type=raw,value=${{ steps.pkg.outputs.version }}-rc.${{ steps.pkg.outputs.short_sha }},enable=${{ github.ref == 'refs/heads/main' }}
+            # --- develop branch: develop + prerelease dev tags ---
             type=raw,value=develop,enable=${{ github.ref == 'refs/heads/develop' }}
             type=raw,value=${{ steps.pkg.outputs.version }}-dev.${{ steps.pkg.outputs.short_sha }},enable=${{ github.ref == 'refs/heads/develop' }}
-            # --- v* tags: semver patterns + latest ---
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
-            # --- all pushes: sha ---
-            type=sha,prefix=,enable=${{ github.event_name == 'push' }}
+            # --- release: latest + clean semver ---
+            type=raw,value=latest,enable=${{ github.event_name == 'release' }}
+            type=raw,value=${{ steps.pkg.outputs.version }},enable=${{ github.event_name == 'release' }}
+            type=raw,value=${{ steps.pkg.outputs.major_minor }},enable=${{ github.event_name == 'release' }}
+            # --- all pushes + releases: sha ---
+            type=sha,prefix=,enable=${{ github.event_name != 'pull_request' }}
             # --- PR: pr number ---
             type=ref,event=pr
 
