@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { runOnboarding } from "../onboard.js";
 import { loadAppConfig } from "../storage.js";
 import { loadSecrets } from "../secrets.js";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, rm, writeFile, mkdir } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -398,6 +398,55 @@ describe("onboarding", () => {
     } finally {
       if (oldHome === undefined) delete process.env.OWLIABOT_HOME;
       else process.env.OWLIABOT_HOME = oldHome;
+    }
+  });
+
+  it("in docker mode, still asks whether to reuse existing Telegram configuration when reusing existing settings", async () => {
+    const oldHomeEnv = process.env.HOME;
+    const oldOwliabotHome = process.env.OWLIABOT_HOME;
+
+    // Docker mode always anchors config at $HOME/.owliabot; isolate it per-test.
+    process.env.HOME = dir;
+    process.env.OWLIABOT_HOME = join(dir, ".owliabot");
+
+    try {
+      const dockerConfigDir = join(dir, ".owliabot");
+      const dockerAppConfigPath = join(dockerConfigDir, "app.yaml");
+      await mkdir(dockerConfigDir, { recursive: true });
+
+      await writeFile(
+        dockerAppConfigPath,
+        [
+          "telegram: {}",
+          "",
+        ].join("\n"),
+        "utf-8",
+      );
+      await writeFile(
+        join(dockerConfigDir, "secrets.yaml"),
+        ["telegram:", '  token: "existing-token"', ""].join("\n"),
+        "utf-8",
+      );
+
+      answers = [
+        "y", // "Want to keep using these settings?" -> yes
+        "1", // "Which AI should OwliaBot use?" -> 1 (Anthropic)
+        "",  // "Anthropic setup-token / API key" -> empty (use env)
+        "",  // "Which model should I use?" -> default
+        "",  // "Reuse existing Telegram configuration (token + allowList/groups)?" -> default yes
+        "",  // "Which port should I use on your machine for Gateway HTTP?" -> default
+        "",  // "Extra allowlisted user IDs for write/edit tools?" -> none
+      ];
+
+      await runOnboarding({ docker: true, outputDir: dir });
+
+      const prompts = promptLog.join("\n");
+      expect(prompts).toContain("Reuse existing Telegram configuration");
+    } finally {
+      if (oldHomeEnv === undefined) delete process.env.HOME;
+      else process.env.HOME = oldHomeEnv;
+      if (oldOwliabotHome === undefined) delete process.env.OWLIABOT_HOME;
+      else process.env.OWLIABOT_HOME = oldOwliabotHome;
     }
   });
 });

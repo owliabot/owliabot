@@ -668,6 +668,7 @@ interface ChannelsSetup {
 
 async function getChannelsSetup(
   rl: ReturnType<typeof createInterface>,
+  dockerMode: boolean,
   secrets: SecretsConfig,
   existing: DetectedConfig | null,
   reuseExisting: boolean,
@@ -679,6 +680,9 @@ async function getChannelsSetup(
     let telegramEnabled = false;
     let discordToken = "";
     let telegramToken = "";
+    let reuseTelegramConfig = false;
+    let telegramAllowList: string[] | undefined;
+    let telegramGroups: TelegramGroups | undefined;
 
     success("Using your existing chat setup:");
     if (existing?.discordToken) {
@@ -687,12 +691,57 @@ async function getChannelsSetup(
       secrets.discord = { token: discordToken };
       info("  - Discord");
     }
-    if (existing?.telegramToken) {
-      telegramEnabled = true;
-      telegramToken = existing.telegramToken;
-      secrets.telegram = { token: telegramToken };
-      info("  - Telegram");
-    }
+	    if (existing?.telegramToken) {
+	      telegramEnabled = true;
+	      info("  - Telegram");
+
+	      // Docker mode: keep behavior aligned with interactive mode by asking whether to reuse
+	      // Telegram config (token + allowList/groups). Default is yes.
+	      const allowCount = existing.telegramAllowList?.length ?? 0;
+	      const groupCount = existing.telegramGroups ? Object.keys(existing.telegramGroups).length : 0;
+	      if (dockerMode) {
+	        console.log("");
+	        const details =
+	          allowCount > 0 || groupCount > 0
+	            ? `allowList: ${allowCount}, groups: ${groupCount}`
+	            : "token only (no allowList/groups)";
+	        info(`I found existing Telegram settings (${details}).`);
+	        const reuse = await askYN(
+	          rl,
+	          "Reuse existing Telegram configuration (token + allowList/groups)?",
+	          true,
+	        );
+	        if (reuse) {
+	          reuseTelegramConfig = true;
+	          telegramAllowList = existing.telegramAllowList;
+	          telegramGroups = existing.telegramGroups;
+	        } else {
+	          reuseTelegramConfig = false;
+	        }
+	      } else {
+	        reuseTelegramConfig = true;
+	        telegramAllowList = existing.telegramAllowList;
+	        telegramGroups = existing.telegramGroups;
+      }
+
+      // Token: reuse by default, but let user override in docker mode when reuse was declined.
+	      if (reuseTelegramConfig) {
+	        telegramToken = existing.telegramToken;
+	        secrets.telegram = { token: telegramToken };
+	      } else {
+	        console.log("");
+	        info("Create a bot with BotFather: https://t.me/BotFather");
+	        const token = await ask(
+	          rl,
+	          "Paste your Telegram bot token (or press Enter to do this later): ",
+	          true,
+	        );
+	        if (token) {
+	          telegramToken = token;
+	          secrets.telegram = { token };
+	        }
+	      }
+	    }
 
     if (!discordToken && !telegramToken) {
       warn("No chat token yet. You can add it later.");
@@ -704,9 +753,9 @@ async function getChannelsSetup(
       telegramToken,
       // If we're reusing existing credentials, also keep existing Telegram config
       // to avoid overwriting allowList/groups with prompts.
-      reuseTelegramConfig: telegramEnabled,
-      telegramAllowList: telegramEnabled ? existing?.telegramAllowList : undefined,
-      telegramGroups: telegramEnabled ? existing?.telegramGroups : undefined,
+      reuseTelegramConfig,
+      telegramAllowList,
+      telegramGroups,
     };
   }
 
@@ -1292,7 +1341,7 @@ export async function runOnboarding(options: OnboardOptions = {}): Promise<void>
     const providerResult = await getProvidersSetup(rl, dockerMode, existing, reuseExisting);
     const secrets: SecretsConfig = { ...providerResult.secrets };
 
-    const channels = await getChannelsSetup(rl, secrets, existing, reuseExisting);
+    const channels = await getChannelsSetup(rl, dockerMode, secrets, existing, reuseExisting);
 
     const tz = detectTimezone();
     const gatewayToken = ensureGatewayToken(secrets, existing, reuseExisting);
