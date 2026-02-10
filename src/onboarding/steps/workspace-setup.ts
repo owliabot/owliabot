@@ -15,13 +15,13 @@ export async function getWorkspacePath(
 
   if (dockerMode) {
     const workspace = "/app/workspace";
-    info("Docker mode uses the default workspace path inside the container.");
-    success(`Workspace: ${workspace}`);
+    info("In Docker mode, we'll use the default workspace path inside the container.");
+    success(`Workspace path: ${workspace}`);
     return workspace;
   }
 
   const defaultWorkspace = join(dirname(appConfigPath), "workspace");
-  const workspace = (await ask(rl, `Workspace path [${defaultWorkspace}]: `)) || defaultWorkspace;
-  success(`Workspace: ${workspace}`);
+  const workspace = (await ask(rl, `Where should OwliaBot keep its workspace? [${defaultWorkspace}]: `)) || defaultWorkspace;
+  success(`Workspace path: ${workspace}`);
   return workspace;
 }

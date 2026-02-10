@@ -10,12 +10,12 @@ export async function initDevWorkspace(
   workspace: string,
   writeToolAllowList: string[] | null,
 ): Promise<void> {
-  const workspaceInit = await ensureWorkspaceInitialized({ workspacePath: workspace });
+  const workspaceInit = await ensureWorkspaceInitialized({ workspacePath: workspace, quiet: true });
   maybeUpdateWorkspacePolicyAllowedUsers(workspace, writeToolAllowList);
   if (workspaceInit.wroteBootstrap) {
     success("Created BOOTSTRAP.md for first-run setup");
   }
   if (workspaceInit.copiedSkills && workspaceInit.skillsDir) {
-    success(`Copied bundled skills to: ${workspaceInit.skillsDir}`);
+    success(`Added bundled skills at: ${workspaceInit.skillsDir}`);
   }
 }

@@ -176,7 +176,7 @@ describe("detect-existing step", () => {
     it("prints setup-token line", () => {
       const existing: DetectedConfig = { anthropicToken: "sk-ant-oat01-xxx" };
       printExistingConfigSummary(false, "/fake/app.yaml", existing);
-      expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining("setup-token"));
+      expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining("setup token"));
     });
 
     it("prints OAuth only in docker mode", () => {

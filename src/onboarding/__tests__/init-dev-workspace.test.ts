@@ -49,6 +49,7 @@ describe("initDevWorkspace step", () => {
       await initDevWorkspace("/home/user/.owliabot/workspace", null);
       expect(mockEnsureWorkspaceInitialized).toHaveBeenCalledWith({
         workspacePath: "/home/user/.owliabot/workspace",
+        quiet: true,
       });
     });
 

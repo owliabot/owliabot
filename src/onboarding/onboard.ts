@@ -83,7 +83,7 @@ export async function runOnboarding(options: OnboardOptions = {}): Promise<void>
     );
     const resolvedWriteToolAllowList = deriveWriteToolAllowListFromConfig(config) ?? writeToolAllowList;
 
-    header(dockerMode ? "Writing config" : "Saving configuration");
+    header("Saving your settings");
     if (dockerMode) {
       if (!dockerPaths || !dockerGateway) throw new Error("Internal error: missing docker paths/gateway setup");
       config.timezone = dockerGateway.tz;
@@ -99,7 +99,7 @@ export async function runOnboarding(options: OnboardOptions = {}): Promise<void>
         composePath,
         buildDockerComposeYaml(dockerPaths.dockerConfigPath, dockerGateway.tz, dockerGateway.gatewayPort, defaultImage),
       );
-      success(`Wrote ${composePath}`);
+      success(`Saved ${composePath}`);
 
       printDockerNextSteps(
         dockerPaths,
@@ -123,7 +123,7 @@ export async function runOnboarding(options: OnboardOptions = {}): Promise<void>
       );
     }
 
-    success("All set!");
+    success("You're all set!");
 
   } finally {
     rl.close();

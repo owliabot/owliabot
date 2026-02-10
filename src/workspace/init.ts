@@ -101,7 +101,7 @@ export async function ensureWorkspaceInitialized(
   const skillsDir = result.skillsDir;
 
   log.info(
-    `Workspace init: ${workspacePath} (brandNew=${brandNew}, created=${createdFiles.length}, copiedSkills=${copiedSkills})`
+    `Workspace ready: ${workspacePath} (brandNew=${brandNew}, created=${createdFiles.length}, copiedSkills=${copiedSkills})`
   );
 
   return {

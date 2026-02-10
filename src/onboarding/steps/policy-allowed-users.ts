@@ -5,10 +5,7 @@
 import { join } from "node:path";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { parse as yamlParse, stringify as yamlStringify } from "yaml";
-import { createLogger } from "../../utils/logger.js";
 import { warn } from "../shared.js";
-
-const log = createLogger("onboard");
 
 export function maybeUpdateWorkspacePolicyAllowedUsers(
   workspacePath: string,
@@ -35,7 +32,6 @@ export function maybeUpdateWorkspacePolicyAllowedUsers(
 
     doc.defaults = defaults;
     writeFileSync(policyPath, yamlStringify(doc, { indent: 2 }), "utf-8");
-    log.info(`Updated policy allowedUsers in ${policyPath}`);
   } catch (err) {
     warn(`Failed to update policy.yml allowedUsers: ${(err as Error).message}`);
   }

@@ -6,10 +6,8 @@
 
 import { createInterface } from "node:readline";
 import { ClawletClient, ClawletError } from "../wallet/clawlet-client.js";
-import { createLogger } from "../utils/logger.js";
 import type { SecretsConfig } from "./secrets.js";
-
-const log = createLogger("clawlet-onboard");
+import { ask, askYN, header, info, success, warn } from "./shared.js";
 
 /** Result of Clawlet daemon detection */
 export interface ClawletDetectionResult {
@@ -41,7 +39,7 @@ export async function detectClawlet(): Promise<ClawletDetectionResult> {
           detected: false,
           error: {
             code: "NOT_RUNNING",
-            message: "Clawlet not running (run: clawlet serve)",
+            message: "Clawlet isn't running yet (start it with: clawlet serve)",
           },
         };
       }
@@ -65,11 +63,6 @@ export function isValidClawletToken(token: string): boolean {
   return token.startsWith("clwt_") && token.length > 10;
 }
 
-/** Helper to prompt user */
-function ask(rl: ReturnType<typeof createInterface>, q: string): Promise<string> {
-  return new Promise((resolve) => rl.question(q, (ans) => resolve(ans.trim())));
-}
-
 /** Wallet configuration result from onboarding */
 export interface WalletConfigResult {
   enabled: boolean;
@@ -89,26 +82,26 @@ export async function runClawletOnboarding(
   rl: ReturnType<typeof createInterface>,
   secrets: SecretsConfig
 ): Promise<WalletConfigResult> {
-  log.info("\n== Wallet Setup (optional) ==");
+  header("Wallet (optional)");
 
   // Check if wallet is already configured
   if (secrets.clawlet?.token) {
-    log.info("✓ Clawlet token already configured");
-    const skipAns = await ask(rl, "Reconfigure wallet settings? (y/n): ");
-    if (!skipAns.toLowerCase().startsWith("y")) {
-      log.info("Keeping existing wallet configuration");
+    success("Clawlet token already set");
+    const reconfigure = await askYN(rl, "Do you want to change your wallet settings?", false);
+    if (!reconfigure) {
+      info("Keeping your existing wallet settings");
       return { enabled: false }; // Keep existing config in app.yaml
     }
   }
 
-  log.info("Clawlet enables on-chain operations (balance queries, transfers).");
-  log.info("\nChecking for clawlet daemon...");
+  info("Clawlet enables on-chain actions (balance checks, transfers).");
+  info("Checking whether Clawlet is running...");
 
   const detection = await detectClawlet();
 
   if (!detection.detected) {
     if (detection.error) {
-      log.info(`✗ ${detection.error.message}`);
+      warn(detection.error.message);
     }
     // Skip silently - user can configure later
     return { enabled: false };
@@ -116,29 +109,28 @@ export async function runClawletOnboarding(
 
   // Daemon detected
   const versionInfo = detection.version ? ` (v${detection.version})` : "";
-  log.info(`✓ Clawlet daemon detected${versionInfo}`);
+  success(`Clawlet is running${versionInfo}`);
 
-  const hasTokenAns = await ask(rl, "\nDo you have a Clawlet token? (y/n): ");
-  const hasToken = hasTokenAns.toLowerCase().startsWith("y");
+  const hasToken = await askYN(rl, "Do you already have a Clawlet token?", false);
 
   if (!hasToken) {
     // Show instructions for granting a token
-    log.info("\nTo grant a token, run on the clawlet host:");
-    log.info("  clawlet auth grant --agent owliabot --scope trade");
-    log.info("\nThen re-run: owliabot onboard");
+    info("No problem. On the Clawlet host, run:");
+    info("  clawlet auth grant --agent owliabot --scope trade");
+    info("Then come back and run: owliabot onboard");
     return { enabled: false };
   }
 
-  const token = await ask(rl, "Paste Clawlet token: ");
+  const token = await ask(rl, "Paste your Clawlet token: ", true);
 
   if (!isValidClawletToken(token)) {
-    log.warn("Invalid token format (should start with 'clwt_'). Skipping wallet setup.");
+    warn("That token doesn't look right (it should start with 'clwt_'). Skipping wallet setup for now.");
     return { enabled: false };
   }
 
   // Save token to secrets
   secrets.clawlet = { token };
-  log.info("✓ Clawlet token saved");
+  success("Clawlet token saved");
 
   // Get wallet address from daemon
   const client = new ClawletClient({ authToken: token });
@@ -147,9 +139,9 @@ export async function runClawletOnboarding(
   try {
     const addrResp = await client.address();
     defaultAddress = addrResp.address;
-    log.info(`✓ Wallet address: ${defaultAddress}`);
+    success(`Wallet address: ${defaultAddress}`);
   } catch (err) {
-    log.warn("Could not fetch wallet address from clawlet daemon");
+    warn("I couldn't fetch your wallet address automatically. You can set it later.");
   }
 
   // Ask for default chain ID
@@ -160,7 +152,7 @@ export async function runClawletOnboarding(
   const baseUrlAns = await ask(rl, "Clawlet base URL [http://127.0.0.1:9100]: ");
   const baseUrl = baseUrlAns || "http://127.0.0.1:9100";
 
-  log.info("✓ Wallet tools enabled");
+  success("Wallet tools enabled");
 
   return {
     enabled: true,

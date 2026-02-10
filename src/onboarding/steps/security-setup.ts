@@ -15,13 +15,13 @@ export async function configureWriteToolsSecurity(
   const allUserIds = [...userAllowLists.discord, ...userAllowLists.telegram];
   if (allUserIds.length === 0) return null;
 
-  header("Write tools security");
-  info("Users in the write-tool allowlist can use file write/edit tools.");
-  info(`Auto-included from channel allowlists: ${allUserIds.join(", ")}`);
+  header("File tools (safety)");
+  info("These tools can write/edit files. It's best to keep them limited to specific user IDs.");
+  info(`Starting with the people you already allow in chat: ${allUserIds.join(", ")}`);
 
   const writeAllowListAns = await ask(
     rl,
-    "Additional user IDs to allow (comma-separated, leave empty to use only channel users): ",
+    "Anyone else should be allowed to use file tools? (comma-separated user IDs, or press Enter): ",
   );
   const additionalIds = writeAllowListAns.split(",").map((s) => s.trim()).filter(Boolean);
   const writeToolAllowList = [...new Set([...allUserIds, ...additionalIds])];
@@ -37,10 +37,7 @@ export async function configureWriteToolsSecurity(
     writeToolConfirmation: false,
   };
 
-  success("Filesystem write tools enabled (write_file/edit_file/apply_patch)");
-  success(`Write-tool allowlist: ${writeToolAllowList.join(", ")}`);
-  success("Write-gate globally disabled");
-  success("Write-tool confirmation disabled (allowlisted users can write directly)");
+  success(`File tools enabled for: ${writeToolAllowList.join(", ")}`);
   return writeToolAllowList;
 }
 

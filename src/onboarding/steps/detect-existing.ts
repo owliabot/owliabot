@@ -44,17 +44,17 @@ export function printExistingConfigSummary(
   appConfigPath: string,
   existing: DetectedConfig,
 ): void {
-  header("Existing configuration found");
-  info(`Found existing config at: ${dirname(appConfigPath)}`);
+  header("I found existing settings");
+  info(`Location: ${dirname(appConfigPath)}`);
 
   if (existing.anthropicKey) {
     const truncLen = dockerMode ? 10 : 15;
     info(`Found Anthropic API key: ${existing.anthropicKey.slice(0, truncLen)}...`);
   }
-  if (existing.anthropicToken) info("Found Anthropic setup-token");
-  if (dockerMode && existing.anthropicOAuth) info("Found Anthropic OAuth token");
+  if (existing.anthropicToken) info("Found Anthropic setup token");
+  if (dockerMode && existing.anthropicOAuth) info("Found Anthropic OAuth sign-in");
   if (existing.openaiKey) info(`Found OpenAI API key: ${existing.openaiKey.slice(0, 10)}...`);
-  if (dockerMode && existing.openaiOAuth) info("Found OpenAI OAuth token (openai-codex)");
+  if (dockerMode && existing.openaiOAuth) info("Found OpenAI Codex OAuth sign-in");
   if (existing.discordToken) info(`Found Discord token: ${existing.discordToken.slice(0, 20)}...`);
   if (existing.telegramToken) info(`Found Telegram token: ${existing.telegramToken.slice(0, 10)}...`);
   if (dockerMode && existing.gatewayToken) info(`Found Gateway token: ${existing.gatewayToken.slice(0, 10)}...`);
@@ -66,8 +66,8 @@ export async function promptReuseExistingConfig(
 ): Promise<boolean> {
   if (!existing) return false;
 
-  const reuse = await askYN(rl, "Do you want to reuse existing configuration?", true);
-  if (reuse) success("Will reuse existing configuration");
-  else info("Will configure new credentials");
+  const reuse = await askYN(rl, "Do you want to reuse your existing settings?", true);
+  if (reuse) success("Great, I'll reuse them");
+  else info("Okay, we'll set things up again");
   return reuse;
 }

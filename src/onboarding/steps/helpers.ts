@@ -118,9 +118,9 @@ docker run -d \\
       console.log("     docker exec -it owliabot owliabot auth setup openai-codex");
     }
     console.log("");
-    console.log("  3. Check logs:");
+    console.log("  3. Watch container output:");
   } else {
-    console.log("  2. Check logs:");
+    console.log("  2. Watch container output:");
   }
   console.log("     docker compose logs -f");
   console.log("");

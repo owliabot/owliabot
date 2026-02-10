@@ -12,15 +12,21 @@ export async function configureDiscordConfig(
   config: AppConfig,
   userAllowLists: UserAllowLists,
 ): Promise<void> {
-  header("Discord configuration");
+  header("Discord");
   info("Ensure your bot has these permissions: View Channels, Send Messages, Send Messages in Threads, Read Message History");
   info("See: https://github.com/owliabot/owliabot/blob/main/docs/discord-setup.md");
   console.log("");
 
-  const channelIds = await ask(rl, "Channel allowlist (comma-separated channel IDs, leave empty for all): ");
+  const channelIds = await ask(
+    rl,
+    "Which channels should OwliaBot listen to? (comma-separated channel IDs, leave empty for all): ",
+  );
   const channelAllowList = channelIds.split(",").map((s) => s.trim()).filter(Boolean);
 
-  const memberIds = await ask(rl, "Member allowlist - user IDs allowed to interact (comma-separated): ");
+  const memberIds = await ask(
+    rl,
+    "Who can talk to OwliaBot? (comma-separated user IDs, leave empty for anyone): ",
+  );
   const memberAllowList = memberIds.split(",").map((s) => s.trim()).filter(Boolean);
   userAllowLists.discord = memberAllowList;
 
@@ -31,6 +37,6 @@ export async function configureDiscordConfig(
   };
 
   if (memberAllowList.length > 0) {
-    success(`Discord member allowlist: ${memberAllowList.join(", ")}`);
+    success(`Allowed Discord users: ${memberAllowList.join(", ")}`);
   }
 }

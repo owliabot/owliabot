@@ -20,7 +20,7 @@ export async function maybeConfigureAnthropic(
   state.useAnthropic = true;
   console.log("");
 
-  header("Anthropic Authentication");
+  header("Anthropic");
   info("Supports two authentication methods:");
   info("");
   info("  • Setup-token (Claude Pro/Max subscription)");
@@ -32,11 +32,11 @@ export async function maybeConfigureAnthropic(
   info("    Format: sk-ant-api03-...");
   console.log("");
 
-  const tokenAns = await ask(rl, "Paste setup-token or API key (leave empty for env var): ");
+  const tokenAns = await ask(rl, "Paste your setup-token or API key (or press Enter to use env vars): ");
   if (tokenAns) {
     if (isSetupToken(tokenAns)) {
       const err = validateAnthropicSetupToken(tokenAns);
-      if (err) warn(`Setup-token validation warning: ${err}`);
+      if (err) warn(`Quick check: ${err}`);
       state.secrets.anthropic = { token: tokenAns };
       success("Setup-token saved (Claude Pro/Max)");
     } else {
@@ -66,7 +66,7 @@ export async function maybeConfigureOpenAI(
 
   console.log("");
   info("OpenAI API keys: https://platform.openai.com/api-keys");
-  const apiKey = await ask(rl, "OpenAI API key (leave empty for env var): ");
+  const apiKey = await ask(rl, "Paste your OpenAI API key (or press Enter to use env vars): ");
   if (apiKey) {
     state.secrets.openai = { apiKey };
     success("OpenAI API key saved");
@@ -94,7 +94,7 @@ export async function maybeConfigureOpenAICodex(
   console.log("");
   info("OpenAI Codex uses your ChatGPT Plus/Pro subscription via OAuth.");
 
-  const runOAuth = await askYN(rl, "Start OAuth flow now?", false);
+  const runOAuth = await askYN(rl, "Want to sign in now?", false);
   if (runOAuth) {
     info("Starting OpenAI Codex OAuth flow...");
     rl.pause();
@@ -208,7 +208,7 @@ export function reuseProvidersFromExisting(existing: DetectedConfig): ProviderRe
       apiKey,
       priority: priority++,
     } as ProviderConfig);
-    success("Reusing Anthropic configuration");
+    success("Reusing your Anthropic settings");
   }
 
   // OpenAI
@@ -220,7 +220,7 @@ export function reuseProvidersFromExisting(existing: DetectedConfig): ProviderRe
       apiKey: "secrets",
       priority: priority++,
     } as ProviderConfig);
-    success("Reusing OpenAI configuration");
+    success("Reusing your OpenAI settings");
   }
 
   // OpenAI Codex (OAuth)
@@ -232,7 +232,7 @@ export function reuseProvidersFromExisting(existing: DetectedConfig): ProviderRe
       apiKey: "oauth",
       priority: priority++,
     } as ProviderConfig);
-    success("Reusing OpenAI Codex (OAuth) configuration");
+    success("Reusing your OpenAI Codex sign-in");
   }
 
   return { providers, secrets, useAnthropic, useOpenaiCodex };
@@ -244,7 +244,7 @@ export async function getProvidersSetup(
   existing: DetectedConfig | null,
   reuseExisting: boolean,
 ): Promise<ProviderResult> {
-  header("AI provider setup");
+  header("AI");
 
   if (reuseExisting && existing) {
     const reused = reuseProvidersFromExisting(existing);
@@ -254,7 +254,7 @@ export async function getProvidersSetup(
   const result = await askProviders(rl, dockerMode);
   if (result.providers.length > 0) return result;
 
-  warn("No provider configured. Add one later in the config file.");
+  warn("No AI provider yet. That's fine, you can add one later in the config file.");
   return {
     providers: [{
       id: "anthropic",

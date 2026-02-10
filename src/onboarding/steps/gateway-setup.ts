@@ -20,14 +20,14 @@ export async function getGatewayConfig(
   }
 
   header("Gateway HTTP (optional)");
-  info("Gateway HTTP provides a REST API for health checks and integrations.");
+  info("This gives you a small HTTP API for health checks and integrations.");
 
-  const enableGateway = await askYN(rl, "Enable Gateway HTTP?", false);
+  const enableGateway = await askYN(rl, "Do you want to enable the Gateway HTTP API?", false);
   if (!enableGateway) return undefined;
 
   const port = parseInt(await ask(rl, "Port [8787]: ") || "8787", 10);
   const token = randomBytes(16).toString("hex");
-  info(`Generated gateway token: ${token.slice(0, 8)}...`);
+  info(`I generated a gateway token: ${token.slice(0, 8)}...`);
 
   success(`Gateway HTTP enabled on port ${port}`);
   return { http: { host: "127.0.0.1", port, token } };
@@ -40,21 +40,21 @@ export async function configureDockerGatewayAndTimezone(
   secrets: SecretsConfig,
 ): Promise<DockerGatewaySetup> {
   header("Gateway HTTP");
-  info("Gateway HTTP is used for health checks and REST API access.");
+  info("This is used for health checks and HTTP API access.");
 
   const gatewayPort = await ask(rl, "Host port to expose the gateway [8787]: ") || "8787";
 
   let gatewayToken = reuseExisting && existing?.gatewayToken ? existing.gatewayToken : "";
   if (!gatewayToken) {
     gatewayToken = randomBytes(16).toString("hex");
-    info("Generated a random gateway token.");
+    info("I generated a random gateway token.");
   } else {
-    success("Reusing existing Gateway token");
+    success("Reusing your existing gateway token");
   }
 
   const confirmToken = await ask(rl, `Gateway token [${gatewayToken.slice(0, 8)}...]: `, true);
   if (confirmToken) gatewayToken = confirmToken;
-  success("Gateway token set");
+  success("Gateway token saved");
 
   secrets.gateway = { token: gatewayToken };
 

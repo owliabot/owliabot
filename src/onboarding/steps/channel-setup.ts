@@ -11,7 +11,7 @@ export async function askChannels(
   rl: ReturnType<typeof createInterface>,
   secrets: SecretsConfig,
 ): Promise<ChannelResult> {
-  const chatChoice = await selectOption(rl, "Choose platform(s):", [
+  const chatChoice = await selectOption(rl, "Where would you like to chat with OwliaBot?", [
     "Discord",
     "Telegram",
     "Both",
@@ -29,12 +29,12 @@ export async function askChannels(
     info("Remember to enable MESSAGE CONTENT INTENT in the developer portal!");
     const token = await ask(
       rl,
-      "Discord bot token (leave empty to set later): ",
+      "If you have it handy, paste your Discord bot token (or press Enter to do this later): ",
     );
     if (token) {
       secrets.discord = { token };
       discordToken = token;
-      success("Discord token set");
+      success("Discord token saved");
     }
   }
 
@@ -43,12 +43,12 @@ export async function askChannels(
     info("Telegram BotFather: https://t.me/BotFather");
     const token = await ask(
       rl,
-      "Telegram bot token (leave empty to set later): ",
+      "If you have it handy, paste your Telegram bot token (or press Enter to do this later): ",
     );
     if (token) {
       secrets.telegram = { token };
       telegramToken = token;
-      success("Telegram token set");
+      success("Telegram token saved");
     }
   }
 
@@ -61,7 +61,7 @@ export async function getChannelsSetup(
   existing: DetectedConfig | null,
   reuseExisting: boolean,
 ): Promise<ChannelsSetup> {
-  header("Chat platforms");
+  header("Chat apps");
 
   if (reuseExisting && (existing?.discordToken || existing?.telegramToken)) {
     let discordEnabled = false;
@@ -69,7 +69,7 @@ export async function getChannelsSetup(
     let discordToken = "";
     let telegramToken = "";
 
-    success("Reusing existing chat platform configuration:");
+    success("Found existing chat settings. We'll reuse them:");
     if (existing?.discordToken) {
       discordEnabled = true;
       discordToken = existing.discordToken;
@@ -84,14 +84,14 @@ export async function getChannelsSetup(
     }
 
     if (!discordToken && !telegramToken) {
-      warn("No chat platform token configured. Add one later in the config file.");
+      warn("No chat token yet. That's fine, you can add one later in the config file.");
     }
     return { discordEnabled, telegramEnabled, discordToken, telegramToken };
   }
 
   const ch = await askChannels(rl, secrets);
   if (!ch.discordToken && !ch.telegramToken) {
-    warn("No chat platform token configured. Add one later in the config file.");
+    warn("No chat token yet. That's fine, you can add one later in the config file.");
   }
   return ch;
 }

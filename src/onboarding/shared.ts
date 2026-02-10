@@ -45,7 +45,7 @@ export function printBanner(subtitle = "") {
   console.log(`${CYAN} | |__| |\\ V  V /| | | (_| | |_) | (_) | |_ ${NC}`);
   console.log(`${CYAN}  \\____/  \\_/\\_/ |_|_|\\__,_|____/ \\___/ \\__|${NC}`);
   console.log("");
-  console.log(`  OwliaBot Interactive Setup ${subtitle}`);
+  console.log(`  Let's set up OwliaBot ${subtitle}`);
   console.log("");
 }
 
@@ -120,7 +120,7 @@ export function ask(rl: RL, q: string, secret = false): Promise<string> {
  * Yes/No prompt with default.
  */
 export async function askYN(rl: RL, q: string, defaultYes = false): Promise<boolean> {
-  const suffix = defaultYes ? "[Y/n]" : "[y/N]";
+  const suffix = defaultYes ? "(Y/n)" : "(y/N)";
   const ans = await ask(rl, `${q} ${suffix}: `);
   if (!ans) return defaultYes;
   return ans.toLowerCase().startsWith("y");
@@ -133,10 +133,10 @@ export async function selectOption(rl: RL, prompt: string, options: string[]): P
   console.log(prompt);
   options.forEach((opt, i) => console.log(`  ${i + 1}) ${opt}`));
   while (true) {
-    const ans = await ask(rl, `Select [1-${options.length}]: `);
+    const ans = await ask(rl, `Pick a number (1-${options.length}): `);
     const num = parseInt(ans, 10);
     if (num >= 1 && num <= options.length) return num - 1;
-    warn(`Please enter a number between 1 and ${options.length}`);
+    warn(`Could you enter a number between 1 and ${options.length}?`);
   }
 }
 

@@ -12,9 +12,12 @@ export async function configureTelegramConfig(
   config: AppConfig,
   userAllowLists: UserAllowLists,
 ): Promise<void> {
-  header("Telegram configuration");
+  header("Telegram");
 
-  const telegramUserIds = await ask(rl, "User allowlist - user IDs allowed to interact (comma-separated): ");
+  const telegramUserIds = await ask(
+    rl,
+    "Who can talk to OwliaBot? (comma-separated user IDs, leave empty for anyone): ",
+  );
   const allowList = telegramUserIds.split(",").map((s) => s.trim()).filter(Boolean);
   userAllowLists.telegram = allowList;
 
@@ -23,6 +26,6 @@ export async function configureTelegramConfig(
   };
 
   if (allowList.length > 0) {
-    success(`Telegram user allowlist: ${allowList.join(", ")}`);
+    success(`Allowed Telegram users: ${allowList.join(", ")}`);
   }
 }
