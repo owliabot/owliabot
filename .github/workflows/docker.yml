@@ -2,8 +2,7 @@ name: Docker Build & Push
 
 on:
   push:
-    branches: [main]
-    tags: ['v*']
+    branches: [main, develop]
   pull_request:
     branches: [main]
     paths:
@@ -11,6 +10,8 @@ on:
       - 'docker-compose.yml'
       - '.dockerignore'
       - '.github/workflows/docker.yml'
+  release:
+    types: [published]
 
 env:
   REGISTRY: ghcr.io
@@ -30,6 +31,14 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
+      - name: Read version from package.json
+        id: pkg
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "major_minor=$(echo $VERSION | cut -d. -f1,2)" >> "$GITHUB_OUTPUT"
+          echo "short_sha=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+
       - name: Log in to Container Registry
         if: github.event_name != 'pull_request'
         uses: docker/login-action@v3
@@ -44,12 +53,21 @@ jobs:
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
-            type=ref,event=branch
+            # --- main branch: prerelease rc tags + sha (no latest, no clean semver) ---
+            type=raw,value=${{ steps.pkg.outputs.version }}-rc.${{ steps.pkg.outputs.short_sha }},enable=${{ github.ref == 'refs/heads/main' }}
+            # --- develop branch: develop + prerelease dev tags ---
+            type=raw,value=develop,enable=${{ github.ref == 'refs/heads/develop' }}
+            type=raw,value=${{ steps.pkg.outputs.version }}-dev.${{ steps.pkg.outputs.short_sha }},enable=${{ github.ref == 'refs/heads/develop' }}
+            # --- release (non-draft): latest + clean semver ---
+            type=raw,value=latest,enable=${{ github.event_name == 'release' && !github.event.release.draft }}
+            type=raw,value=${{ steps.pkg.outputs.version }},enable=${{ github.event_name == 'release' && !github.event.release.draft }}
+            type=raw,value=${{ steps.pkg.outputs.major_minor }},enable=${{ github.event_name == 'release' && !github.event.release.draft }}
+            # --- release (draft): prerelease-style tags ---
+            type=raw,value=${{ steps.pkg.outputs.version }}-draft.${{ steps.pkg.outputs.short_sha }},enable=${{ github.event_name == 'release' && github.event.release.draft }}
+            # --- all pushes + releases: sha ---
+            type=sha,prefix=,enable=${{ github.event_name != 'pull_request' }}
+            # --- PR: pr number ---
             type=ref,event=pr
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=sha,prefix=
-            type=raw,value=latest,enable={{is_default_branch}}
 
       - name: Build and push
         uses: docker/build-push-action@v5
