@@ -122,9 +122,9 @@ list_available_tags() {
     -H "Accept: application/vnd.github+json" 2>/dev/null) || true
 
   if [ -n "$api_response" ]; then
-    # Try jq first, fall back to python3, then basic grep
+    # Use jq or python3 for reliable JSON parsing (no PCRE/sort -V dependency)
     if command -v jq &>/dev/null; then
-      tags=$(echo "$api_response" | jq -r '.[].metadata.container.tags[]' 2>/dev/null | sort -Vr | head -20) || true
+      tags=$(echo "$api_response" | jq -r '.[].metadata.container.tags[]' 2>/dev/null | head -20) || true
     elif command -v python3 &>/dev/null; then
       tags=$(echo "$api_response" | python3 -c "
 import sys, json
@@ -133,8 +133,7 @@ tags = [t for v in data for t in v.get('metadata',{}).get('container',{}).get('t
 for t in sorted(set(tags), reverse=True)[:20]: print(t)
 " 2>/dev/null) || true
     else
-      # Fallback: simple grep (may miss multi-line JSON)
-      tags=$(echo "$api_response" | tr -d '\n' | grep -oP '"tags"\s*:\s*\[.*?\]' | grep -oP '"[^"]*"' | tr -d '"' | sort -Vr | head -20) || true
+      warn "Install jq or python3 to use --list"
     fi
   fi
 
@@ -351,10 +350,11 @@ main() {
 
   # If using a non-default image, update docker-compose.yml BEFORE starting
   if [ "$OWLIABOT_IMAGE" != "${REGISTRY}:latest" ]; then
+    local SED_PATTERN="s|image:.*ghcr\.io/owliabot/owliabot:.*|image: ${OWLIABOT_IMAGE}|"
     if sed --version 2>/dev/null | grep -q GNU; then
-      sed -i "s|image:.*owliabot.*|image: ${OWLIABOT_IMAGE}|" docker-compose.yml
+      sed -i "$SED_PATTERN" docker-compose.yml
     else
-      sed -i '' "s|image:.*owliabot.*|image: ${OWLIABOT_IMAGE}|" docker-compose.yml
+      sed -i '' "$SED_PATTERN" docker-compose.yml
     fi
     if ! grep -q "${OWLIABOT_IMAGE}" docker-compose.yml 2>/dev/null; then
       warn "Failed to update image in docker-compose.yml. Please edit manually:"
