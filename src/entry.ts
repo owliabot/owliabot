@@ -21,11 +21,13 @@ import { runOnboarding } from "./onboarding/onboard.js";
 import { DEV_APP_CONFIG_PATH } from "./onboarding/storage.js";
 import type { Config } from "./config/schema.js";
 import { defaultConfigPath, ensureOwliabotHomeEnv, resolvePathLike } from "./utils/paths.js";
+import { createDefaultDoctorIO, runDoctorCli } from "./doctor/cli.js";
 import { listConfiguredModelCatalog } from "./models/catalog.js";
 import { parseModelRef } from "./models/ref.js";
 import { updateAppConfigYamlPrimaryModel, updateYamlFileAtomic } from "./models/config-file.js";
 import { parse as parseYaml } from "yaml";
 import { readFile } from "node:fs/promises";
+import { diagnoseDoctor } from "./doctor/index.js";
 
 const log = logger;
 
@@ -147,6 +149,41 @@ program
       log.info("OwliaBot is running. Press Ctrl+C to stop.");
     } catch (err) {
       log.error("Failed to start", err);
+      process.exit(1);
+    }
+  });
+
+program
+  .command("doctor")
+  .description("Diagnose startup failures (config/tokens) and guide fixes")
+  .option(
+    "-c, --config <path>",
+    "Config file path (default: $OWLIABOT_HOME/app.yaml)",
+    process.env.OWLIABOT_CONFIG_PATH ?? defaultConfigPath()
+  )
+  .option("--no-interactive", "Disable interactive prompts (exit non-zero on errors)")
+  .option("--json", "Print diagnosis report as JSON and exit (non-interactive)")
+  .action(async (options) => {
+    try {
+      ensureOwliabotHomeEnv();
+      if (options.json) {
+        const report = await diagnoseDoctor({ configPath: options.config });
+        // Print raw JSON for CI/automation usage.
+        console.log(JSON.stringify(report, null, 2));
+        process.exit(report.ok ? 0 : 1);
+      }
+      const interactive = Boolean(
+        options.interactive && process.stdin.isTTY && process.stdout.isTTY,
+      );
+      const { io, close } = createDefaultDoctorIO({ interactive });
+      try {
+        const code = await runDoctorCli({ configPath: options.config, io });
+        process.exit(code);
+      } finally {
+        close();
+      }
+    } catch (err) {
+      log.error("Doctor failed", err);
       process.exit(1);
     }
   });
