@@ -4,6 +4,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { createInterface } from "node:readline";
 
 let answers: string[] = [];
 
@@ -21,12 +22,16 @@ vi.mock("node:readline", () => ({
 vi.mock("../../auth/oauth.js", () => ({ startOAuthFlow: vi.fn() }));
 vi.mock("../clawlet-onboard.js", () => ({ runClawletOnboarding: vi.fn().mockResolvedValue({ enabled: false }) }));
 
+import { getWorkspacePath } from "../steps/workspace-setup.js";
+
 describe("workspace-setup step", () => {
   let consoleSpy: ReturnType<typeof vi.spyOn>;
+  let rl: ReturnType<typeof createInterface>;
 
   beforeEach(() => {
     consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
     answers = [];
+    rl = createInterface({ input: process.stdin, output: process.stdout });
   });
 
   afterEach(() => {
@@ -35,27 +40,27 @@ describe("workspace-setup step", () => {
   });
 
   describe("getWorkspacePath", () => {
-    it.skip("requires export after refactor — returns /app/workspace in docker mode", async () => {
-      // const result = await getWorkspacePath(rl, true, "/app/config/app.yaml");
-      // expect(result).toBe("/app/workspace");
+    it("returns /app/workspace in docker mode", async () => {
+      const result = await getWorkspacePath(rl, true, "/app/config/app.yaml");
+      expect(result).toBe("/app/workspace");
     });
 
-    it.skip("requires export after refactor — returns default (sibling of config) when empty input", async () => {
-      // answers = [""];
-      // const result = await getWorkspacePath(rl, false, "/home/user/.owlia_dev/app.yaml");
-      // expect(result).toBe("/home/user/.owlia_dev/workspace");
+    it("returns default (sibling of config) when empty input", async () => {
+      answers = [""];
+      const result = await getWorkspacePath(rl, false, "/home/user/.owlia_dev/app.yaml");
+      expect(result).toBe("/home/user/.owlia_dev/workspace");
     });
 
-    it.skip("requires export after refactor — returns custom path when provided", async () => {
-      // answers = ["/custom/workspace"];
-      // const result = await getWorkspacePath(rl, false, "/home/user/.owlia_dev/app.yaml");
-      // expect(result).toBe("/custom/workspace");
+    it("returns custom path when provided", async () => {
+      answers = ["/custom/workspace"];
+      const result = await getWorkspacePath(rl, false, "/home/user/.owlia_dev/app.yaml");
+      expect(result).toBe("/custom/workspace");
     });
 
-    it.skip("requires export after refactor — does not prompt in docker mode", async () => {
-      // In docker mode the function should return immediately without asking
-      // const result = await getWorkspacePath(rl, true, "/any/path");
-      // expect(answers).toHaveLength(0); // no answers consumed
+    it("does not prompt in docker mode", async () => {
+      answers = ["should-not-be-consumed"];
+      await getWorkspacePath(rl, true, "/any/path");
+      expect(answers).toHaveLength(1); // answer was not consumed
     });
   });
 });
