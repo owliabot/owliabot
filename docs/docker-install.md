@@ -155,3 +155,23 @@ Common causes:
 - Missing or invalid API key
 - Missing channel token (Discord/Telegram)
 - Invalid config syntax
+
+### Playwright MCP fails to launch browser (Chromium not installed / sandboxing failed)
+
+If you see errors like `Chromium not installed` or `No usable sandbox`, do the following:
+
+1. **Use system Chromium (recommended quick fix)**
+   - Ensure `/usr/bin/chromium` exists in the container/host.
+   - In `docker-compose.yml`, add:
+     - `OWLIABOT_PLAYWRIGHT_CHROMIUM_PATH=/usr/bin/chromium`
+
+2. **Sandbox fails in containers (common)**
+   - Use the workaround: `PLAYWRIGHT_MCP_NO_SANDBOX=1`
+   - Long term: install `chromium-sandbox` or enable user namespaces/AppArmor, then remove `--no-sandbox`.
+
+Security note: `--no-sandbox` reduces browser isolation. Prefer proper sandboxing when possible.
+
+TODO / future directions (Playwright MCP):
+- Evaluate Playwright-managed browser install and cache (`browser_install` / `npx playwright install`).
+- Enable container sandboxing (`chromium-sandbox`, userns/AppArmor) and drop `--no-sandbox`.
+- Support CDP connection to an external browser service for stronger isolation.
