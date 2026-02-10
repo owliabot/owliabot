@@ -19,11 +19,17 @@ const PRESET_REGISTRY: Record<string, () => MCPServerConfig> = {
  * Unknown presets are logged as warnings and skipped.
  */
 export function expandMCPPresets(presets: string[]): MCPServerConfig[] {
+  const seen = new Set<string>();
   const configs: MCPServerConfig[] = [];
 
   for (const name of presets) {
     const factory = PRESET_REGISTRY[name];
     if (factory) {
+      if (seen.has(name)) {
+        log.debug(`Skipping duplicate MCP preset: "${name}"`);
+        continue;
+      }
+      seen.add(name);
       configs.push(factory());
       log.info(`Expanded MCP preset: ${name}`);
     } else {

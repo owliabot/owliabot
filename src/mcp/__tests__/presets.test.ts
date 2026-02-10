@@ -18,8 +18,8 @@ describe("expandMCPPresets", () => {
 
   it("handles mixed known and unknown presets", () => {
     const configs = expandMCPPresets(["playwright", "unknown", "playwright"]);
-    // Two playwright configs (duplicates allowed)
-    expect(configs).toHaveLength(2);
+    // Duplicates are deduplicated by name
+    expect(configs).toHaveLength(1);
   });
 
   it("returns empty array for empty input", () => {

@@ -5,6 +5,7 @@
 
 import { z } from "zod";
 import { CliBackendsSchema } from "../agent/cli/cli-schema.js";
+import { mcpServerConfigSchema } from "../mcp/types.js";
 
 export const providerSchema = z
   .object({
@@ -398,19 +399,9 @@ export const mcpGatewayConfigSchema = z
   .object({
     /** Named presets to auto-expand (e.g. ["playwright"]) */
     presets: z.array(z.string()).default([]),
-    /** Explicit server definitions */
+    /** Explicit server definitions (reuses mcpServerConfigSchema with transport validation) */
     servers: z
-      .array(
-        z.object({
-          name: z.string().min(1),
-          command: z.string().optional(),
-          args: z.array(z.string()).default([]),
-          env: z.record(z.string()).optional(),
-          url: z.string().url().optional(),
-          transport: z.enum(["stdio", "sse"]).default("stdio"),
-          cwd: z.string().optional(),
-        }),
-      )
+      .array(mcpServerConfigSchema)
       .default([]),
     /** Start MCP servers automatically on gateway boot (default: true) */
     autoStart: z.boolean().default(true),

@@ -288,14 +288,32 @@ export async function startGateway(
 
       // Register MCP tools with the tool registry
       const mcpTools = await mcpManager.getToolsAsync();
+      const mcpToolNames = new Set<string>();
       for (const tool of mcpTools) {
         tools.register(tool);
+        mcpToolNames.add(tool.name);
       }
 
       // Listen for dynamic tool changes and update registry
       mcpManager.onToolsChanged((updatedTools) => {
+        const newToolNames = new Set<string>();
         for (const tool of updatedTools) {
           tools.register(tool);
+          newToolNames.add(tool.name);
+        }
+
+        // Unregister MCP tools that were removed
+        for (const oldName of mcpToolNames) {
+          if (!newToolNames.has(oldName)) {
+            tools.unregister(oldName);
+            log.info(`MCP tool removed: ${oldName}`);
+          }
+        }
+
+        // Update tracked MCP tool names
+        mcpToolNames.clear();
+        for (const name of newToolNames) {
+          mcpToolNames.add(name);
         }
       });
 
