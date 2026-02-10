@@ -6,8 +6,12 @@
 
 set -euo pipefail
 
-OWLIABOT_IMAGE="${OWLIABOT_IMAGE:-ghcr.io/owliabot/owliabot:latest}"
+REGISTRY="ghcr.io/owliabot/owliabot"
+CHANNEL="${OWLIABOT_CHANNEL:-stable}"  # stable | develop | custom tag
+OWLIABOT_TAG="${OWLIABOT_TAG:-}"
 BUILD_LOCAL=false
+BUILD_BRANCH="main"
+LIST_TAGS=false
 
 # Colors
 RED='\033[0;31m'
@@ -83,6 +87,57 @@ check_docker() {
   fi
 }
 
+resolve_image() {
+  # If user set OWLIABOT_IMAGE explicitly, use it as-is
+  if [ -n "${OWLIABOT_IMAGE:-}" ]; then
+    return
+  fi
+
+  # Resolve tag from channel
+  if [ -n "$OWLIABOT_TAG" ]; then
+    OWLIABOT_IMAGE="${REGISTRY}:${OWLIABOT_TAG}"
+  elif [ "$CHANNEL" = "stable" ]; then
+    OWLIABOT_IMAGE="${REGISTRY}:latest"
+  elif [ "$CHANNEL" = "develop" ]; then
+    OWLIABOT_IMAGE="${REGISTRY}:develop"
+  else
+    OWLIABOT_IMAGE="${REGISTRY}:${CHANNEL}"
+  fi
+}
+
+list_available_tags() {
+  header "Available prerelease tags"
+  info "Fetching tags from GHCR..."
+
+  local tags
+  tags=$(curl -fsSL "https://api.github.com/orgs/owliabot/packages/container/owliabot/versions?per_page=20" \
+    -H "Accept: application/vnd.github+json" 2>/dev/null \
+    | grep -oP '"tags":\[.*?\]' \
+    | grep -oP '"[^"]*"' \
+    | tr -d '"' \
+    | sort -Vr \
+    | head -20) || true
+
+  if [ -z "$tags" ]; then
+    warn "Could not fetch tags (auth may be required). Try:"
+    echo "  docker pull ${REGISTRY}:develop"
+    return
+  fi
+
+  echo ""
+  echo "Available tags:"
+  echo "$tags" | while read -r tag; do
+    if echo "$tag" | grep -qE '\-dev\.|\-rc\.|^develop$'; then
+      echo -e "  ${YELLOW}• ${tag}${NC}  (prerelease)"
+    else
+      echo -e "  ${GREEN}• ${tag}${NC}"
+    fi
+  done
+  echo ""
+  info "Usage: OWLIABOT_TAG=<tag> $0"
+  info "   or: $0 --channel develop"
+}
+
 parse_args() {
   while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -90,8 +145,41 @@ parse_args() {
         BUILD_LOCAL=true
         shift
         ;;
+      --channel)
+        CHANNEL="${2:-}"
+        [ -z "$CHANNEL" ] && die "--channel requires a value (stable|develop)"
+        if [ "$CHANNEL" = "develop" ]; then
+          BUILD_BRANCH="develop"
+        fi
+        shift 2
+        ;;
+      --tag)
+        OWLIABOT_TAG="${2:-}"
+        [ -z "$OWLIABOT_TAG" ] && die "--tag requires a value"
+        shift 2
+        ;;
+      --list|-l)
+        LIST_TAGS=true
+        shift
+        ;;
+      --help|-h)
+        echo "Usage: $0 [options]"
+        echo ""
+        echo "Options:"
+        echo "  --channel <name>   Release channel: stable (default) or develop"
+        echo "  --tag <tag>        Specific image tag (e.g. 0.2.0-dev.abc1234)"
+        echo "  --list, -l         List available image tags from GHCR"
+        echo "  --build            Build from source instead of pulling"
+        echo "  --help, -h         Show this help"
+        echo ""
+        echo "Environment variables:"
+        echo "  OWLIABOT_IMAGE     Override the full image reference"
+        echo "  OWLIABOT_TAG       Same as --tag"
+        echo "  OWLIABOT_CHANNEL   Same as --channel (stable|develop)"
+        exit 0
+        ;;
       *)
-        die "Unknown option: $1"
+        die "Unknown option: $1 (use --help for usage)"
         ;;
     esac
   done
@@ -109,11 +197,27 @@ main() {
   echo "  \\____/  \\_/\\_/ |_|_|\\__,_|____/ \\___/ \\__|"
   echo -e "${NC}"
   echo ""
-  echo "  Welcome to the OwliaBot Docker installer"
-  echo ""
 
   # Parse CLI arguments
   parse_args "$@"
+
+  # Resolve image tag
+  resolve_image
+
+  # Handle --list
+  if [ "$LIST_TAGS" = "true" ]; then
+    list_available_tags
+    exit 0
+  fi
+
+  # Banner subtitle
+  if [ "$CHANNEL" = "stable" ] && [ -z "$OWLIABOT_TAG" ]; then
+    echo "  Welcome to the OwliaBot Docker installer"
+  else
+    echo -e "  ${YELLOW}⚠ Prerelease Installer${NC}"
+    echo -e "  Image: ${CYAN}${OWLIABOT_IMAGE}${NC}"
+  fi
+  echo ""
 
   # Check Docker environment
   check_docker
@@ -128,23 +232,40 @@ main() {
   if [ "$BUILD_LOCAL" = "true" ]; then
     header "Building Docker image locally"
     SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-    if [ ! -f "${SCRIPT_DIR}/Dockerfile" ]; then
-      die "Dockerfile not found in ${SCRIPT_DIR}. Cannot build locally."
-    fi
-    export OWLIABOT_IMAGE="owliabot:local"
-    info "Building ${OWLIABOT_IMAGE} from ${SCRIPT_DIR}/Dockerfile ..."
-    if docker build -t "${OWLIABOT_IMAGE}" "${SCRIPT_DIR}"; then
-      success "Image built successfully: ${OWLIABOT_IMAGE}"
+    if [ -f "${SCRIPT_DIR}/Dockerfile" ]; then
+      OWLIABOT_IMAGE="owliabot:local"
+      info "Building ${OWLIABOT_IMAGE} from ${SCRIPT_DIR}/Dockerfile ..."
+      docker build -t "${OWLIABOT_IMAGE}" "${SCRIPT_DIR}" || die "Build failed."
     else
-      die "Failed to build image. Check the Dockerfile and build output above."
+      # No local Dockerfile — clone and build
+      local tmpdir
+      tmpdir=$(mktemp -d)
+      info "Cloning ${BUILD_BRANCH} branch..."
+      git clone --depth 1 --branch "$BUILD_BRANCH" https://github.com/owliabot/owliabot.git "$tmpdir" || die "Clone failed."
+      OWLIABOT_IMAGE="owliabot:local"
+      info "Building ${OWLIABOT_IMAGE}..."
+      docker build -t "${OWLIABOT_IMAGE}" "$tmpdir" || { rm -rf "$tmpdir"; die "Build failed."; }
+      rm -rf "$tmpdir"
     fi
+    success "Image built: ${OWLIABOT_IMAGE}"
   else
     header "Pulling Docker image"
     info "Image: ${OWLIABOT_IMAGE}"
+    if [ "$CHANNEL" != "stable" ] || [ -n "$OWLIABOT_TAG" ]; then
+      warn "This is a PRERELEASE build — may contain bugs or breaking changes."
+    fi
     if docker pull "${OWLIABOT_IMAGE}"; then
       success "Image pulled successfully"
     else
-      die "Failed to pull image. Check your internet connection."
+      error "Failed to pull ${OWLIABOT_IMAGE}"
+      if [ "$CHANNEL" != "stable" ]; then
+        echo ""
+        info "The tag may not exist yet. Try:"
+        echo "  $0 --list                    # list available tags"
+        echo "  $0 --channel develop         # latest develop"
+        echo "  $0 --build --channel develop # build from source"
+      fi
+      exit 1
     fi
   fi
 
@@ -256,9 +377,21 @@ main() {
     success "Container is running and healthy"
   fi
 
+  # If using a non-default image, update docker-compose.yml to match
+  if [ "$OWLIABOT_IMAGE" != "${REGISTRY}:latest" ]; then
+    if command -v sed &>/dev/null; then
+      sed -i "s|image:.*owliabot.*|image: ${OWLIABOT_IMAGE}|" docker-compose.yml 2>/dev/null || true
+    fi
+  fi
+
   # --- Final success message ---
   header "OwliaBot is running! 🦉"
   success "Your bot is up and running."
+  if [ "$CHANNEL" != "stable" ] || [ -n "$OWLIABOT_TAG" ]; then
+    echo ""
+    warn "You are running a PRERELEASE build."
+    info "To switch to stable: $0  (without --channel/--tag)"
+  fi
   echo ""
   info "Useful commands:"
   echo "  ${COMPOSE_CMD} logs -f                              # Follow logs"
