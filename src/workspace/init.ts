@@ -33,6 +33,7 @@ export interface WorkspaceInitResult {
   wroteBootstrap: boolean;
   copiedSkills: boolean;
   skillsDir?: string;
+  copiedConfigExample: boolean;
 }
 
 export async function ensureWorkspaceInitialized(
@@ -75,6 +76,9 @@ export async function ensureWorkspaceInitialized(
     wroteBootstrap = createdFiles.length > before;
   }
 
+  // Copy config.example.yaml to workspace
+  const copiedConfigExample = await copyConfigExample(workspacePath);
+
   // Copy bundled skills to workspace
   const result = await copyBundledSkills(workspacePath);
   const copiedSkills = result.copied;
@@ -93,6 +97,7 @@ export async function ensureWorkspaceInitialized(
     wroteBootstrap,
     copiedSkills,
     skillsDir,
+    copiedConfigExample,
   };
 }
 
@@ -192,4 +197,41 @@ async function copyBundledSkills(workspacePath: string): Promise<{
     log.error(`Failed to copy skills: ${err instanceof Error ? err.message : String(err)}`);
     return { copied: false };
   }
+}
+
+const CONFIG_EXAMPLE_FILENAME = "config.example.yaml";
+
+/**
+ * Copy config.example.yaml into the workspace so the agent can reference it.
+ */
+async function copyConfigExample(workspacePath: string): Promise<boolean> {
+  const target = join(workspacePath, CONFIG_EXAMPLE_FILENAME);
+  if (await pathExists(target)) {
+    return false;
+  }
+
+  // Resolve from project root (cwd first, then relative to module)
+  const candidates = [
+    resolve(process.cwd(), CONFIG_EXAMPLE_FILENAME),
+    resolve(dirname(fileURLToPath(import.meta.url)), "../../", CONFIG_EXAMPLE_FILENAME),
+  ];
+
+  for (const src of candidates) {
+    if (existsSync(src)) {
+      try {
+        const content = await readFile(src, "utf-8");
+        await writeFile(target, content, "utf-8");
+        log.info(`Copied ${CONFIG_EXAMPLE_FILENAME} to workspace`);
+        return true;
+      } catch (err) {
+        log.error(
+          `Failed to copy ${CONFIG_EXAMPLE_FILENAME}: ${err instanceof Error ? err.message : String(err)}`
+        );
+        return false;
+      }
+    }
+  }
+
+  log.debug(`${CONFIG_EXAMPLE_FILENAME} not found, skipping`);
+  return false;
 }

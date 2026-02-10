@@ -36,6 +36,20 @@ describe("buildSystemPrompt memory injection boundary", () => {
     expect(prompt).not.toContain("TOP_SECRET_MEMORY");
   });
 
+  it("includes config.example.yaml reference", () => {
+    const prompt = buildSystemPrompt({
+      workspace,
+      channel: "discord",
+      chatType: "direct",
+      timezone: "UTC",
+      model: "test",
+    });
+
+    expect(prompt).toContain(
+      "refer to `config.example.yaml` in your workspace for field descriptions and defaults"
+    );
+  });
+
   it("does not include MEMORY.md in channel contexts", () => {
     const prompt = buildSystemPrompt({
       workspace,

@@ -18,4 +18,7 @@ export async function initDevWorkspace(
   if (workspaceInit.copiedSkills && workspaceInit.skillsDir) {
     success(`Copied bundled skills to: ${workspaceInit.skillsDir}`);
   }
+  if (workspaceInit.copiedConfigExample) {
+    success("Copied config.example.yaml to workspace");
+  }
 }

@@ -33,6 +33,7 @@ describe("initDevWorkspace step", () => {
       wroteBootstrap: true,
       copiedSkills: true,
       skillsDir: "/test/workspace/skills",
+      copiedConfigExample: true,
       created: [],
       skippedExisting: [],
     });
@@ -70,6 +71,11 @@ describe("initDevWorkspace step", () => {
       expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining("skills"));
     });
 
+    it("logs config.example.yaml copy when copiedConfigExample is true", async () => {
+      await initDevWorkspace("/home/user/.owliabot/workspace", null);
+      expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining("config.example.yaml"));
+    });
+
     it("does not log bootstrap when wroteBootstrap is false", async () => {
       mockEnsureWorkspaceInitialized.mockResolvedValue({
         workspacePath: "/test/workspace",
@@ -78,6 +84,7 @@ describe("initDevWorkspace step", () => {
         wroteBootstrap: false,
         copiedSkills: false,
         skillsDir: null,
+        copiedConfigExample: false,
         created: [],
         skippedExisting: [],
       });

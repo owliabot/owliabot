@@ -49,7 +49,12 @@ export function buildSystemPrompt(ctx: PromptContext): string {
     sections.push(`## Tool Notes\n${ctx.workspace.tools}`);
   }
 
-  // 8. MEMORY.md - Long-term memory
+  // 8. Config reference
+  sections.push(
+    "When updating configuration, refer to `config.example.yaml` in your workspace for field descriptions and defaults."
+  );
+
+  // 9. MEMORY.md - Long-term memory
   // Security boundary: NEVER inject long-term memory into non-direct contexts.
   // (OpenClaw-style: MEMORY.md is private-only)
   const isNonDirect = ctx.chatType !== "direct";
@@ -57,13 +62,13 @@ export function buildSystemPrompt(ctx: PromptContext): string {
     sections.push(`## Memory\n${ctx.workspace.memory}`);
   }
 
-  // 9. Skills
+  // 10. Skills
   if (ctx.skills && ctx.skills.skills.length > 0) {
     sections.push(ctx.skills.instruction);
     sections.push(ctx.skills.promptBlock);
   }
 
-  // 10. Runtime info
+  // 11. Runtime info
   sections.push(`## Runtime
 - Time: ${new Date().toISOString()}
 - Timezone: ${ctx.timezone}
@@ -71,7 +76,7 @@ export function buildSystemPrompt(ctx: PromptContext): string {
 - Model: ${ctx.model}
 `);
 
-  // 11. Heartbeat mode
+  // 12. Heartbeat mode
   if (ctx.isHeartbeat && ctx.workspace.heartbeat) {
     sections.push(`## Heartbeat
 Read the following checklist and execute it:
