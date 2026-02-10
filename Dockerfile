@@ -38,9 +38,16 @@ RUN npm prune --production
 # ==============================================================================
 FROM node:22-alpine AS production
 
-# Install runtime dependencies for native modules
+# Install runtime dependencies for native modules and Playwright/Chromium
 # libc6-compat helps with some native bindings on Alpine
-RUN apk add --no-cache libc6-compat coreutils
+# Chromium + dependencies are needed for Playwright MCP browser automation
+RUN apk add --no-cache libc6-compat coreutils \
+    chromium \
+    nss \
+    freetype \
+    harfbuzz \
+    ca-certificates \
+    ttf-freefont
 
 # Create non-root user for security
 # Using numeric UID/GID for Kubernetes compatibility
@@ -78,6 +85,10 @@ USER owliabot
 # Set HOME for the non-root user (needed for ~/.owliabot and ~/.owlia_dev)
 ENV HOME=/home/owliabot
 ENV OWLIABOT_HOME=/home/owliabot/.owliabot
+
+# Tell Playwright to use system-installed Chromium instead of downloading its own
+ENV PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium-browser
+ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
 
 # Expose gateway HTTP port (configurable, default 8787)
 EXPOSE 8787
