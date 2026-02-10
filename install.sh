@@ -6,6 +6,14 @@
 
 set -euo pipefail
 
+# Allow Ctrl+C to abort at any point (especially during interactive docker run)
+cleanup() {
+  echo ""
+  echo -e "\033[0;31m✗\033[0m Aborted by user."
+  exit 130
+}
+trap cleanup INT TERM
+
 OWLIABOT_IMAGE="${OWLIABOT_IMAGE:-ghcr.io/owliabot/owliabot:latest}"
 BUILD_LOCAL=false
 
