@@ -146,11 +146,16 @@ async function detectExistingConfig(
             hasAny = true;
           }
 
-          // If user stored the token directly in app.yaml (or via ${TELEGRAM_BOT_TOKEN}),
-          // treat it as an existing token for reuse prompts.
-          if (!result.telegramToken && typeof tg.token === "string" && tg.token.trim().length > 0) {
-            result.telegramToken = tg.token.trim();
-            hasAny = true;
+          // If the user stored the token directly in app.yaml, treat it as an existing token
+          // for reuse prompts. Ignore env placeholders like "${TELEGRAM_BOT_TOKEN}" so we
+          // don't copy them into secrets.yaml and break env-based Docker setups.
+          if (!result.telegramToken && typeof tg.token === "string") {
+            const token = tg.token.trim();
+            const isEnvPlaceholder = token.startsWith("${") && token.endsWith("}");
+            if (token.length > 0 && !isEnvPlaceholder) {
+              result.telegramToken = token;
+              hasAny = true;
+            }
           }
         }
       }
