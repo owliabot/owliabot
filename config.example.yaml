@@ -170,12 +170,12 @@ heartbeat:
 #     maxResults: 10
 
 # MCP (Model Context Protocol) servers - optional
-# Automatically starts MCP servers and registers their tools at boot time
+# Enable MCP servers during onboarding (owliabot onboard) or add them here manually.
 # mcp:
 #   servers:
 #     - name: playwright
 #       command: npx
-#       args: ["@anthropic/mcp-server-playwright"]
+#       args: ["--yes", "@playwright/mcp@latest"]
 #       transport: stdio
 #     # - name: filesystem
 #     #   command: npx

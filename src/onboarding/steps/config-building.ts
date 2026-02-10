@@ -12,6 +12,8 @@ import {
   type DetectedConfig,
 } from "./channel-setup.js";
 import type { createInterface } from "node:readline";
+import { info, header, askYN } from "../shared.js";
+import { playwrightServerConfig } from "../../mcp/servers/playwright.js";
 
 type RL = ReturnType<typeof createInterface>;
 type TelegramGroups = NonNullable<NonNullable<AppConfig["telegram"]>["groups"]>;
@@ -111,6 +113,36 @@ export async function configureWallet(
   };
 }
 
+
+/**
+ * MCP server presets available during onboarding.
+ */
+const MCP_PRESETS = [
+  { name: "Playwright", description: "Browser automation via @playwright/mcp", config: playwrightServerConfig },
+] as const;
+
+/**
+ * Prompt user to choose which MCP servers to enable.
+ */
+export async function configureMcpServers(
+  rl: RL,
+): Promise<AppConfig["mcp"] | undefined> {
+  header("MCP Servers");
+  info("MCP (Model Context Protocol) lets your bot use external tool servers.");
+  info("Available presets:\n");
+
+  const selected: typeof MCP_PRESETS[number]["config"][] = [];
+
+  for (const preset of MCP_PRESETS) {
+    const enable = await askYN(rl, `Enable ${preset.name}? (${preset.description})`, true);
+    if (enable) selected.push(preset.config);
+  }
+
+  if (selected.length === 0) return undefined;
+
+  return { servers: selected.map((s) => ({ ...s })) };
+}
+
 /**
  * Build AppConfig from interactive prompts.
  */
@@ -137,6 +169,7 @@ export async function buildAppConfigFromPrompts(
     providers,
     memorySearch: buildDefaultMemorySearchConfig(),
     system: buildDefaultSystemConfig(),
+
     ...(gateway ? { gateway } : {}),
   };
 
@@ -158,6 +191,10 @@ export async function buildAppConfigFromPrompts(
   }
 
   await configureWallet(rl, secrets, config);
+
+  // MCP servers
+  const mcpConfig = await configureMcpServers(rl);
+  if (mcpConfig) config.mcp = mcpConfig;
 
   // Auto-derive writeToolAllowList from channel allowlists (no interactive prompt).
   const allUserIds = [...new Set([...userAllowLists.discord, ...userAllowLists.telegram])];
