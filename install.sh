@@ -332,6 +332,21 @@ main() {
     fi
   fi
 
+  # If using a non-default image, update docker-compose.yml BEFORE starting
+  if [ "$OWLIABOT_IMAGE" != "${REGISTRY}:latest" ]; then
+    if sed --version 2>/dev/null | grep -q GNU; then
+      sed -i "s|image:.*owliabot.*|image: ${OWLIABOT_IMAGE}|" docker-compose.yml
+    else
+      sed -i '' "s|image:.*owliabot.*|image: ${OWLIABOT_IMAGE}|" docker-compose.yml
+    fi
+    if ! grep -q "${OWLIABOT_IMAGE}" docker-compose.yml 2>/dev/null; then
+      warn "Failed to update image in docker-compose.yml. Please edit manually:"
+      echo "  image: ${OWLIABOT_IMAGE}"
+    else
+      success "Updated docker-compose.yml image to ${OWLIABOT_IMAGE}"
+    fi
+  fi
+
   # --- Start container (or skip if OAuth failed) ---
   if [ "$OAUTH_OK" = "false" ]; then
     header "Container NOT auto-started"
@@ -388,21 +403,6 @@ main() {
       exit 1
     fi
     success "Container is running and healthy"
-  fi
-
-  # If using a non-default image, update docker-compose.yml to match
-  if [ "$OWLIABOT_IMAGE" != "${REGISTRY}:latest" ]; then
-    # BSD/macOS sed requires -i '' while GNU sed uses -i
-    if sed --version 2>/dev/null | grep -q GNU; then
-      sed -i "s|image:.*owliabot.*|image: ${OWLIABOT_IMAGE}|" docker-compose.yml
-    else
-      sed -i '' "s|image:.*owliabot.*|image: ${OWLIABOT_IMAGE}|" docker-compose.yml
-    fi
-    # Verify the rewrite succeeded
-    if ! grep -q "${OWLIABOT_IMAGE}" docker-compose.yml 2>/dev/null; then
-      warn "Failed to update image in docker-compose.yml. Please edit manually:"
-      echo "  image: ${OWLIABOT_IMAGE}"
-    fi
   fi
 
   # --- Final success message ---
