@@ -42,7 +42,7 @@ docker run --rm -it \
 The wizard will prompt for:
 - AI provider (Anthropic/OpenAI/OpenAI-Codex/OpenAI-compatible)
 - Chat platform (Discord/Telegram)
-- Timezone
+- Timezone (auto-detected; edit `app.yaml` to override)
 - (Docker only) Host port to expose Gateway HTTP (default: 8787)
 
 ### Step 3: Start with Docker Compose

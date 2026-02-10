@@ -56,7 +56,7 @@ npx tsx src/entry.ts onboard
 
 引导流程会依次询问：
 - 启用的频道（Discord / Telegram）
-- 时区（Timezone）
+- 时区（自动检测，可在配置中覆盖）
 - AI 模型选择
 - 可选的 OAuth 认证
 - 频道 Token 配置

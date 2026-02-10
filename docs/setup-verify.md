@@ -33,7 +33,7 @@ npx tsx src/entry.ts onboard
 
 引导流程会依次询问：
 - 启用的频道（discord / telegram）
-- 时区（Timezone）
+- 时区（自动检测，可在配置中覆盖）
 - Anthropic 模型（默认 `claude-sonnet-4-5`）
 - 是否立即执行 OAuth 认证
 - Discord / Telegram 的 Token 和频道配置

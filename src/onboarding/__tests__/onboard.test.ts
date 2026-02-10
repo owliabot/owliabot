@@ -54,10 +54,15 @@ describe("onboarding", () => {
     vi.clearAllMocks();
   });
 
-  // Unified flow order: providers → channels → timezone → config details
+  // Unified flow order: providers → channels → config details (timezone auto-detected)
 
   it("writes config with anthropic setup-token and separates secrets", async () => {
     const appConfigPath = join(dir, "app.yaml");
+
+    // Make timezone deterministic for this test (onboarding auto-detects via Intl).
+    const tzSpy = vi.spyOn(Intl, "DateTimeFormat").mockImplementation(() => ({
+      resolvedOptions: () => ({ timeZone: "America/New_York" }),
+    }) as any);
 
     // Create a valid setup-token (sk-ant-oat01- prefix + enough chars for 80 total)
     const setupToken = "sk-ant-oat01-" + "a".repeat(68); // 12 + 68 = 80 chars
@@ -69,7 +74,6 @@ describe("onboarding", () => {
       "3",                 // Chat platform: 3 = Both (Discord + Telegram)
       "discord-secret",    // Discord token
       "telegram-secret",   // Telegram token
-      "America/New_York",  // Timezone
       "111,222",           // Discord channelAllowList
       "123456789",         // Discord memberAllowList
       "539066683",         // Telegram allowList
@@ -108,6 +112,8 @@ describe("onboarding", () => {
     expect(secrets?.telegram?.token).toBe("telegram-secret");
     expect(secrets?.anthropic?.token).toBe(setupToken);
     expect(secrets?.gateway?.token).toMatch(/^[a-f0-9]{32}$/);
+
+    tzSpy.mockRestore();
   });
 
   it("writes config with openai api key", async () => {
@@ -119,7 +125,6 @@ describe("onboarding", () => {
       "gpt-4o-mini",       // Model
       "1",                 // Chat platform: 1 = Discord
       "",                  // Discord token (skip)
-      "UTC",               // Timezone
       "",                  // Discord channelAllowList (empty)
       "",                  // Discord memberAllowList (empty)
       // Note: Clawlet onboarding skipped (no daemon in test)
@@ -145,7 +150,6 @@ describe("onboarding", () => {
       "n",                 // Skip OAuth for now
       "1",                 // Chat platform: 1 = Discord
       "",                  // Discord token (skip)
-      "UTC",               // Timezone
       "",                  // Discord channelAllowList (empty)
       "",                  // Discord memberAllowList (empty)
       // Note: Clawlet onboarding skipped (no daemon in test)
@@ -169,7 +173,6 @@ describe("onboarding", () => {
       "",                  // Model (default)
       "1",                 // Chat platform: 1 = Discord
       "",                  // Discord token (skip)
-      "UTC",               // Timezone
       "",                  // Discord channelAllowList (empty)
       "",                  // Discord memberAllowList (empty)
       // Note: Clawlet onboarding skipped (no daemon in test)
@@ -197,7 +200,6 @@ describe("onboarding", () => {
       "",                  // Model (default)
       "1",                 // Chat platform: 1 = Discord
       "",                  // Discord token (skip)
-      "UTC",               // Timezone
       "",                  // Discord channelAllowList (empty)
       "",                  // Discord memberAllowList (empty)
       // Note: Clawlet onboarding skipped (no daemon in test)
@@ -220,7 +222,6 @@ describe("onboarding", () => {
       "",                  // Model (default)
       "2",                 // Chat platform: 2 = Telegram
       "",                  // Telegram token (skip)
-      "UTC",               // Timezone
       "",                  // Telegram allowList (empty)
       // Note: Clawlet onboarding skipped (no daemon in test)
     ];
@@ -244,7 +245,6 @@ describe("onboarding", () => {
       "",                  // Model (default)
       "1",                 // Chat platform: 1 = Discord
       "",                  // Discord token (skip)
-      "UTC",               // Timezone
       "",                  // Discord channelAllowList (empty)
       "",                  // Discord memberAllowList (empty)
       // Note: Clawlet onboarding skipped (no daemon in test)
@@ -267,7 +267,6 @@ describe("onboarding", () => {
       "3",                 // Chat platform: 3 = Both
       "",                  // Discord token (skip)
       "",                  // Telegram token (skip)
-      "UTC",               // Timezone
       "",                  // Discord channelAllowList (empty)
       "",                  // Discord memberAllowList (empty)
       "",                  // Telegram allowList (empty)

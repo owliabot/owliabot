@@ -49,6 +49,36 @@ const log = createLogger("onboard");
 // NOTE: We intentionally avoid chmod hardening here to keep docker mode aligned
 // with local mode's storage helpers behavior.
 
+function detectTimezone(): string {
+  try {
+    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    if (typeof tz === "string" && tz.trim().length > 0) return tz.trim();
+  } catch {
+    // ignore
+  }
+  return "UTC";
+}
+
+function injectTimezoneComment(yaml: string): string {
+  const comment =
+    "# Timezone is auto-detected during onboarding. Edit this value to override.";
+  return yaml.replace(
+    /^(timezone:\s*.*)$/m,
+    `${comment}\n$1`,
+  );
+}
+
+async function saveAppConfigWithComments(config: AppConfig, path: string): Promise<void> {
+  await saveAppConfig(config, path);
+  try {
+    const raw = readFileSync(path, "utf-8");
+    const next = injectTimezoneComment(raw);
+    if (next !== raw) writeFileSync(path, next, "utf-8");
+  } catch {
+    // best-effort
+  }
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Unified config detection
 // ─────────────────────────────────────────────────────────────────────────────
@@ -597,15 +627,6 @@ function ensureGatewayToken(
   return token;
 }
 
-async function promptTimezone(
-  rl: ReturnType<typeof createInterface>,
-): Promise<string> {
-  header("Timezone");
-  const tz = await ask(rl, "Timezone [UTC]: ") || "UTC";
-  success(`Timezone: ${tz}`);
-  return tz;
-}
-
 interface DockerComposeSetup {
   gatewayToken: string;
   gatewayPort: string;
@@ -830,7 +851,7 @@ async function writeDockerConfigLocalStyle(
   secrets: SecretsConfig,
 ): Promise<void> {
   const dockerAppConfigPath = join(paths.configDir, "app.yaml");
-  await saveAppConfig(config, dockerAppConfigPath);
+  await saveAppConfigWithComments(config, dockerAppConfigPath);
   success(`Saved config to: ${dockerAppConfigPath}`);
 
   const hasSecrets = Object.keys(secrets).length > 0;
@@ -845,7 +866,7 @@ async function writeDevConfig(
   secrets: SecretsConfig,
   appConfigPath: string,
 ): Promise<void> {
-  await saveAppConfig(config, appConfigPath);
+  await saveAppConfigWithComments(config, appConfigPath);
   success(`Saved config to: ${appConfigPath}`);
 
   const hasSecrets = Object.keys(secrets).length > 0;
@@ -1159,7 +1180,7 @@ export async function runOnboarding(options: OnboardOptions = {}): Promise<void>
 
     const channels = await getChannelsSetup(rl, secrets, existing, reuseExisting);
 
-    const tz = await promptTimezone(rl);
+    const tz = detectTimezone();
     const gatewayToken = ensureGatewayToken(secrets, existing, reuseExisting);
 
     let dockerCompose: DockerComposeSetup | null = null;
