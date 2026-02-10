@@ -25,6 +25,7 @@ import { ensureOwliabotHomeEnv } from "../utils/paths.js";
 import { ensureWorkspaceInitialized } from "../workspace/init.js";
 import { runClawletOnboarding } from "./clawlet-onboard.js";
 import { validateAnthropicSetupToken, isSetupToken } from "../auth/setup-token.js";
+import { listConfiguredModelCatalog } from "../models/catalog.js";
 import {
   AbortError,
   COLORS,
@@ -203,6 +204,52 @@ interface ProviderSetupState {
   useOpenaiCodex: boolean;
 }
 
+async function promptModel(
+  rl: ReturnType<typeof createInterface>,
+  providerId: string,
+  defaultModel: string,
+): Promise<string> {
+  const providerKey = providerId.trim().toLowerCase();
+  const entries = listConfiguredModelCatalog({
+    // Seed with the provider we are configuring so pi-ai backed providers list their full catalog.
+    providers: [{ id: providerKey, model: defaultModel }],
+  });
+  const catalogModels = entries
+    .filter((e) => e.provider === providerKey)
+    .map((e) => e.model)
+    .filter(Boolean);
+
+  const seen = new Set<string>();
+  const uniqueCatalogModels: string[] = [];
+  for (const m of catalogModels) {
+    if (seen.has(m)) continue;
+    seen.add(m);
+    uniqueCatalogModels.push(m);
+  }
+
+  // If the catalog is empty/unavailable, keep prior behavior (free text with default).
+  if (uniqueCatalogModels.length === 0) {
+    return (await ask(rl, `Which model should I use? [${defaultModel}]: `)) || defaultModel;
+  }
+
+  // Keep default model first (selectOption has no "default", so ordering matters).
+  const orderedModels = [
+    defaultModel,
+    ...uniqueCatalogModels.filter((m) => m !== defaultModel),
+  ];
+
+  const CUSTOM = "Custom (type your own)";
+  const picked = await selectOption(rl, "Which model should I use?", [
+    ...orderedModels,
+    CUSTOM,
+  ]);
+
+  if (picked === orderedModels.length) {
+    return (await ask(rl, `Which model should I use? [${defaultModel}]: `)) || defaultModel;
+  }
+  return orderedModels[picked] ?? defaultModel;
+}
+
 async function maybeConfigureAnthropic(
   rl: ReturnType<typeof createInterface>,
   state: ProviderSetupState,
@@ -242,7 +289,7 @@ async function maybeConfigureAnthropic(
   }
 
   const defaultModel = DEFAULT_MODELS.anthropic;
-  const model = (await ask(rl, `Which model should I use? [${defaultModel}]: `)) || defaultModel;
+  const model = await promptModel(rl, "anthropic", defaultModel);
   const apiKeyValue = state.secrets.anthropic ? "secrets" : "env";
 
   state.providers.push({
@@ -273,7 +320,7 @@ async function maybeConfigureOpenAI(
   }
 
   const defaultModel = DEFAULT_MODELS.openai;
-  const model = (await ask(rl, `Which model should I use? [${defaultModel}]: `)) || defaultModel;
+  const model = await promptModel(rl, "openai", defaultModel);
   state.providers.push({
     id: "openai",
     model,
@@ -341,7 +388,7 @@ async function maybeConfigureOpenAICompatible(
   if (!baseUrl) return;
 
   const defaultModel = DEFAULT_MODELS["openai-compatible"];
-  const model = (await ask(rl, `Which model should I use? [${defaultModel}]: `)) || defaultModel;
+  const model = await promptModel(rl, "openai-compatible", defaultModel);
   const apiKey = await ask(rl, "API key (optional; press Enter if not needed): ", true);
 
   state.providers.push({
@@ -694,59 +741,52 @@ async function getChannelsSetup(
     let telegramGroups: TelegramGroups | undefined;
 
     success("Using your existing chat setup:");
-	    if (existing?.discordToken) {
-	      discordEnabled = true;
-	      discordToken = existing.discordToken;
-	      secrets.discord = { token: discordToken };
-	      info("  - Discord");
-	    }
-	    if (existing?.telegramToken) {
-	      telegramEnabled = true;
-	      info("  - Telegram");
+    if (existing?.discordToken) {
+      discordEnabled = true;
+      discordToken = existing.discordToken;
+      secrets.discord = { token: discordToken };
+      info("  - Discord");
+    }
+    if (existing?.telegramToken) {
+      telegramEnabled = true;
+      info("  - Telegram");
 
-	      // Docker mode: keep behavior aligned with interactive mode by asking whether to reuse
-	      // Telegram config (token + allowed users/groups). Default is yes.
-	      const allowCount = existing.telegramAllowList?.length ?? 0;
-	      const groupCount = existing.telegramGroups ? Object.keys(existing.telegramGroups).length : 0;
-	      if (dockerMode) {
-	        console.log("");
-	        const details =
-	          allowCount > 0 || groupCount > 0
-	            ? `allowed users: ${allowCount}, groups: ${groupCount}`
-	            : "token only";
-	        info(`I found existing Telegram settings (${details}).`);
-	        const reuse = await askYN(rl, "Reuse your existing Telegram setup?", true);
-	        if (reuse) {
-	          reuseTelegramConfig = true;
-	          telegramAllowList = existing.telegramAllowList;
-	          telegramGroups = existing.telegramGroups;
-	        } else {
-	          reuseTelegramConfig = false;
-	        }
-	      } else {
-	        reuseTelegramConfig = true;
-	        telegramAllowList = existing.telegramAllowList;
-	        telegramGroups = existing.telegramGroups;
-	      }
+      // Ask in both docker + local (npm) modes; otherwise we'd silently reuse allowList/groups.
+      // Default is yes.
+      const allowCount = existing.telegramAllowList?.length ?? 0;
+      const groupCount = existing.telegramGroups ? Object.keys(existing.telegramGroups).length : 0;
+      console.log("");
+      const details =
+        allowCount > 0 || groupCount > 0
+          ? `allowed users: ${allowCount}, groups: ${groupCount}`
+          : "token only";
+      info(`I found existing Telegram settings (${details}).`);
+      const reuse = await askYN(rl, "Reuse your existing Telegram setup?", true);
+      if (reuse) {
+        reuseTelegramConfig = true;
+        telegramAllowList = existing.telegramAllowList;
+        telegramGroups = existing.telegramGroups;
+      } else {
+        reuseTelegramConfig = false;
+      }
 
-	      // Token: reuse by default, but let user override in docker mode when reuse was declined.
-	      if (reuseTelegramConfig) {
-	        telegramToken = existing.telegramToken;
-	        secrets.telegram = { token: telegramToken };
-	      } else {
-	        console.log("");
-	        info("Create a bot with BotFather: https://t.me/BotFather");
-	        const token = await ask(
-	          rl,
-	          "Paste your Telegram bot token (or press Enter to do this later): ",
-	          true,
-	        );
-	        if (token) {
-	          telegramToken = token;
-	          secrets.telegram = { token };
-	        }
-	      }
-	    }
+      if (reuseTelegramConfig) {
+        telegramToken = existing.telegramToken;
+        secrets.telegram = { token: telegramToken };
+      } else {
+        console.log("");
+        info("Create a bot with BotFather: https://t.me/BotFather");
+        const token = await ask(
+          rl,
+          "Paste your Telegram bot token (or press Enter to do this later): ",
+          true,
+        );
+        if (token) {
+          telegramToken = token;
+          secrets.telegram = { token };
+        }
+      }
+    }
 
     if (!discordToken && !telegramToken) {
       warn("No chat token yet. You can add it later.");
