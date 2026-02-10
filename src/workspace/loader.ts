@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { createLogger } from "../utils/logger.js";
+import { ensureWorkspaceInitialized } from "./init.js";
 import type { WorkspaceFiles } from "./types.js";
 
 const log = createLogger("workspace");
@@ -18,6 +19,9 @@ const WORKSPACE_FILES = [
 
 export async function loadWorkspace(workspacePath: string): Promise<WorkspaceFiles> {
   log.info(`Loading workspace from ${workspacePath}`);
+
+  // Ensure template files exist before loading (safe: skips existing files)
+  await ensureWorkspaceInitialized({ workspacePath });
 
   const files: WorkspaceFiles = {};
 
