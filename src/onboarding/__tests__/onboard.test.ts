@@ -10,6 +10,10 @@ import { join } from "node:path";
 let answers: string[] = [];
 let promptLog: string[] = [];
 
+function stripAnsi(text: string): string {
+  return text.replace(/\x1b\[[0-9;]*m/g, "");
+}
+
 vi.mock("node:readline", () => ({
   createInterface: () => ({
     question: (q: string, cb: (ans: string) => void) => {
@@ -114,6 +118,42 @@ describe("onboarding", () => {
     expect(secrets?.gateway?.token).toMatch(/^[a-f0-9]{32}$/);
 
     tzSpy.mockRestore();
+  });
+
+  it("prints friendly save messages (not log-style)", async () => {
+    const appConfigPath = join(dir, "app.yaml");
+
+    const logs: string[] = [];
+    const logSpy = vi.spyOn(console, "log").mockImplementation((...args: any[]) => {
+      logs.push(args.map(String).join(" "));
+    });
+
+    try {
+      answers = [
+        "1", // AI provider: 1 = Anthropic
+        "",  // Anthropic key/token (empty = env)
+        "",  // Model (default)
+        "1", // Chat platform: 1 = Discord
+        "",  // Discord token (skip)
+        "",  // Discord channelAllowList (empty)
+        "",  // Discord memberAllowList (empty)
+        // Note: Clawlet onboarding skipped (no daemon in test)
+      ];
+
+      await runOnboarding({ appConfigPath });
+    } finally {
+      logSpy.mockRestore();
+    }
+
+    const out = stripAnsi(logs.join("\n"));
+    expect(out).toContain("Saved your settings in ");
+    expect(out).toContain("Saved your tokens and keys in ");
+    expect(out).toContain("Added BOOTSTRAP.md");
+    expect(out).toContain("Built-in skills are ready in ");
+    expect(out).not.toContain("Saved settings to:");
+    expect(out).not.toContain("Saved sensitive values to:");
+    expect(out).not.toContain("Created BOOTSTRAP.md");
+    expect(out).not.toContain("Copied built-in skills to:");
   });
 
   it("writes config with openai api key", async () => {
@@ -332,7 +372,7 @@ describe("onboarding", () => {
 
       // New behavior: explicit reuse prompt, and Telegram prompts are skipped when reused.
       const prompts = promptLog.join("\n");
-      expect(prompts).toContain("Reuse existing Telegram configuration");
+      expect(prompts).toContain("Reuse your existing Telegram setup");
       expect(prompts).not.toContain("Telegram bot token");
 
       // Reused from existing app.yaml
@@ -348,6 +388,64 @@ describe("onboarding", () => {
       if (oldHome === undefined) delete process.env.OWLIABOT_HOME;
       else process.env.OWLIABOT_HOME = oldHome;
     }
+  });
+
+  it("keeps onboarding copy conversational (no internal jargon)", async () => {
+    const appConfigPath = join(dir, "app.yaml");
+
+    // Isolate OWLIABOT_HOME so any local OAuth files don't affect this test.
+    const oldHome = process.env.OWLIABOT_HOME;
+    process.env.OWLIABOT_HOME = join(dir, ".owliabot-home");
+
+    const logs: string[] = [];
+    const logSpy = vi.spyOn(console, "log").mockImplementation((...args: any[]) => {
+      logs.push(args.map(String).join(" "));
+    });
+
+    try {
+      // Seed existing app.yaml + secrets.yaml with Telegram settings.
+      await writeFile(
+        appConfigPath,
+        [
+          "telegram:",
+          "  allowList:",
+          '    - "539066683"',
+          "  groups:",
+          '    "*":',
+          "      requireMention: true",
+          "",
+        ].join("\n"),
+        "utf-8",
+      );
+      await writeFile(
+        join(dir, "secrets.yaml"),
+        ["telegram:", '  token: "existing-token"', ""].join("\n"),
+        "utf-8",
+      );
+
+      answers = [
+        "n", // Want to keep using these settings? -> no (exercise Telegram-specific reuse prompt)
+        "1", // AI provider: 1 = Anthropic
+        "",  // Anthropic key/token (empty = env)
+        "",  // Model (default)
+        "2", // Chat platform: 2 = Telegram
+        "y", // Reuse existing Telegram setup?
+        "",  // write-tools extra IDs (empty)
+      ];
+
+      await runOnboarding({ appConfigPath });
+    } finally {
+      logSpy.mockRestore();
+      if (oldHome === undefined) delete process.env.OWLIABOT_HOME;
+      else process.env.OWLIABOT_HOME = oldHome;
+    }
+
+    const out = stripAnsi(logs.join("\n"));
+    expect(out).toContain("allowed users:");
+    expect(out).toContain("File editing");
+    expect(out).not.toContain("allowList:");
+    expect(out).not.toContain("allowlisted");
+    expect(out).not.toContain("apply_patch");
   });
 
   it("does not treat an env-placeholder Telegram token in app.yaml as a reusable secret", async () => {
@@ -391,7 +489,7 @@ describe("onboarding", () => {
       const secrets = await loadSecrets(appConfigPath);
 
       const prompts = promptLog.join("\n");
-      expect(prompts).toContain("Reuse existing Telegram configuration");
+      expect(prompts).toContain("Reuse your existing Telegram setup");
       // Since the token in app.yaml is just an env placeholder, we should still prompt for a real token.
       expect(prompts).toContain("Telegram bot token");
       expect(secrets?.telegram?.token).toBeUndefined();
@@ -404,6 +502,10 @@ describe("onboarding", () => {
   it("in docker mode, still asks whether to reuse existing Telegram configuration when reusing existing settings", async () => {
     const oldHomeEnv = process.env.HOME;
     const oldOwliabotHome = process.env.OWLIABOT_HOME;
+    const logs: string[] = [];
+    const logSpy = vi.spyOn(console, "log").mockImplementation((...args: any[]) => {
+      logs.push(args.map(String).join(" "));
+    });
 
     // Docker mode always anchors config at $HOME/.owliabot; isolate it per-test.
     process.env.HOME = dir;
@@ -441,8 +543,15 @@ describe("onboarding", () => {
       await runOnboarding({ docker: true, outputDir: dir });
 
       const prompts = promptLog.join("\n");
-      expect(prompts).toContain("Reuse existing Telegram configuration");
+      expect(prompts).toContain("Reuse your existing Telegram setup");
+
+      const out = stripAnsi(logs.join("\n"));
+      expect(out).toContain("token only");
+      expect(out).not.toContain("allowList");
+      expect(out).toContain("Saved docker-compose.yml in ");
+      expect(out).not.toContain("Created ");
     } finally {
+      logSpy.mockRestore();
       if (oldHomeEnv === undefined) delete process.env.HOME;
       else process.env.HOME = oldHomeEnv;
       if (oldOwliabotHome === undefined) delete process.env.OWLIABOT_HOME;

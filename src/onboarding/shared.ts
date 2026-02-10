@@ -141,10 +141,10 @@ export async function selectOption(rl: RL, prompt: string, options: string[]): P
   console.log(prompt);
   options.forEach((opt, i) => console.log(`  ${i + 1}) ${opt}`));
   while (true) {
-    const ans = await ask(rl, `Your choice [1-${options.length}]: `);
+    const ans = await ask(rl, `Pick a number [1-${options.length}]: `);
     const num = parseInt(ans, 10);
     if (num >= 1 && num <= options.length) return num - 1;
-    warn(`Just type a number between 1 and ${options.length}.`);
+    warn(`Please type a number between 1 and ${options.length}.`);
   }
 }
 
