@@ -429,13 +429,13 @@ describe("onboarding", () => {
       );
 
       answers = [
-        "y", // Want to keep using these settings? -> yes
-        "1", // AI provider: 1 = Anthropic
-        "",  // Anthropic key/token (empty = env)
-        "",  // Model (default)
-        "",  // (NEW) Reuse existing Telegram configuration? (default = yes)
-        "",  // Docker host port [8787]
-        "",  // write-tools extra IDs (empty)
+        "y", // "Want to keep using these settings?" -> yes
+        "1", // "Which AI should OwliaBot use?" -> 1 (Anthropic)
+        "",  // "Anthropic setup-token / API key" -> empty (use env)
+        "",  // "Which model should I use?" -> default
+        "",  // "Reuse existing Telegram configuration (token + allowList/groups)?" -> default yes
+        "",  // "Which port should I use on your machine for Gateway HTTP?" -> default
+        "",  // "Extra allowlisted user IDs for write/edit tools?" -> none
       ];
 
       await runOnboarding({ docker: true, outputDir: dir });
