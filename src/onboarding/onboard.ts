@@ -80,10 +80,14 @@ async function saveAppConfigWithComments(config: AppConfig, path: string): Promi
 // Unified config detection
 // ─────────────────────────────────────────────────────────────────────────────
 
+type TelegramGroups = NonNullable<NonNullable<AppConfig["telegram"]>["groups"]>;
+
 interface DetectedConfig extends ExistingConfig {
   openaiCompatKey?: string;
   anthropicOAuth?: boolean;
   openaiOAuth?: boolean;
+  telegramAllowList?: string[];
+  telegramGroups?: TelegramGroups;
 }
 
 /**
@@ -95,28 +99,64 @@ async function detectExistingConfig(
   _dockerMode: boolean,
   appConfigPath: string,
 ): Promise<DetectedConfig | null> {
-  // Both modes: load via secrets loader + check OAuth auth files.
-  // Caller should pass an appConfigPath whose sibling secrets.yaml is the desired
-  // secrets location (local mode: config dir; docker mode: configDir).
   try {
-    const existing = await loadSecrets(appConfigPath);
-    if (!existing) return null;
-
     const result: DetectedConfig = {};
     let hasAny = false;
 
-    if (existing.anthropic?.apiKey) { result.anthropicKey = existing.anthropic.apiKey; hasAny = true; }
-    if (existing.anthropic?.token) { result.anthropicToken = existing.anthropic.token; hasAny = true; }
-    if (existing.openai?.apiKey) { result.openaiKey = existing.openai.apiKey; hasAny = true; }
-    if (existing["openai-compatible"]?.apiKey) { result.openaiCompatKey = existing["openai-compatible"].apiKey; hasAny = true; }
-    if (existing.discord?.token) { result.discordToken = existing.discord.token; hasAny = true; }
-    if (existing.telegram?.token) { result.telegramToken = existing.telegram.token; hasAny = true; }
-    if (existing.gateway?.token) { result.gatewayToken = existing.gateway.token; hasAny = true; }
+    // Both modes: load via secrets loader.
+    // Caller should pass an appConfigPath whose sibling secrets.yaml is the desired
+    // secrets location (local mode: config dir; docker mode: configDir).
+    const secrets = await loadSecrets(appConfigPath);
+    if (secrets) {
+      if (secrets.anthropic?.apiKey) { result.anthropicKey = secrets.anthropic.apiKey; hasAny = true; }
+      if (secrets.anthropic?.token) { result.anthropicToken = secrets.anthropic.token; hasAny = true; }
+      if (secrets.openai?.apiKey) { result.openaiKey = secrets.openai.apiKey; hasAny = true; }
+      if (secrets["openai-compatible"]?.apiKey) { result.openaiCompatKey = secrets["openai-compatible"].apiKey; hasAny = true; }
+      if (secrets.discord?.token) { result.discordToken = secrets.discord.token; hasAny = true; }
+      if (secrets.telegram?.token) { result.telegramToken = secrets.telegram.token; hasAny = true; }
+      if (secrets.gateway?.token) { result.gatewayToken = secrets.gateway.token; hasAny = true; }
 
-    // Check OAuth tokens (same location for both modes)
-    const authDir = join(ensureOwliabotHomeEnv(), "auth");
-    if (existsSync(join(authDir, "anthropic.json"))) { result.anthropicOAuth = true; hasAny = true; }
-    if (existsSync(join(authDir, "openai-codex.json"))) { result.openaiOAuth = true; hasAny = true; }
+      // Check OAuth tokens (same location for both modes).
+      // Keep prior behavior: only check OAuth when secrets.yaml exists to avoid
+      // surprising prompts in test/CI environments.
+      const authDir = join(ensureOwliabotHomeEnv(), "auth");
+      if (existsSync(join(authDir, "anthropic.json"))) { result.anthropicOAuth = true; hasAny = true; }
+      if (existsSync(join(authDir, "openai-codex.json"))) { result.openaiOAuth = true; hasAny = true; }
+    }
+
+    // Best-effort: detect Telegram allowList/groups from app.yaml so we can offer reuse.
+    try {
+      if (existsSync(appConfigPath)) {
+        const raw = yamlParse(readFileSync(appConfigPath, "utf-8")) as any;
+        const tg = raw?.telegram;
+        if (tg && typeof tg === "object") {
+          const allowList = Array.isArray(tg.allowList)
+            ? tg.allowList.map((v: unknown) => (typeof v === "string" ? v.trim() : "")).filter(Boolean)
+            : [];
+          if (allowList.length > 0) {
+            result.telegramAllowList = allowList;
+            hasAny = true;
+          }
+
+          const groups = tg.groups && typeof tg.groups === "object"
+            ? (tg.groups as TelegramGroups)
+            : undefined;
+          if (groups && Object.keys(groups).length > 0) {
+            result.telegramGroups = groups;
+            hasAny = true;
+          }
+
+          // If user stored the token directly in app.yaml (or via ${TELEGRAM_BOT_TOKEN}),
+          // treat it as an existing token for reuse prompts.
+          if (!result.telegramToken && typeof tg.token === "string" && tg.token.trim().length > 0) {
+            result.telegramToken = tg.token.trim();
+            hasAny = true;
+          }
+        }
+      }
+    } catch {
+      // ignore
+    }
 
     // Keep behavior parity: only return non-empty.
     return hasAny ? result : null;
@@ -346,11 +386,15 @@ interface ChannelResult {
   telegramEnabled: boolean;
   discordToken: string;
   telegramToken: string;
+  reuseTelegramConfig: boolean;
+  telegramAllowList?: string[];
+  telegramGroups?: TelegramGroups;
 }
 
 async function askChannels(
   rl: ReturnType<typeof createInterface>,
   secrets: SecretsConfig,
+  existing: DetectedConfig | null,
 ): Promise<ChannelResult> {
   const chatChoice = await selectOption(rl, "Where should OwliaBot chat with you?", [
     "Discord",
@@ -362,6 +406,37 @@ async function askChannels(
   const telegramEnabled = chatChoice === 1 || chatChoice === 2;
   let discordToken = "";
   let telegramToken = "";
+  let reuseTelegramConfig = false;
+  let telegramAllowList: string[] | undefined;
+  let telegramGroups: TelegramGroups | undefined;
+
+  // Telegram reuse prompt (only when user selected Telegram and we detected existing settings).
+  if (telegramEnabled && existing) {
+    const allowCount = existing.telegramAllowList?.length ?? 0;
+    const groupCount = existing.telegramGroups ? Object.keys(existing.telegramGroups).length : 0;
+    const hasExistingTelegram = Boolean(existing.telegramToken) || allowCount > 0 || groupCount > 0;
+
+    if (hasExistingTelegram) {
+      console.log("");
+      info(`I found existing Telegram settings (allowList: ${allowCount}, groups: ${groupCount}).`);
+      const reuse = await askYN(
+        rl,
+        "Reuse existing Telegram configuration (token + allowList/groups)?",
+        true,
+      );
+      if (reuse) {
+        reuseTelegramConfig = true;
+        telegramAllowList = existing.telegramAllowList;
+        telegramGroups = existing.telegramGroups;
+
+        if (existing.telegramToken) {
+          secrets.telegram = { token: existing.telegramToken };
+          telegramToken = existing.telegramToken;
+        }
+        success("Got it. I'll reuse your existing Telegram configuration.");
+      }
+    }
+  }
 
   if (discordEnabled) {
     console.log("");
@@ -381,21 +456,32 @@ async function askChannels(
   }
 
   if (telegramEnabled) {
-    console.log("");
-    info("Create a bot with BotFather: https://t.me/BotFather");
-    const token = await ask(
-      rl,
-      "Paste your Telegram bot token (or press Enter to do this later): ",
-      true,
-    );
-    if (token) {
-      secrets.telegram = { token };
-      telegramToken = token;
-      success("Got it. I'll use that Telegram token.");
+    // If we chose to reuse and a token exists, skip the token prompt.
+    if (!(reuseTelegramConfig && telegramToken)) {
+      console.log("");
+      info("Create a bot with BotFather: https://t.me/BotFather");
+      const token = await ask(
+        rl,
+        "Paste your Telegram bot token (or press Enter to do this later): ",
+        true,
+      );
+      if (token) {
+        secrets.telegram = { token };
+        telegramToken = token;
+        success("Got it. I'll use that Telegram token.");
+      }
     }
   }
 
-  return { discordEnabled, telegramEnabled, discordToken, telegramToken };
+  return {
+    discordEnabled,
+    telegramEnabled,
+    discordToken,
+    telegramToken,
+    reuseTelegramConfig,
+    telegramAllowList,
+    telegramGroups,
+  };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -570,6 +656,9 @@ interface ChannelsSetup {
   telegramEnabled: boolean;
   discordToken: string;
   telegramToken: string;
+  reuseTelegramConfig: boolean;
+  telegramAllowList?: string[];
+  telegramGroups?: TelegramGroups;
 }
 
 async function getChannelsSetup(
@@ -603,10 +692,20 @@ async function getChannelsSetup(
     if (!discordToken && !telegramToken) {
       warn("No chat token yet. You can add it later.");
     }
-    return { discordEnabled, telegramEnabled, discordToken, telegramToken };
+    return {
+      discordEnabled,
+      telegramEnabled,
+      discordToken,
+      telegramToken,
+      // If we're reusing existing credentials, also keep existing Telegram config
+      // to avoid overwriting allowList/groups with prompts.
+      reuseTelegramConfig: telegramEnabled,
+      telegramAllowList: telegramEnabled ? existing?.telegramAllowList : undefined,
+      telegramGroups: telegramEnabled ? existing?.telegramGroups : undefined,
+    };
   }
 
-  const ch = await askChannels(rl, secrets);
+  const ch = await askChannels(rl, secrets, existing);
   if (!ch.discordToken && !ch.telegramToken) {
     warn("No chat token yet. You can add it later.");
   }
@@ -817,6 +916,9 @@ async function buildAppConfigFromPrompts(
   secrets: SecretsConfig,
   discordEnabled: boolean,
   telegramEnabled: boolean,
+  reuseTelegramConfig: boolean,
+  telegramAllowList: string[] | undefined,
+  telegramGroups: TelegramGroups | undefined,
 ): Promise<{ config: AppConfig; workspacePath: string; writeToolAllowList: string[] | null }> {
   // Keep local + docker onboarding aligned: workspace is always created next to app.yaml
   // and referenced via a relative path for portability.
@@ -834,7 +936,18 @@ async function buildAppConfigFromPrompts(
 
   const userAllowLists: UserAllowLists = { discord: [], telegram: [] };
   if (discordEnabled) await configureDiscordConfig(rl, config, userAllowLists);
-  if (telegramEnabled) await configureTelegramConfig(rl, config, userAllowLists);
+  if (telegramEnabled) {
+    if (reuseTelegramConfig) {
+      const allowList = (telegramAllowList ?? []).map((s) => s.trim()).filter(Boolean);
+      userAllowLists.telegram = allowList;
+      config.telegram = {
+        ...(allowList.length > 0 && { allowList }),
+        ...(telegramGroups && Object.keys(telegramGroups).length > 0 && { groups: telegramGroups }),
+      };
+    } else {
+      await configureTelegramConfig(rl, config, userAllowLists);
+    }
+  }
 
   await configureWallet(rl, secrets, config);
   const writeToolAllowList = await configureWriteToolsSecurity(rl, config, userAllowLists);
@@ -1192,6 +1305,9 @@ export async function runOnboarding(options: OnboardOptions = {}): Promise<void>
       secrets,
       channels.discordEnabled,
       channels.telegramEnabled,
+      channels.reuseTelegramConfig,
+      channels.telegramAllowList,
+      channels.telegramGroups,
     );
     const resolvedWriteToolAllowList = deriveWriteToolAllowListFromConfig(config) ?? writeToolAllowList;
     config.timezone = tz;
