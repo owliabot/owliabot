@@ -79,12 +79,12 @@ npm install
 npx tsx src/entry.ts onboard
 ```
 
-	The wizard will guide you through:
-	- Choosing channels (Discord / Telegram)
-	- Auto-detecting timezone (editable in config)
-	- Selecting AI model
-	- Optional OAuth authentication
-	- Channel token configuration
+    The wizard will guide you through:
+    - Choosing channels (Discord / Telegram)
+    - Auto-detecting timezone (editable in config)
+    - Selecting AI model
+    - Optional OAuth authentication
+    - Channel token configuration
 
 Config is saved to `$OWLIABOT_HOME/app.yaml` (default: `~/.owliabot/app.yaml`), secrets to `$OWLIABOT_HOME/secrets.yaml`.
 
