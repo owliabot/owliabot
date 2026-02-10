@@ -66,28 +66,28 @@ export function createPlaywrightConfig(options?: {
  * so they should be at least "write" level
  */
 export const playwrightSecurityOverrides: Record<string, MCPSecurityOverride> = {
-  // Navigation tools - write level (changes page state)
-  "playwright__browser_navigate": { level: "write" },
-  "playwright__browser_go_back": { level: "write" },
-  "playwright__browser_go_forward": { level: "write" },
-  "playwright__browser_refresh": { level: "write" },
+  // Navigation tools - read level (browser interaction)
+  "playwright__browser_navigate": { level: "read" },
+  "playwright__browser_go_back": { level: "read" },
+  "playwright__browser_go_forward": { level: "read" },
+  "playwright__browser_refresh": { level: "read" },
   
-  // Interaction tools - write level (modifies page)
-  "playwright__browser_click": { level: "write" },
-  "playwright__browser_type": { level: "write" },
-  "playwright__browser_fill": { level: "write" },
-  "playwright__browser_select": { level: "write" },
-  "playwright__browser_check": { level: "write" },
-  "playwright__browser_uncheck": { level: "write" },
-  "playwright__browser_press": { level: "write" },
-  "playwright__browser_scroll": { level: "write" },
-  "playwright__browser_hover": { level: "write" },
-  "playwright__browser_drag": { level: "write" },
+  // Interaction tools - read level (browser interaction)
+  "playwright__browser_click": { level: "read" },
+  "playwright__browser_type": { level: "read" },
+  "playwright__browser_fill": { level: "read" },
+  "playwright__browser_select": { level: "read" },
+  "playwright__browser_check": { level: "read" },
+  "playwright__browser_uncheck": { level: "read" },
+  "playwright__browser_press": { level: "read" },
+  "playwright__browser_scroll": { level: "read" },
+  "playwright__browser_hover": { level: "read" },
+  "playwright__browser_drag": { level: "read" },
   
-  // Tab/window management - write level
-  "playwright__browser_new_tab": { level: "write" },
-  "playwright__browser_close_tab": { level: "write" },
-  "playwright__browser_switch_tab": { level: "write" },
+  // Tab/window management - read level
+  "playwright__browser_new_tab": { level: "read" },
+  "playwright__browser_close_tab": { level: "read" },
+  "playwright__browser_switch_tab": { level: "read" },
   
   // Screenshot/PDF - read level (doesn't modify state)
   "playwright__browser_screenshot": { level: "read" },

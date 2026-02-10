@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import {
   loadOAuthCredentials,
   saveOAuthCredentials,
@@ -6,6 +6,7 @@ import {
   getOAuthStatus,
   refreshOAuthCredentials,
   getAllOAuthStatus,
+  isHeadlessEnvironment,
   type SupportedOAuthProvider,
 } from "../oauth.js";
 import { readFile, writeFile, mkdir, unlink } from "node:fs/promises";
@@ -206,6 +207,46 @@ describe("oauth", () => {
       expect(statuses["openai-codex"].authenticated).toBe(true);
       // Anthropic is no longer included in OAuth status (uses setup-token)
       expect("anthropic" in statuses).toBe(false);
+    });
+  });
+
+  describe("isHeadlessEnvironment", () => {
+    const originalPlatform = process.platform;
+    const originalEnv = { ...process.env };
+
+    afterEach(() => {
+      Object.defineProperty(process, "platform", { value: originalPlatform });
+      process.env = { ...originalEnv };
+    });
+
+    it("should return false on macOS", () => {
+      Object.defineProperty(process, "platform", { value: "darwin" });
+      expect(isHeadlessEnvironment()).toBe(false);
+    });
+
+    it("should return false on Windows", () => {
+      Object.defineProperty(process, "platform", { value: "win32" });
+      expect(isHeadlessEnvironment()).toBe(false);
+    });
+
+    it("should return true on Linux with no DISPLAY", () => {
+      Object.defineProperty(process, "platform", { value: "linux" });
+      delete process.env.DISPLAY;
+      delete process.env.WAYLAND_DISPLAY;
+      expect(isHeadlessEnvironment()).toBe(true);
+    });
+
+    it("should return false on Linux with DISPLAY set", () => {
+      Object.defineProperty(process, "platform", { value: "linux" });
+      process.env.DISPLAY = ":0";
+      expect(isHeadlessEnvironment()).toBe(false);
+    });
+
+    it("should return false on Linux with WAYLAND_DISPLAY set", () => {
+      Object.defineProperty(process, "platform", { value: "linux" });
+      delete process.env.DISPLAY;
+      process.env.WAYLAND_DISPLAY = "wayland-0";
+      expect(isHeadlessEnvironment()).toBe(false);
     });
   });
 
