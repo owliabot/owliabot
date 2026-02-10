@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { runOnboarding } from "../onboard.js";
 import { loadAppConfig } from "../storage.js";
 import { loadSecrets } from "../secrets.js";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -282,5 +282,122 @@ describe("onboarding", () => {
     expect(config?.discord?.channelAllowList).toEqual([]);
     expect(config?.discord?.memberAllowList).toBeUndefined();
     expect(config?.telegram?.allowList).toBeUndefined();
+  });
+
+  it("prompts to reuse existing Telegram config and preserves allowList/groups when reused", async () => {
+    const appConfigPath = join(dir, "app.yaml");
+
+    // Isolate OWLIABOT_HOME so any local OAuth files don't affect this test.
+    const oldHome = process.env.OWLIABOT_HOME;
+    process.env.OWLIABOT_HOME = join(dir, ".owliabot-home");
+    try {
+      // Seed existing app.yaml + secrets.yaml with Telegram settings.
+      await writeFile(
+        appConfigPath,
+        [
+          "telegram:",
+          "  allowList:",
+          '    - "539066683"',
+          "  groups:",
+          '    "*":',
+          "      requireMention: true",
+          '    "-100123":',
+          "      requireMention: false",
+          "      historyLimit: 200",
+          "",
+        ].join("\n"),
+        "utf-8",
+      );
+      await writeFile(
+        join(dir, "secrets.yaml"),
+        ["telegram:", '  token: "existing-token"', ""].join("\n"),
+        "utf-8",
+      );
+
+      answers = [
+        "n",         // Want to keep using these settings? -> no (test Telegram-specific reuse)
+        "1",         // AI provider: 1 = Anthropic
+        "",          // Anthropic key/token (empty = env)
+        "",          // Model (default)
+        "2",         // Chat platform: 2 = Telegram
+        "y",         // Reuse existing Telegram config?
+        "539066683", // write-tools extra IDs (harmless duplicate)
+        "",          // write-tools extra IDs (empty)
+      ];
+
+      await runOnboarding({ appConfigPath });
+
+      const config = await loadAppConfig(appConfigPath);
+      const secrets = await loadSecrets(appConfigPath);
+
+      // New behavior: explicit reuse prompt, and Telegram prompts are skipped when reused.
+      const prompts = promptLog.join("\n");
+      expect(prompts).toContain("Reuse existing Telegram configuration");
+      expect(prompts).not.toContain("Telegram bot token");
+
+      // Reused from existing app.yaml
+      expect(config?.telegram?.allowList).toEqual(["539066683"]);
+      expect(config?.telegram?.groups).toEqual({
+        "*": { requireMention: true },
+        "-100123": { requireMention: false, historyLimit: 200 },
+      });
+
+      // Reused from existing secrets.yaml
+      expect(secrets?.telegram?.token).toBe("existing-token");
+    } finally {
+      if (oldHome === undefined) delete process.env.OWLIABOT_HOME;
+      else process.env.OWLIABOT_HOME = oldHome;
+    }
+  });
+
+  it("does not treat an env-placeholder Telegram token in app.yaml as a reusable secret", async () => {
+    const appConfigPath = join(dir, "app.yaml");
+
+    // Isolate OWLIABOT_HOME so any local OAuth files don't affect this test.
+    const oldHome = process.env.OWLIABOT_HOME;
+    process.env.OWLIABOT_HOME = join(dir, ".owliabot-home");
+
+    try {
+      // Seed existing app.yaml with Telegram settings and an env placeholder token.
+      // This should NOT be copied into secrets.yaml when reusing.
+      await writeFile(
+        appConfigPath,
+        [
+          "telegram:",
+          '  token: "${TELEGRAM_BOT_TOKEN}"',
+          "  allowList:",
+          '    - "539066683"',
+          "  groups:",
+          '    "*":',
+          "      requireMention: true",
+          "",
+        ].join("\n"),
+        "utf-8",
+      );
+
+      answers = [
+        "n", // Want to keep using these settings? -> no (test Telegram-specific reuse)
+        "1", // AI provider: 1 = Anthropic
+        "",  // Anthropic key/token (empty = env)
+        "",  // Model (default)
+        "2", // Chat platform: 2 = Telegram
+        "y", // Reuse existing Telegram config?
+        "",  // Telegram bot token (leave empty to keep env-based setup)
+        "",  // write-tools extra IDs (empty)
+      ];
+
+      await runOnboarding({ appConfigPath });
+
+      const secrets = await loadSecrets(appConfigPath);
+
+      const prompts = promptLog.join("\n");
+      expect(prompts).toContain("Reuse existing Telegram configuration");
+      // Since the token in app.yaml is just an env placeholder, we should still prompt for a real token.
+      expect(prompts).toContain("Telegram bot token");
+      expect(secrets?.telegram?.token).toBeUndefined();
+    } finally {
+      if (oldHome === undefined) delete process.env.OWLIABOT_HOME;
+      else process.env.OWLIABOT_HOME = oldHome;
+    }
   });
 });
