@@ -361,8 +361,6 @@ describe("onboarding", () => {
         "",          // Model (default)
         "2",         // Chat platform: 2 = Telegram
         "y",         // Reuse existing Telegram config?
-        "539066683", // write-tools extra IDs (harmless duplicate)
-        "",          // write-tools extra IDs (empty)
       ];
 
       await runOnboarding({ appConfigPath });
@@ -430,7 +428,6 @@ describe("onboarding", () => {
         "",  // Model (default)
         "2", // Chat platform: 2 = Telegram
         "y", // Reuse existing Telegram setup?
-        "",  // write-tools extra IDs (empty)
       ];
 
       await runOnboarding({ appConfigPath });
@@ -442,7 +439,7 @@ describe("onboarding", () => {
 
     const out = stripAnsi(logs.join("\n"));
     expect(out).toContain("allowed users:");
-    expect(out).toContain("File editing");
+    // configureWriteToolsSecurity prompt was removed; write-tool allowlist is now auto-derived
     expect(out).not.toContain("allowList:");
     expect(out).not.toContain("allowlisted");
     expect(out).not.toContain("apply_patch");
@@ -481,7 +478,6 @@ describe("onboarding", () => {
         "2", // Chat platform: 2 = Telegram
         "y", // Reuse existing Telegram config?
         "",  // Telegram bot token (leave empty to keep env-based setup)
-        "",  // write-tools extra IDs (empty)
       ];
 
       await runOnboarding({ appConfigPath });
