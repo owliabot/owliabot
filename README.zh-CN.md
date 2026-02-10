@@ -94,6 +94,7 @@ npx tsx src/entry.ts start -c config.yaml
 | 命令 | 描述 |
 |------|------|
 | `start` | 启动机器人 |
+| `doctor` | 诊断启动失败（配置/Token）并引导修复 |
 | `onboard` | 交互式设置向导 |
 | `auth setup [provider]` | 设置 OAuth（anthropic 或 openai-codex） |
 | `auth status [provider]` | 检查认证状态 |
@@ -106,6 +107,12 @@ npx tsx src/entry.ts start -c config.yaml
 ```bash
 # 交互式设置
 npx tsx src/entry.ts onboard
+
+# 诊断启动问题（配置错误 / Token 格式错误）
+npx tsx src/entry.ts doctor
+
+# Docker 模式诊断（容器内执行）
+docker exec -it owliabot owliabot doctor
 
 # 使用默认配置启动（$OWLIABOT_HOME/app.yaml，默认：~/.owliabot/app.yaml）
 npx tsx src/entry.ts start

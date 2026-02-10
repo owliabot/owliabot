@@ -53,6 +53,12 @@ Then start with:
 docker-compose up -d
 ```
 
+If the container fails to start or channels/providers are misconfigured, run:
+
+```bash
+docker exec -it owliabot owliabot doctor
+```
+
 See [Docker Installation Guide](docs/docker-install.md) for details.
 
 ---
@@ -119,6 +125,7 @@ All commands use `npx tsx src/entry.ts <command>`:
 | Command | Description |
 |---------|-------------|
 | `start` | Start the bot |
+| `doctor` | Diagnose startup failures (config/tokens) and guide fixes |
 | `onboard` | Interactive setup wizard |
 | `auth setup [provider]` | Setup OAuth (anthropic or openai-codex) |
 | `auth status [provider]` | Check auth status |
@@ -131,6 +138,9 @@ All commands use `npx tsx src/entry.ts <command>`:
 ```bash
 # Interactive onboarding
 npx tsx src/entry.ts onboard
+
+# Diagnose startup issues (config errors / malformed tokens)
+npx tsx src/entry.ts doctor
 
 # Start with default config ($OWLIABOT_HOME/app.yaml; default: ~/.owliabot/app.yaml)
 npx tsx src/entry.ts start
