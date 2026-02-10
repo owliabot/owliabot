@@ -30,8 +30,8 @@ export async function detectExistingConfig(
     if (existing.gateway?.token) { result.gatewayToken = existing.gateway.token; hasAny = true; }
 
     const authDir = join(ensureOwliabotHomeEnv(), "auth");
-    if (existsSync(join(authDir, "anthropic.json"))) { result.anthropicOAuth = true; hasAny = true; }
-    if (existsSync(join(authDir, "openai-codex.json"))) { result.openaiOAuth = true; hasAny = true; }
+    if (existsSync(join(authDir, "auth-anthropic.json"))) { result.anthropicOAuth = true; hasAny = true; }
+    if (existsSync(join(authDir, "auth-openai-codex.json"))) { result.openaiOAuth = true; hasAny = true; }
 
     return hasAny ? result : null;
   } catch {
@@ -52,9 +52,9 @@ export function printExistingConfigSummary(
     info(`Found Anthropic API key: ${existing.anthropicKey.slice(0, truncLen)}...`);
   }
   if (existing.anthropicToken) info("Found Anthropic setup-token");
-  if (dockerMode && existing.anthropicOAuth) info("Found Anthropic OAuth token");
+  if (existing.anthropicOAuth) info("Found Anthropic OAuth token");
   if (existing.openaiKey) info(`Found OpenAI API key: ${existing.openaiKey.slice(0, 10)}...`);
-  if (dockerMode && existing.openaiOAuth) info("Found OpenAI OAuth token (openai-codex)");
+  if (existing.openaiOAuth) info("Found OpenAI OAuth token (openai-codex)");
   if (existing.discordToken) info(`Found Discord token: ${existing.discordToken.slice(0, 20)}...`);
   if (existing.telegramToken) info(`Found Telegram token: ${existing.telegramToken.slice(0, 10)}...`);
   if (dockerMode && existing.gatewayToken) info(`Found Gateway token: ${existing.gatewayToken.slice(0, 10)}...`);

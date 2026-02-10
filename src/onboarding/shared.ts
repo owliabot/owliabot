@@ -225,8 +225,8 @@ export function detectExistingConfig(configDir: string): ExistingConfig | null {
   
   // Check OAuth tokens
   if (existsSync(authDir)) {
-    result.hasOAuthAnthro = existsSync(join(authDir, "anthropic.json"));
-    result.hasOAuthCodex = existsSync(join(authDir, "openai-codex.json"));
+    result.hasOAuthAnthro = existsSync(join(authDir, "auth-anthropic.json"));
+    result.hasOAuthCodex = existsSync(join(authDir, "auth-openai-codex.json"));
   }
   
   // Return null if nothing found
