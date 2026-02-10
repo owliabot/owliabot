@@ -47,13 +47,13 @@ import { initializeSkills, type SkillsInitResult } from "../skills/index.js";
 import { createInfraStore, hashMessage, type InfraStore } from "../infra/index.js";
 import { MCPManager, createMCPManager } from "../mcp/manager.js";
 import { expandMCPPresets } from "../mcp/presets.js";
+import { applyPlaywrightDefaults } from "../mcp/servers/playwright.js";
 import { startGatewayHttp } from "./http/server.js";
 import { runBootOnce } from "./boot.js";
 import { join, dirname, resolve } from "node:path";
 import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { existsSync, mkdirSync } from "node:fs";
-import { createMCPTools, type CreateMCPToolsResult } from "../mcp/index.js";
 import {
   defaultGatewayDir,
   defaultUserSkillsDir,
@@ -270,7 +270,9 @@ export async function startGateway(
     const mcpConfig = config.mcp;
     // Expand presets into server configs
     const presetServers = expandMCPPresets(mcpConfig.presets ?? []);
-    const allServers = [...presetServers, ...(mcpConfig.servers ?? [])];
+    const allServers = [...presetServers, ...(mcpConfig.servers ?? [])].map(
+      applyPlaywrightDefaults
+    );
 
     if (allServers.length > 0) {
       mcpManager = createMCPManager({
@@ -478,26 +480,7 @@ export async function startGateway(
   // Register cron tool
   tools.register(createCronTool({ cronService: cronIntegration.cronService }));
 
-  // Initialize MCP servers and register their tools (enabled by default with Playwright preset)
-  let mcpResult: CreateMCPToolsResult | null = null;
-  if (config.mcp && config.mcp.servers.length > 0) {
-    try {
-      mcpResult = await createMCPTools(config.mcp);
-      for (const tool of mcpResult.tools) {
-        tools.register(tool);
-      }
-      if (mcpResult.failed.length > 0) {
-        for (const f of mcpResult.failed) {
-          log.warn(`MCP server "${f.name}" failed to connect: ${f.error}`);
-        }
-      }
-      log.info(
-        `MCP: ${mcpResult.tools.length} tools loaded from ${mcpResult.clients.size} server(s)`,
-      );
-    } catch (err) {
-      log.error(`MCP initialization failed: ${err instanceof Error ? err.message : String(err)}`);
-    }
-  }
+  // MCP initialization is handled above via MCPManager to avoid duplicate connections.
 
   // Start Gateway HTTP if enabled
   // Phase 2 Unification: HTTP API as a Channel Adapter, requiring shared resources
@@ -628,9 +611,6 @@ export async function startGateway(
     if (infraStore) {
       infraStore.cleanup(Date.now());
       infraStore.close();
-    }
-    if (mcpResult) {
-      await mcpResult.close();
     }
     if (stopHttp) {
       await stopHttp();

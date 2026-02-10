@@ -36,6 +36,28 @@ export function createPlaywrightConfig(options?: {
   env?: Record<string, string>;
 }): MCPServerConfig {
   const { headless = true, browser, env = {} } = options ?? {};
+  const chromiumPath = process.env.OWLIABOT_PLAYWRIGHT_CHROMIUM_PATH;
+  const noSandboxRaw = process.env.PLAYWRIGHT_MCP_NO_SANDBOX;
+  const useNoSandbox =
+    typeof noSandboxRaw === "string" &&
+    noSandboxRaw.length > 0 &&
+    noSandboxRaw !== "0" &&
+    noSandboxRaw.toLowerCase() !== "false";
+  const useSystemChromium = !browser && typeof chromiumPath === "string" && chromiumPath.length > 0;
+  const resolvedBrowser = useSystemChromium ? "chrome" : browser;
+  const resolvedEnv = { ...env };
+
+  if (useSystemChromium) {
+    if (!resolvedEnv.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH) {
+      resolvedEnv.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH = chromiumPath;
+    }
+    if (!resolvedEnv.PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD) {
+      resolvedEnv.PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD = "1";
+    }
+  }
+  if (useNoSandbox && !resolvedEnv.PLAYWRIGHT_MCP_NO_SANDBOX) {
+    resolvedEnv.PLAYWRIGHT_MCP_NO_SANDBOX = "1";
+  }
 
   // Build CLI args
   const args = ["--yes", "@playwright/mcp@latest"];
@@ -44,14 +66,20 @@ export function createPlaywrightConfig(options?: {
     args.push("--headless");
   }
 
-  if (browser) {
-    args.push("--browser", browser);
+  if (resolvedBrowser) {
+    args.push("--browser", resolvedBrowser);
+    if (useSystemChromium && chromiumPath) {
+      args.push("--executable-path", chromiumPath);
+    }
+  }
+  if (useNoSandbox && !args.includes("--no-sandbox")) {
+    args.push("--no-sandbox");
   }
 
   return {
     ...playwrightServerConfig,
     args,
-    env,
+    env: resolvedEnv,
   };
 }
 
@@ -141,6 +169,64 @@ export function getPlaywrightPreset(options?: {
       ...playwrightSecurityOverrides,
       ...(options?.additionalOverrides ?? {}),
     },
+  };
+}
+
+/**
+ * Apply runtime defaults for explicit Playwright server configs.
+ * Useful when config was authored without presets (e.g. onboard output).
+ */
+export function applyPlaywrightDefaults(
+  config: MCPServerConfig
+): MCPServerConfig {
+  if (config.name !== "playwright") return config;
+
+  const chromiumPath = process.env.OWLIABOT_PLAYWRIGHT_CHROMIUM_PATH;
+  const noSandboxRaw = process.env.PLAYWRIGHT_MCP_NO_SANDBOX;
+  const useNoSandbox =
+    typeof noSandboxRaw === "string" &&
+    noSandboxRaw.length > 0 &&
+    noSandboxRaw !== "0" &&
+    noSandboxRaw.toLowerCase() !== "false";
+  const hasChromiumPath = typeof chromiumPath === "string" && chromiumPath.length > 0;
+
+  const args = config.args ?? [];
+  const browserIndex = args.indexOf("--browser");
+  const hasBrowserArg = browserIndex >= 0;
+  const browserValue = hasBrowserArg ? args[browserIndex + 1] : undefined;
+  const hasExecutablePathArg = args.includes("--executable-path");
+  const shouldForceChrome = hasChromiumPath && !hasBrowserArg;
+  const shouldUseExecutablePath =
+    hasChromiumPath &&
+    !hasExecutablePathArg &&
+    (browserValue === undefined || browserValue === "chrome");
+  const nextArgs = [...args];
+
+  if (shouldForceChrome) {
+    nextArgs.push("--browser", "chrome");
+  }
+  if (shouldUseExecutablePath) {
+    nextArgs.push("--executable-path", chromiumPath);
+  }
+  if (useNoSandbox && !nextArgs.includes("--no-sandbox")) {
+    nextArgs.push("--no-sandbox");
+  }
+
+  const nextEnv = { ...(config.env ?? {}) };
+  if (hasChromiumPath && !nextEnv.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH) {
+    nextEnv.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH = chromiumPath;
+  }
+  if (hasChromiumPath && !nextEnv.PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD) {
+    nextEnv.PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD = "1";
+  }
+  if (useNoSandbox && !nextEnv.PLAYWRIGHT_MCP_NO_SANDBOX) {
+    nextEnv.PLAYWRIGHT_MCP_NO_SANDBOX = "1";
+  }
+
+  return {
+    ...config,
+    args: nextArgs,
+    env: nextEnv,
   };
 }
 

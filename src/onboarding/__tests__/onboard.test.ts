@@ -104,8 +104,7 @@ describe("onboarding", () => {
       "123456789",         // Discord memberAllowList
       "539066683",         // Telegram allowList
       // Note: Clawlet onboarding is skipped (no daemon in test environment)
-      "",                  // writeToolAllowList (use default from channels)
-      "y",           // Enable Playwright MCP
+      "y",                 // Enable Playwright MCP
     ];
 
     await runOnboarding({ appConfigPath });
@@ -132,7 +131,7 @@ describe("onboarding", () => {
     expect(config?.telegram && "token" in config.telegram).toBe(false);
     expect(config?.tools?.allowWrite).toBe(true);
     expect(config?.security?.writeToolAllowList).toEqual(["123456789", "539066683"]);
-    expect(config?.security?.writeGateEnabled).toBe(false);
+    expect(config?.security?.writeGateEnabled).toBe(true);
     expect(config?.security?.writeToolConfirmation).toBe(false);
 
     expect(secrets?.discord?.token).toBe("discord-secret");
@@ -156,13 +155,14 @@ describe("onboarding", () => {
         "1", // AI provider: 1 = Anthropic
         "",  // Anthropic key/token (empty = env)
         "1", // Model: 1 = default
-        "1", // Chat platform: 1 = Discord
-        "",  // Discord token (skip)
-        "",  // Discord channelAllowList (empty)
-        "",  // Discord memberAllowList (empty)
-        // Note: Clawlet onboarding skipped (no daemon in test)
-        "y",         // Enable Playwright MCP
-      ];
+      "1", // Chat platform: 1 = Discord
+      "",  // Discord token (skip)
+      "",  // Discord channelAllowList (empty)
+      "",  // Discord memberAllowList (empty)
+      // Note: Clawlet onboarding skipped (no daemon in test)
+      "y",         // Enable Playwright MCP
+      "",          // Write-tool allowlist (skip)
+    ];
 
       await runOnboarding({ appConfigPath });
     } finally {
@@ -192,6 +192,7 @@ describe("onboarding", () => {
       "",                  // Discord memberAllowList (empty)
       // Note: Clawlet onboarding skipped (no daemon in test)
       "y",                 // Enable Playwright MCP
+      "",                  // Write-tool allowlist (skip)
     ];
 
     await runOnboarding({ appConfigPath });
@@ -218,6 +219,7 @@ describe("onboarding", () => {
       "",                  // Discord memberAllowList (empty)
       // Note: Clawlet onboarding skipped (no daemon in test)
       "y",                 // Enable Playwright MCP
+      "",                  // Write-tool allowlist (skip)
     ];
 
     await runOnboarding({ appConfigPath });
@@ -242,6 +244,7 @@ describe("onboarding", () => {
       "",                  // Discord memberAllowList (empty)
       // Note: Clawlet onboarding skipped (no daemon in test)
       "y",                 // Enable Playwright MCP
+      "",                  // Write-tool allowlist (skip)
     ];
 
     await runOnboarding({ appConfigPath });
@@ -270,6 +273,7 @@ describe("onboarding", () => {
       "",                  // Discord memberAllowList (empty)
       // Note: Clawlet onboarding skipped (no daemon in test)
       "y",                 // Enable Playwright MCP
+      "",                  // Write-tool allowlist (skip)
     ];
 
     await runOnboarding({ appConfigPath });
@@ -292,6 +296,7 @@ describe("onboarding", () => {
       "",                  // Telegram allowList (empty)
       // Note: Clawlet onboarding skipped (no daemon in test)
       "y",                 // Enable Playwright MCP
+      "",                  // Write-tool allowlist (skip)
     ];
 
     await runOnboarding({ appConfigPath });
@@ -317,6 +322,7 @@ describe("onboarding", () => {
       "",                  // Discord memberAllowList (empty)
       // Note: Clawlet onboarding skipped (no daemon in test)
       "y",                 // Enable Playwright MCP
+      "",                  // Write-tool allowlist (skip)
     ];
 
     await runOnboarding({ appConfigPath });
@@ -341,6 +347,7 @@ describe("onboarding", () => {
       "",                  // Telegram allowList (empty)
       // Note: Clawlet onboarding skipped (no daemon in test)
       "y",                 // Enable Playwright MCP
+      "",                  // Write-tool allowlist (skip)
     ];
 
     await runOnboarding({ appConfigPath });
@@ -352,6 +359,33 @@ describe("onboarding", () => {
     expect(config?.discord?.channelAllowList).toEqual([]);
     expect(config?.discord?.memberAllowList).toBeUndefined();
     expect(config?.telegram?.allowList).toBeUndefined();
+  });
+
+  it("prompts for write-tool allowlist when Playwright is enabled without channel allowlists", async () => {
+    const appConfigPath = join(dir, "app.yaml");
+
+    answers = [
+      "1",                 // AI provider: 1 = Anthropic
+      "",                  // API key (env)
+      "1",                 // Model: 1 = default
+      "1",                 // Chat platform: 1 = Discord
+      "",                  // Discord token (skip)
+      "",                  // Discord channelAllowList (empty)
+      "",                  // Discord memberAllowList (empty)
+      // Note: Clawlet onboarding skipped (no daemon in test)
+      "y",                 // Enable Playwright MCP
+      "123456789",         // Write-tool allowlist
+    ];
+
+    await runOnboarding({ appConfigPath });
+
+    const config = await loadAppConfig(appConfigPath);
+    const prompts = promptLog.join("\n");
+
+    expect(prompts.toLowerCase()).toContain("write-tool allowlist");
+    expect(config?.security?.writeToolAllowList).toEqual(["123456789"]);
+    expect(config?.security?.writeGateEnabled).toBe(true);
+    expect(config?.security?.writeToolConfirmation).toBe(false);
   });
 
   it("prompts to reuse existing Telegram config and preserves allowList/groups when reused", async () => {
@@ -388,11 +422,11 @@ describe("onboarding", () => {
         "n",         // Want to keep using these settings? -> no (test Telegram-specific reuse)
         "1",         // AI provider: 1 = Anthropic
         "",          // Anthropic key/token (empty = env)
-        "1",         // Model: 1 = default
-        "2",         // Chat platform: 2 = Telegram
-        "y",         // Reuse existing Telegram config?
-        "y",         // Enable Playwright MCP
-      ];
+      "1",         // Model: 1 = default
+      "2",         // Chat platform: 2 = Telegram
+      "y",         // Reuse existing Telegram config?
+      "y",         // Enable Playwright MCP
+    ];
 
       await runOnboarding({ appConfigPath });
 
@@ -456,11 +490,11 @@ describe("onboarding", () => {
         "n", // Want to keep using these settings? -> no (exercise Telegram-specific reuse prompt)
         "1", // AI provider: 1 = Anthropic
         "",  // Anthropic key/token (empty = env)
-        "1", // Model: 1 = default
-        "2", // Chat platform: 2 = Telegram
-        "y", // Reuse existing Telegram setup?
-        "y", // Enable Playwright MCP
-      ];
+      "1", // Model: 1 = default
+      "2", // Chat platform: 2 = Telegram
+      "y", // Reuse existing Telegram setup?
+      "y", // Enable Playwright MCP
+    ];
 
       await runOnboarding({ appConfigPath });
     } finally {
@@ -506,12 +540,12 @@ describe("onboarding", () => {
         "n", // Want to keep using these settings? -> no (test Telegram-specific reuse)
         "1", // AI provider: 1 = Anthropic
         "",  // Anthropic key/token (empty = env)
-        "1", // Model: 1 = default
-        "2", // Chat platform: 2 = Telegram
-        "y", // Reuse existing Telegram config?
-        "",  // Telegram bot token (leave empty to keep env-based setup)
-        "y", // Enable Playwright MCP
-      ];
+      "1", // Model: 1 = default
+      "2", // Chat platform: 2 = Telegram
+      "y", // Reuse existing Telegram config?
+      "",  // Telegram bot token (leave empty to keep env-based setup)
+      "y", // Enable Playwright MCP
+    ];
 
       await runOnboarding({ appConfigPath });
 
@@ -563,12 +597,12 @@ describe("onboarding", () => {
         "y", // "Want to keep using these settings?" -> yes
         "1", // "Which AI should OwliaBot use?" -> 1 (Anthropic)
         "",  // "Anthropic setup-token / API key" -> empty (use env)
-        "1", // "Which model should I use?" -> 1 = default
-        // No reuse prompt — token only, silently reused
-        "",  // "Which port should I use on your machine for Gateway HTTP?" -> default
-        "",  // "Extra allowlisted user IDs for write/edit tools?" -> none
-        "y", // Enable Playwright MCP
-      ];
+      "1", // "Which model should I use?" -> 1 = default
+      // No reuse prompt — token only, silently reused
+      "",  // "Which port should I use on your machine for Gateway HTTP?" -> default
+      "y", // Enable Playwright MCP
+      "",  // Write-tool allowlist (skip)
+    ];
 
       await runOnboarding({ docker: true, outputDir: dir });
 
