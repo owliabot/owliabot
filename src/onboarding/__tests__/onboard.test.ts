@@ -417,9 +417,7 @@ describe("onboarding", () => {
       await writeFile(
         dockerAppConfigPath,
         [
-          "telegram:",
-          "  allowList:",
-          '    - "539066683"',
+          "telegram: {}",
           "",
         ].join("\n"),
         "utf-8",
