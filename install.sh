@@ -409,9 +409,13 @@ main() {
       fi
     fi
 
+    info "[DEBUG2] SKIP_OAUTH_SETUP=${SKIP_OAUTH_SETUP}"
+    info "[DEBUG2] EXPIRES_MS=${EXPIRES_MS:-<unset>}"
     if [ "${SKIP_OAUTH_SETUP}" = "true" ]; then
+      info "[DEBUG2] Skipping OAuth (noop branch)"
       : # noop
     else
+    info "[DEBUG2] NOT skipping — entering OAuth setup"
     header "Setting up OAuth authentication"
     info "OAuth providers detected in config. Starting auth setup..."
     info "Running in a temporary container..."
