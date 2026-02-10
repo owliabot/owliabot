@@ -80,18 +80,21 @@ describe("wallet_balance tool", () => {
 
   it("uses default address when not provided", async () => {
     const mockBalance = { eth: "2.0", tokens: [] };
-    const mockClient = { balance: vi.fn().mockResolvedValue(mockBalance) };
+    const defaultAddr = TEST_ADDRESS_2;
+    const mockClient = {
+      address: vi.fn().mockResolvedValue({ address: defaultAddr }),
+      balance: vi.fn().mockResolvedValue(mockBalance),
+    };
     mockGetClawletClient.mockReturnValue(mockClient);
 
-    const defaultAddr = TEST_ADDRESS_2;
     const tool = createWalletBalanceTool({
-      defaultAddress: defaultAddr,
       defaultChainId: 1,
     });
 
     const result = await tool.execute({}, createMockContext());
 
     expect(result.success).toBe(true);
+    expect(mockClient.address).toHaveBeenCalled();
     expect(mockClient.balance).toHaveBeenCalledWith({
       address: defaultAddr,
       chain_id: 1,
@@ -115,12 +118,18 @@ describe("wallet_balance tool", () => {
     });
   });
 
-  it("fails when address not provided and no default", async () => {
+  it("fails when address not provided and client.address() fails", async () => {
+    mockGetClawletClient.mockReturnValue({
+      address: vi.fn().mockRejectedValue(
+        new walletModule.ClawletError("No wallet configured", "CONNECTION_FAILED"),
+      ),
+    });
+
     const tool = createWalletBalanceTool({});
     const result = await tool.execute({}, createMockContext());
 
     expect(result.success).toBe(false);
-    expect(result.error).toContain("Address is required");
+    expect(result.error).toContain("Could not connect to Clawlet daemon");
   });
 
   it("fails with invalid address format", async () => {
@@ -136,14 +145,13 @@ describe("wallet_balance tool", () => {
 
   it("handles connection errors gracefully", async () => {
     mockGetClawletClient.mockReturnValue({
+      address: vi.fn().mockResolvedValue({ address: TEST_ADDRESS_1 }),
       balance: vi.fn().mockRejectedValue(
         new walletModule.ClawletError("Socket not found", "CONNECTION_FAILED"),
       ),
     });
 
-    const tool = createWalletBalanceTool({
-      defaultAddress: TEST_ADDRESS_1,
-    });
+    const tool = createWalletBalanceTool({});
     const result = await tool.execute({}, createMockContext());
 
     expect(result.success).toBe(false);
@@ -152,14 +160,13 @@ describe("wallet_balance tool", () => {
 
   it("handles auth errors", async () => {
     mockGetClawletClient.mockReturnValue({
+      address: vi.fn().mockResolvedValue({ address: TEST_ADDRESS_1 }),
       balance: vi.fn().mockRejectedValue(
         new walletModule.ClawletError("Invalid token", "UNAUTHORIZED"),
       ),
     });
 
-    const tool = createWalletBalanceTool({
-      defaultAddress: TEST_ADDRESS_1,
-    });
+    const tool = createWalletBalanceTool({});
     const result = await tool.execute({}, createMockContext());
 
     expect(result.success).toBe(false);
