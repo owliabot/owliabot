@@ -536,6 +536,7 @@ export async function startGateway(
     workspacePath: config.workspace,
     executePrompt: async (prompt) => {
       const bootMessages: Message[] = [
+        { role: "system", content: "You are a helpful assistant performing a startup boot check.", timestamp: Date.now() },
         { role: "user", content: prompt, timestamp: Date.now() },
       ];
       const providers: LLMProvider[] = config.providers;
