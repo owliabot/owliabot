@@ -79,14 +79,14 @@ npm install
 npx tsx src/entry.ts onboard
 ```
 
-The wizard will guide you through:
-- Choosing channels (Discord / Telegram)
-- Setting workspace path
-- Selecting AI model
-- Optional OAuth authentication
-- Channel token configuration
+    The wizard will guide you through:
+    - Choosing channels (Discord / Telegram)
+    - Auto-detecting timezone (editable in config)
+    - Selecting AI model
+    - Optional OAuth authentication
+    - Channel token configuration
 
-Config is saved to `~/.owlia_dev/app.yaml`, secrets to `~/.owlia_dev/secrets.yaml`.
+Config is saved to `$OWLIABOT_HOME/app.yaml` (default: `~/.owliabot/app.yaml`), secrets to `$OWLIABOT_HOME/secrets.yaml`.
 
 ### 3. Start the bot
 
@@ -132,7 +132,7 @@ All commands use `npx tsx src/entry.ts <command>`:
 # Interactive onboarding
 npx tsx src/entry.ts onboard
 
-# Start with default config (~/.owlia_dev/app.yaml)
+# Start with default config ($OWLIABOT_HOME/app.yaml; default: ~/.owliabot/app.yaml)
 npx tsx src/entry.ts start
 
 # Start with custom config
@@ -160,7 +160,7 @@ OwliaBot includes an HTTP gateway for device pairing and remote tool execution:
 gateway:
   http:
     port: 8787
-    token: ${GATEWAY_TOKEN}
+    token: ${OWLIABOT_GATEWAY_TOKEN}
     allowlist:
       - "127.0.0.1"
       - "10.0.0.0/8"

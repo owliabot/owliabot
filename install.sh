@@ -120,10 +120,9 @@ main() {
 
   # Create directories
   header "Preparing directories"
-  mkdir -p config workspace
   mkdir -p ~/.owliabot/auth
   chmod 700 ~/.owliabot ~/.owliabot/auth 2>/dev/null || true
-  success "Created config/, workspace/, ~/.owliabot/"
+  success "Created ~/.owliabot/"
 
   # Build or pull image
   if [ "$BUILD_LOCAL" = "true" ]; then
@@ -158,10 +157,9 @@ main() {
   # the script is piped via curl (curl ... | bash steals stdin)
   docker run --rm -it \
     -v ~/.owliabot:/home/owliabot/.owliabot \
-    -v "$(pwd)/config:/app/config" \
     -v "$(pwd):/app/output" \
     "${OWLIABOT_IMAGE}" \
-    onboard --docker --config-dir /app/config --output-dir /app/output \
+    onboard --docker --output-dir /app/output \
     < /dev/tty
 
   # Verify onboard produced docker-compose.yml
@@ -181,7 +179,8 @@ main() {
 
   # --- Auto-trigger OAuth setup if needed (BEFORE starting the container) ---
   OAUTH_OK=true
-  if [ -f "config/app.yaml" ] && grep -qE 'apiKey: "?oauth"?' config/app.yaml 2>/dev/null; then
+  APP_YAML="$HOME/.owliabot/app.yaml"
+  if [ -f "${APP_YAML}" ] && grep -qE 'apiKey: "?oauth"?' "${APP_YAML}" 2>/dev/null; then
     header "Setting up OAuth authentication"
     info "OAuth providers detected in config. Starting auth setup..."
     info "Running in a temporary container..."
@@ -190,7 +189,6 @@ main() {
     # Run auth setup in a temporary container (not the long-running one)
     if docker run --rm -it \
       -v ~/.owliabot:/home/owliabot/.owliabot \
-      -v "$(pwd)/config:/app/config" \
       "${OWLIABOT_IMAGE}" \
       auth setup < /dev/tty; then
       success "OAuth setup completed successfully"
@@ -210,7 +208,6 @@ main() {
     echo "  1. Run OAuth setup in a temporary container:"
     echo "     docker run --rm -it \\"
     echo "       -v ~/.owliabot:/home/owliabot/.owliabot \\"
-    echo "       -v \$(pwd)/config:/app/config \\"
     echo "       ${OWLIABOT_IMAGE} \\"
     echo "       auth setup"
     echo ""

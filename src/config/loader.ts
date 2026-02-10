@@ -43,7 +43,7 @@ export async function loadConfig(path: string): Promise<Config> {
   // Resolve workspace path relative to config file
   const configDir = dirname(resolve(expandedPath));
 
-  // Load secrets from same directory (optional): ~/.owlia_dev/secrets.yaml
+  // Load secrets from same directory as the app config (optional): <configDir>/secrets.yaml
   // This allows onboarding to keep tokens out of app.yaml while still satisfying schemas.
   const secretsPath = join(configDir, "secrets.yaml");
   let secrets: any = null;

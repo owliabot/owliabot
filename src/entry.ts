@@ -147,14 +147,12 @@ program
   .description("Interactive onboarding: configure providers, channels, and generate config files")
   .option("--path <path>", "App config output path (dev mode)", DEV_APP_CONFIG_PATH)
   .option("--docker", "Docker-aware mode: generates docker-compose.yml and full secrets")
-  .option("--config-dir <path>", "Config output directory (docker mode)", "./config")
   .option("--output-dir <path>", "Output directory for docker-compose.yml", ".")
   .action(async (options) => {
     try {
       await runOnboarding({
         docker: options.docker,
         appConfigPath: options.path,
-        configDir: options.configDir,
         outputDir: options.outputDir,
       });
     } catch (err) {
@@ -163,7 +161,7 @@ program
     }
   });
 
-// Token command group (stores tokens to ~/.owlia_dev/secrets.yaml)
+// Token command group (stores tokens to secrets.yaml next to the app config, under $OWLIABOT_HOME by default)
 const token = program.command("token").description("Manage channel tokens (stored on disk)");
 
 token

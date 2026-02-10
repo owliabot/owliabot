@@ -3,14 +3,12 @@
  *
  * --docker flag switches to Docker-aware mode:
  *   - Generates docker-compose.yml
- *   - Writes configs to ~/.owliabot
- *   - Always configures gateway token + timezone
- *   - Uses default workspace path (/app/workspace) but otherwise follows the
- *     same detailed onboarding prompts (channels allowlists, wallet, write tools security)
+ *   - Writes config + secrets under OWLIABOT_HOME (~/.owliabot by default)
+ *   - Prompts for a host port to expose Gateway HTTP
+ *   - Applies bind-mount permission widening for Docker Desktop environments
  *
- * Without --docker (dev mode):
- *   - Writes to ~/.owlia_dev/ via storage helpers
- *   - Optional gateway, workspace init
+ * Without --docker:
+ *   - Writes config + secrets under OWLIABOT_HOME (or ~/.owlia_dev when OWLIABOT_DEV=1)
  */
 
 import { createInterface } from "node:readline";
@@ -50,6 +48,36 @@ const log = createLogger("onboard");
 
 // NOTE: We intentionally avoid chmod hardening here to keep docker mode aligned
 // with local mode's storage helpers behavior.
+
+function detectTimezone(): string {
+  try {
+    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    if (typeof tz === "string" && tz.trim().length > 0) return tz.trim();
+  } catch {
+    // ignore
+  }
+  return "UTC";
+}
+
+function injectTimezoneComment(yaml: string): string {
+  const comment =
+    "# Timezone is auto-detected during onboarding. Edit this value to override.";
+  return yaml.replace(
+    /^(timezone:\s*.*)$/m,
+    `${comment}\n$1`,
+  );
+}
+
+async function saveAppConfigWithComments(config: AppConfig, path: string): Promise<void> {
+  await saveAppConfig(config, path);
+  try {
+    const raw = readFileSync(path, "utf-8");
+    const next = injectTimezoneComment(raw);
+    if (next !== raw) writeFileSync(path, next, "utf-8");
+  } catch {
+    // best-effort
+  }
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Unified config detection
@@ -109,8 +137,6 @@ export interface OnboardOptions {
   appConfigPath?: string;
   /** Enable Docker-aware mode */
   docker?: boolean;
-  /** Config output directory (docker mode) */
-  configDir?: string;
   /** Output directory for docker-compose.yml (docker mode) */
   outputDir?: string;
 }
@@ -380,23 +406,9 @@ async function askChannels(
 interface DockerPaths {
   /** Host directory where we write app.yaml + secrets.yaml */
   configDir: string;
-  /** Original configDir option (may be a container path like /app/config) */
-  containerConfigDir: string;
   dockerConfigPath: string;
   shellConfigPath: string;
   outputDir: string;
-}
-
-function getDockerHostWorkspacePath(paths: DockerPaths): string {
-  return join(paths.configDir, "workspace");
-}
-
-function getDockerComposeWorkspaceMount(paths: DockerPaths): string {
-  return `${paths.dockerConfigPath}/workspace:/app/workspace`;
-}
-
-function getDockerRunWorkspaceMount(paths: DockerPaths): string {
-  return `${paths.shellConfigPath}/workspace:/app/workspace`;
 }
 
 function getConfigAnchorPath(
@@ -424,7 +436,6 @@ function initDockerPaths(options: OnboardOptions): DockerPaths {
 
   return {
     configDir: hostConfigDirAbs,
-    containerConfigDir: options.configDir ?? "/app/config",
     dockerConfigPath,
     shellConfigPath,
     outputDir,
@@ -603,51 +614,43 @@ async function getChannelsSetup(
   return ch;
 }
 
-interface DockerGatewaySetup {
-  gatewayToken: string;
-  gatewayPort: string;
-  tz: string;
-}
-
-async function configureDockerGatewayAndTimezone(
-  rl: ReturnType<typeof createInterface>,
+function ensureGatewayToken(
+  secrets: SecretsConfig,
   existing: DetectedConfig | null,
   reuseExisting: boolean,
-  secrets: SecretsConfig,
-): Promise<DockerGatewaySetup> {
-  header("Gateway HTTP");
-  info("Gateway HTTP is used for health checks and REST API access.");
-
-  const gatewayPort = await ask(rl, "Host port to expose the gateway [8787]: ") || "8787";
-
-  let gatewayToken = reuseExisting && existing?.gatewayToken ? existing.gatewayToken : "";
-  if (!gatewayToken) {
-    gatewayToken = randomBytes(16).toString("hex");
-    info("Generated a random gateway token.");
-  } else {
-    success("Reusing existing Gateway token");
-  }
-
-  const confirmToken = await ask(rl, `Gateway token [${gatewayToken.slice(0, 8)}...]: `, true);
-  if (confirmToken) gatewayToken = confirmToken;
-  success("Gateway token set");
-
-  secrets.gateway = { token: gatewayToken };
-
-  header("Other settings");
-  const tz = await ask(rl, "Timezone [UTC]: ") || "UTC";
-  success(`Timezone: ${tz}`);
-
-  return { gatewayToken, gatewayPort, tz };
+): string {
+  // Always provision a gateway token when generating config.
+  // If a token already exists and the user opted to reuse config, keep it stable.
+  const reused = reuseExisting && existing?.gatewayToken ? existing.gatewayToken : "";
+  const token = secrets.gateway?.token || reused || randomBytes(16).toString("hex");
+  secrets.gateway = { token };
+  return token;
 }
 
-function buildDefaultMemorySearchConfig(workspace: string): MemorySearchConfig {
+interface DockerComposeSetup {
+  gatewayToken: string;
+  gatewayPort: string;
+}
+
+async function promptDockerComposeSetup(
+  rl: ReturnType<typeof createInterface>,
+  gatewayToken: string,
+): Promise<DockerComposeSetup> {
+  header("Docker");
+  info("Choose a host port to expose Gateway HTTP (container listens on 8787).");
+  const gatewayPort = await ask(rl, "Host port to expose the gateway [8787]: ") || "8787";
+  return { gatewayToken, gatewayPort };
+}
+
+function buildDefaultMemorySearchConfig(): MemorySearchConfig {
+  // Use {workspace} placeholder so the store path resolves correctly even when
+  // config.workspace is a relative path.
   return {
     enabled: true,
     provider: "sqlite",
     fallback: "naive",
     store: {
-      path: join(workspace, "memory", "{agentId}.sqlite"),
+      path: "{workspace}/memory/{agentId}.sqlite",
     },
     extraPaths: [],
     sources: ["files"],
@@ -686,48 +689,21 @@ function buildDefaultSystemConfig(): SystemCapabilityConfig {
   };
 }
 
-async function getWorkspacePath(
-  rl: ReturnType<typeof createInterface>,
-  dockerMode: boolean,
-  appConfigPath: string,
-): Promise<string> {
-  header("Workspace");
-
-  if (dockerMode) {
-    const workspace = "/app/workspace";
-    info("Docker mode uses the default workspace path inside the container.");
-    success(`Workspace: ${workspace}`);
-    return workspace;
-  }
-
-  const defaultWorkspace = join(dirname(appConfigPath), "workspace");
-  const workspace = (await ask(rl, `Workspace path [${defaultWorkspace}]: `)) || defaultWorkspace;
-  success(`Workspace: ${workspace}`);
-  return workspace;
-}
-
 async function getGatewayConfig(
   rl: ReturnType<typeof createInterface>,
   dockerMode: boolean,
 ): Promise<AppConfig["gateway"] | undefined> {
-  if (dockerMode) {
-    return {
-      http: { host: "0.0.0.0", port: 8787, token: "secrets" },
-    };
-  }
-
-  header("Gateway HTTP (optional)");
-  info("Gateway HTTP provides a REST API for health checks and integrations.");
-
-  const enableGateway = await askYN(rl, "Enable Gateway HTTP?", false);
-  if (!enableGateway) return undefined;
-
-  const port = parseInt(await ask(rl, "Port [8787]: ") || "8787", 10);
-  const token = randomBytes(16).toString("hex");
-  info(`Generated gateway token: ${token.slice(0, 8)}...`);
-
-  success(`Gateway HTTP enabled on port ${port}`);
-  return { http: { host: "127.0.0.1", port, token } };
+  void rl; // gateway config is always enabled; no prompts
+  return {
+    http: {
+      host: dockerMode ? "0.0.0.0" : "127.0.0.1",
+      port: 8787,
+      token: "secrets",
+      // Strict by default in local mode. In docker mode, the compose template
+      // binds the published port to 127.0.0.1 on the host.
+      ...(dockerMode ? {} : { allowlist: ["127.0.0.1"] }),
+    },
+  };
 }
 
 type UserAllowLists = { discord: string[]; telegram: string[] };
@@ -844,14 +820,17 @@ async function buildAppConfigFromPrompts(
   secrets: SecretsConfig,
   discordEnabled: boolean,
   telegramEnabled: boolean,
-): Promise<{ config: AppConfig; workspace: string; writeToolAllowList: string[] | null }> {
-  const workspace = await getWorkspacePath(rl, dockerMode, appConfigPath);
+): Promise<{ config: AppConfig; workspacePath: string; writeToolAllowList: string[] | null }> {
+  // Keep local + docker onboarding aligned: workspace is always created next to app.yaml
+  // and referenced via a relative path for portability.
+  const workspace = "workspace";
+  const workspacePath = join(dirname(appConfigPath), workspace);
   const gateway = await getGatewayConfig(rl, dockerMode);
 
   const config: AppConfig = {
     workspace,
     providers,
-    memorySearch: buildDefaultMemorySearchConfig(workspace),
+    memorySearch: buildDefaultMemorySearchConfig(),
     system: buildDefaultSystemConfig(),
     ...(gateway ? { gateway } : {}),
   };
@@ -863,7 +842,7 @@ async function buildAppConfigFromPrompts(
   await configureWallet(rl, secrets, config);
   const writeToolAllowList = await configureWriteToolsSecurity(rl, config, userAllowLists);
 
-  return { config, workspace, writeToolAllowList };
+  return { config, workspacePath, writeToolAllowList };
 }
 
 async function writeDockerConfigLocalStyle(
@@ -872,7 +851,7 @@ async function writeDockerConfigLocalStyle(
   secrets: SecretsConfig,
 ): Promise<void> {
   const dockerAppConfigPath = join(paths.configDir, "app.yaml");
-  await saveAppConfig(config, dockerAppConfigPath);
+  await saveAppConfigWithComments(config, dockerAppConfigPath);
   success(`Saved config to: ${dockerAppConfigPath}`);
 
   const hasSecrets = Object.keys(secrets).length > 0;
@@ -887,7 +866,7 @@ async function writeDevConfig(
   secrets: SecretsConfig,
   appConfigPath: string,
 ): Promise<void> {
-  await saveAppConfig(config, appConfigPath);
+  await saveAppConfigWithComments(config, appConfigPath);
   success(`Saved config to: ${appConfigPath}`);
 
   const hasSecrets = Object.keys(secrets).length > 0;
@@ -899,10 +878,13 @@ async function writeDevConfig(
 
 function buildDockerComposeYaml(
   dockerConfigPath: string,
-  tz: string,
+  envLines: string[],
   gatewayPort: string,
   defaultImage: string,
 ): string {
+  const envBlock = envLines.length > 0
+    ? envLines.map((v) => `      - ${v}`).join("\n")
+    : "      - TZ=UTC";
   // Intentionally use `~` in docker-compose.yml so the file is portable and resolves
   // to the host user's home directory.
   return `# docker-compose.yml for OwliaBot
@@ -917,9 +899,10 @@ services:
       - "127.0.0.1:${gatewayPort}:8787"
     volumes:
       - ${dockerConfigPath}:/home/owliabot/.owliabot
+      # Legacy compatibility: older configs may use workspace: /app/workspace
       - ${dockerConfigPath}/workspace:/app/workspace
     environment:
-      - TZ=${tz}
+${envBlock}
     command: ["start", "-c", "/home/owliabot/.owliabot/app.yaml"]
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:8787/health"]
@@ -930,16 +913,46 @@ services:
 `;
 }
 
+function buildDockerEnvLines(
+  config: AppConfig,
+  secrets: SecretsConfig,
+  tz: string,
+): string[] {
+  const env: string[] = [];
+  env.push(`TZ=${tz}`);
+
+  // Channel tokens: only needed if user didn't store them in secrets.yaml
+  if (config.discord && !secrets.discord?.token) {
+    env.push("DISCORD_BOT_TOKEN=${DISCORD_BOT_TOKEN}");
+  }
+  if (config.telegram && !secrets.telegram?.token) {
+    env.push("TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}");
+  }
+
+  // Provider keys: only needed when provider explicitly uses env auth
+  if (config.providers.some((p) => p.id === "anthropic" && p.apiKey === "env")) {
+    env.push("ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}");
+  }
+  if (config.providers.some((p) => p.id === "openai" && p.apiKey === "env")) {
+    env.push("OPENAI_API_KEY=${OPENAI_API_KEY}");
+  }
+
+  return env;
+}
+
 function printDockerNextSteps(
   paths: DockerPaths,
   gatewayPort: string,
   gatewayToken: string,
   tz: string,
+  envLines: string[],
   defaultImage: string,
   useAnthropic: boolean,
   useOpenaiCodex: boolean,
   secrets: SecretsConfig,
 ): void {
+  const envFlags = envLines.map((v) => `  -e ${v} \\`).join("\n");
+
   header("Docker commands");
   console.log("Docker run command:");
   console.log(`
@@ -948,8 +961,8 @@ docker run -d \\
   --restart unless-stopped \\
   -p 127.0.0.1:${gatewayPort}:8787 \\
   -v ${paths.shellConfigPath}:/home/owliabot/.owliabot \\
-  -v ${getDockerRunWorkspaceMount(paths)} \\
-  -e TZ=${tz} \\
+  -v ${paths.shellConfigPath}/workspace:/app/workspace \\
+${envFlags}
   \${OWLIABOT_IMAGE:-${defaultImage}} \\
   start -c /home/owliabot/.owliabot/app.yaml
 `);
@@ -968,16 +981,13 @@ docker run -d \\
   console.log(`  - ${join(paths.outputDir, "docker-compose.yml")}       (Docker Compose)`);
   console.log("");
 
-  const needsOAuth = (useAnthropic && !secrets.anthropic?.apiKey) || useOpenaiCodex;
+  const needsOAuth = useOpenaiCodex;
   console.log("Next steps:");
   console.log("  1. Start the container:");
   console.log("     docker compose up -d");
   console.log("");
   if (needsOAuth) {
     console.log("  2. Set up OAuth authentication (run after container is started):");
-    if (useAnthropic && !secrets.anthropic?.apiKey) {
-      console.log("     docker exec -it owliabot owliabot auth setup anthropic");
-    }
     if (useOpenaiCodex) {
       console.log("     docker exec -it owliabot owliabot auth setup openai-codex");
     }
@@ -1070,19 +1080,23 @@ function printDevNextStepsText(
     console.log("  • Complete OAuth: owliabot auth setup openai-codex");
   }
 
+  if (secrets.gateway?.token) {
+    console.log(`  • Gateway HTTP: http://localhost:8787 (token: ${secrets.gateway.token.slice(0, 8)}...)`);
+  }
+
   console.log("  • Start the bot: owliabot start");
   console.log("");
 }
 
 async function printDevNextSteps(
-  workspace: string,
+  workspacePath: string,
   discordEnabled: boolean,
   telegramEnabled: boolean,
   secrets: SecretsConfig,
   providers: ProviderConfig[],
   writeToolAllowList: string[] | null,
 ): Promise<void> {
-  await initDevWorkspace(workspace, writeToolAllowList);
+  await initDevWorkspace(workspacePath, writeToolAllowList);
   printDevNextStepsText(discordEnabled, telegramEnabled, secrets, providers);
 }
 
@@ -1166,12 +1180,15 @@ export async function runOnboarding(options: OnboardOptions = {}): Promise<void>
 
     const channels = await getChannelsSetup(rl, secrets, existing, reuseExisting);
 
-    let dockerGateway: DockerGatewaySetup | null = null;
+    const tz = detectTimezone();
+    const gatewayToken = ensureGatewayToken(secrets, existing, reuseExisting);
+
+    let dockerCompose: DockerComposeSetup | null = null;
     if (dockerMode) {
-      dockerGateway = await configureDockerGatewayAndTimezone(rl, existing, reuseExisting, secrets);
+      dockerCompose = await promptDockerComposeSetup(rl, gatewayToken);
     }
 
-    const { config, workspace, writeToolAllowList } = await buildAppConfigFromPrompts(
+    const { config, workspacePath, writeToolAllowList } = await buildAppConfigFromPrompts(
       rl,
       dockerMode,
       appConfigPath,
@@ -1181,34 +1198,35 @@ export async function runOnboarding(options: OnboardOptions = {}): Promise<void>
       channels.telegramEnabled,
     );
     const resolvedWriteToolAllowList = deriveWriteToolAllowListFromConfig(config) ?? writeToolAllowList;
+    config.timezone = tz;
 
     header(dockerMode ? "Writing config" : "Saving configuration");
     if (dockerMode) {
-      if (!dockerPaths || !dockerGateway) throw new Error("Internal error: missing docker paths/gateway setup");
-      // Persist timezone in app.yaml (docker-only prompt).
-      config.timezone = dockerGateway.tz;
+      if (!dockerPaths || !dockerCompose) throw new Error("Internal error: missing docker paths/docker setup");
       await writeDockerConfigLocalStyle(dockerPaths, config, secrets);
 
       // Docker mode: initialize a host workspace directory that is bind-mounted into the container.
       // This matches local mode behavior (BOOTSTRAP.md + bundled skills copy).
-      const hostWorkspacePath = getDockerHostWorkspacePath(dockerPaths);
-      await initDevWorkspace(hostWorkspacePath, resolvedWriteToolAllowList);
+      await initDevWorkspace(workspacePath, resolvedWriteToolAllowList);
       // Ensure the container's UID/GID can write into bind-mounted dirs (workspace, auth, etc.).
       mkdirSync(join(dockerPaths.configDir, "auth"), { recursive: true });
       tryMakeTreeWritableForDocker(dockerPaths.configDir);
 
+      const dockerEnv = buildDockerEnvLines(config, secrets, tz);
+
       const composePath = join(dockerPaths.outputDir, "docker-compose.yml");
       writeFileSync(
         composePath,
-        buildDockerComposeYaml(dockerPaths.dockerConfigPath, dockerGateway.tz, dockerGateway.gatewayPort, defaultImage),
+        buildDockerComposeYaml(dockerPaths.dockerConfigPath, dockerEnv, dockerCompose.gatewayPort, defaultImage),
       );
       success(`Wrote ${composePath}`);
 
       printDockerNextSteps(
         dockerPaths,
-        dockerGateway.gatewayPort,
-        dockerGateway.gatewayToken,
-        dockerGateway.tz,
+        dockerCompose.gatewayPort,
+        gatewayToken,
+        tz,
+        dockerEnv,
         defaultImage,
         providerResult.useAnthropic,
         providerResult.useOpenaiCodex,
@@ -1217,7 +1235,7 @@ export async function runOnboarding(options: OnboardOptions = {}): Promise<void>
     } else {
       await writeDevConfig(config, secrets, appConfigPath);
       await printDevNextSteps(
-        workspace,
+        workspacePath,
         channels.discordEnabled,
         channels.telegramEnabled,
         secrets,
