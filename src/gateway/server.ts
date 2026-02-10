@@ -50,6 +50,7 @@ import { join, dirname, resolve } from "node:path";
 import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { existsSync, mkdirSync } from "node:fs";
+import { createMCPTools, type CreateMCPToolsResult } from "../mcp/index.js";
 import {
   defaultGatewayDir,
   defaultUserSkillsDir,
@@ -413,6 +414,27 @@ export async function startGateway(
   // Register cron tool
   tools.register(createCronTool({ cronService: cronIntegration.cronService }));
 
+  // Initialize MCP servers and register their tools
+  let mcpResult: CreateMCPToolsResult | null = null;
+  if (config.mcp) {
+    try {
+      mcpResult = await createMCPTools(config.mcp);
+      for (const tool of mcpResult.tools) {
+        tools.register(tool);
+      }
+      if (mcpResult.failed.length > 0) {
+        for (const f of mcpResult.failed) {
+          log.warn(`MCP server "${f.name}" failed to connect: ${f.error}`);
+        }
+      }
+      log.info(
+        `MCP: ${mcpResult.tools.length} tools loaded from ${mcpResult.clients.size} server(s)`,
+      );
+    } catch (err) {
+      log.error(`MCP initialization failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
   // Start Gateway HTTP if enabled
   // Phase 2 Unification: HTTP API as a Channel Adapter, requiring shared resources
   let stopHttp: (() => Promise<void>) | undefined;
@@ -461,6 +483,9 @@ export async function startGateway(
     if (infraStore) {
       infraStore.cleanup(Date.now());
       infraStore.close();
+    }
+    if (mcpResult) {
+      await mcpResult.close();
     }
     if (stopHttp) {
       await stopHttp();

@@ -5,6 +5,7 @@
 
 import { z } from "zod";
 import { CliBackendsSchema } from "../agent/cli/cli-schema.js";
+import { mcpConfigSchema } from "../mcp/types.js";
 
 export const providerSchema = z
   .object({
@@ -458,6 +459,9 @@ export const configSchema = z.object({
 
   // Wallet integration (Clawlet)
   wallet: walletSchema,
+
+  // MCP (Model Context Protocol) servers
+  mcp: mcpConfigSchema.optional(),
 });
 
 export type Config = z.infer<typeof configSchema>;
