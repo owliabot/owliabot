@@ -378,7 +378,7 @@ main() {
     AUTH_FILE="$HOME/.owliabot/auth/auth-openai-codex.json"
     SKIP_OAUTH_SETUP=false
     if [ -f "${AUTH_FILE}" ]; then
-      EXPIRES_MS="$(sed -nE 's/.*\"expires\"[[:space:]]*:[[:space:]]*([0-9]+).*/\\1/p' "${AUTH_FILE}" | head -n1)"
+      EXPIRES_MS="$(sed -nE 's/.*\"expires\"[[:space:]]*:[[:space:]]*([0-9]+).*/\1/p' "${AUTH_FILE}" | head -n1)"
       if [ -n "${EXPIRES_MS}" ]; then
         NOW_S="$(date +%s)"
         NOW_MS="$((NOW_S * 1000))"
