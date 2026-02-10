@@ -36,23 +36,23 @@ RUN npm prune --production
 # Stage 2: Production
 # Minimal image with only runtime dependencies
 # ==============================================================================
-FROM node:22-alpine AS production
+FROM node:22-slim AS production
 
-# Install runtime dependencies for native modules and Playwright/Chromium
-# libc6-compat helps with some native bindings on Alpine
-# Chromium + dependencies are needed for Playwright MCP browser automation
-RUN apk add --no-cache libc6-compat coreutils \
+# Install runtime dependencies:
+# - Chromium + libs for Playwright MCP browser automation
+# - coreutils for GNU date/etc
+RUN apt-get update && apt-get install -y --no-install-recommends \
     chromium \
-    nss \
-    freetype \
-    harfbuzz \
     ca-certificates \
-    ttf-freefont
+    fonts-freefont-ttf \
+    coreutils \
+    wget \
+    && rm -rf /var/lib/apt/lists/*
 
 # Create non-root user for security
 # Using numeric UID/GID for Kubernetes compatibility
-RUN addgroup -g 1001 -S owliabot && \
-    adduser -u 1001 -S owliabot -G owliabot
+RUN groupadd -g 1001 owliabot && \
+    useradd -u 1001 -g owliabot -m owliabot
 
 WORKDIR /app
 
@@ -87,7 +87,7 @@ ENV HOME=/home/owliabot
 ENV OWLIABOT_HOME=/home/owliabot/.owliabot
 
 # Tell Playwright to use system-installed Chromium instead of downloading its own
-ENV PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium-browser
+ENV PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium
 ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
 
 # Expose gateway HTTP port (configurable, default 8787)
