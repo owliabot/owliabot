@@ -592,7 +592,8 @@ export async function startGatewayHttp(opts: GatewayHttpOptions): Promise<Gatewa
       // Respect the requested scope from the caller.
       // Default to read-only for safety if scope is not explicitly provided.
       const requestedScope = scope ?? "read";
-      const enableTrade = requestedScope === "trade";
+      const scopes = requestedScope.split(",").map((s) => s.trim());
+      const enableTrade = scopes.includes("trade");
 
       // ── Register tools ────────────────────────────────────────────────────
       // Always unregister both first to handle reconnect with different scope
