@@ -220,6 +220,17 @@ main() {
   else
     header "Starting OwliaBot container"
     info "Using: ${COMPOSE_CMD}"
+
+    # Stop and remove any existing owliabot container (may have been started
+    # manually via `docker run` or from an older install).  This prevents
+    # name/port conflicts when `compose up -d` tries to create a new one.
+    if docker ps -aq --filter "name=^owliabot$" | grep -q .; then
+      info "Removing existing owliabot container..."
+      docker stop owliabot 2>/dev/null || true
+      docker rm owliabot 2>/dev/null || true
+      success "Old container removed"
+    fi
+
     if ! ${COMPOSE_CMD} up -d; then
       die "Failed to start container. Check docker-compose.yml and try: ${COMPOSE_CMD} up -d"
     fi
