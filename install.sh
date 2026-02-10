@@ -87,6 +87,13 @@ check_docker() {
   fi
 }
 
+resolve_channel() {
+  # Sync BUILD_BRANCH with CHANNEL (handles both --channel flag and OWLIABOT_CHANNEL env)
+  if [ "$CHANNEL" = "develop" ]; then
+    BUILD_BRANCH="develop"
+  fi
+}
+
 resolve_image() {
   # If user set OWLIABOT_IMAGE explicitly, use it as-is
   if [ -n "${OWLIABOT_IMAGE:-}" ]; then
@@ -161,9 +168,6 @@ parse_args() {
       --channel)
         CHANNEL="${2:-}"
         [ -z "$CHANNEL" ] && die "--channel requires a value (stable|develop)"
-        if [ "$CHANNEL" = "develop" ]; then
-          BUILD_BRANCH="develop"
-        fi
         shift 2
         ;;
       --tag)
@@ -213,6 +217,9 @@ main() {
 
   # Parse CLI arguments
   parse_args "$@"
+
+  # Sync channel → build branch
+  resolve_channel
 
   # Resolve image tag
   resolve_image
