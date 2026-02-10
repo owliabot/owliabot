@@ -3,6 +3,7 @@ import { runOnboarding } from "../onboard.js";
 import { loadAppConfig } from "../storage.js";
 import { loadSecrets } from "../secrets.js";
 import { mkdtemp, rm } from "node:fs/promises";
+import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -53,11 +54,10 @@ describe("onboarding", () => {
     vi.clearAllMocks();
   });
 
-  // New unified flow order: providers → channels → workspace → gateway → config details
+  // Unified flow order: providers → channels → timezone → config details
 
   it("writes config with anthropic setup-token and separates secrets", async () => {
     const appConfigPath = join(dir, "app.yaml");
-    const workspacePath = join(dir, "workspace");
 
     // Create a valid setup-token (sk-ant-oat01- prefix + enough chars for 80 total)
     const setupToken = "sk-ant-oat01-" + "a".repeat(68); // 12 + 68 = 80 chars
@@ -69,8 +69,7 @@ describe("onboarding", () => {
       "3",                 // Chat platform: 3 = Both (Discord + Telegram)
       "discord-secret",    // Discord token
       "telegram-secret",   // Telegram token
-      workspacePath,       // Workspace path
-      "n",                 // Gateway: no
+      "America/New_York",  // Timezone
       "111,222",           // Discord channelAllowList
       "123456789",         // Discord memberAllowList
       "539066683",         // Telegram allowList
@@ -83,11 +82,17 @@ describe("onboarding", () => {
     const config = await loadAppConfig(appConfigPath);
     const secrets = await loadSecrets(appConfigPath);
 
-    expect(config?.workspace).toBe(workspacePath);
-    expect(config?.memorySearch?.store?.path).toBe(join(workspacePath, "memory", "{agentId}.sqlite"));
+    expect(config?.workspace).toBe("workspace");
+    expect(config?.memorySearch?.store?.path).toBe("{workspace}/memory/{agentId}.sqlite");
+    expect(config?.timezone).toBe("America/New_York");
     expect(config?.providers?.[0]?.id).toBe("anthropic");
     expect(config?.providers?.[0]?.apiKey).toBe("secrets");
     expect(config?.providers?.[0]?.model).toBe("claude-opus-4-5");
+    expect(config?.gateway?.http).toMatchObject({
+      host: "127.0.0.1",
+      port: 8787,
+      token: "secrets",
+    });
     expect(config?.discord?.requireMentionInGuild).toBe(true);
     expect(config?.discord?.channelAllowList).toEqual(["111", "222"]);
     expect(config?.discord?.memberAllowList).toEqual(["123456789"]);
@@ -102,11 +107,11 @@ describe("onboarding", () => {
     expect(secrets?.discord?.token).toBe("discord-secret");
     expect(secrets?.telegram?.token).toBe("telegram-secret");
     expect(secrets?.anthropic?.token).toBe(setupToken);
+    expect(secrets?.gateway?.token).toMatch(/^[a-f0-9]{32}$/);
   });
 
   it("writes config with openai api key", async () => {
     const appConfigPath = join(dir, "app.yaml");
-    const workspacePath = join(dir, "workspace");
 
     answers = [
       "2",                 // AI provider: 2 = OpenAI
@@ -114,8 +119,7 @@ describe("onboarding", () => {
       "gpt-4o-mini",       // Model
       "1",                 // Chat platform: 1 = Discord
       "",                  // Discord token (skip)
-      workspacePath,       // Workspace path
-      "n",                 // Gateway: no
+      "UTC",               // Timezone
       "",                  // Discord channelAllowList (empty)
       "",                  // Discord memberAllowList (empty)
       // Note: Clawlet onboarding skipped (no daemon in test)
@@ -135,15 +139,13 @@ describe("onboarding", () => {
 
   it("writes config with openai-codex oauth", async () => {
     const appConfigPath = join(dir, "app.yaml");
-    const workspacePath = join(dir, "workspace");
 
     answers = [
       "3",                 // AI provider: 3 = openai-codex
       "n",                 // Skip OAuth for now
       "1",                 // Chat platform: 1 = Discord
       "",                  // Discord token (skip)
-      workspacePath,       // Workspace path
-      "n",                 // Gateway: no
+      "UTC",               // Timezone
       "",                  // Discord channelAllowList (empty)
       "",                  // Discord memberAllowList (empty)
       // Note: Clawlet onboarding skipped (no daemon in test)
@@ -160,7 +162,6 @@ describe("onboarding", () => {
 
   it("writes config with anthropic standard api key", async () => {
     const appConfigPath = join(dir, "app.yaml");
-    const workspacePath = join(dir, "workspace");
 
     answers = [
       "1",                 // AI provider: 1 = Anthropic
@@ -168,8 +169,7 @@ describe("onboarding", () => {
       "",                  // Model (default)
       "1",                 // Chat platform: 1 = Discord
       "",                  // Discord token (skip)
-      workspacePath,       // Workspace path
-      "n",                 // Gateway: no
+      "UTC",               // Timezone
       "",                  // Discord channelAllowList (empty)
       "",                  // Discord memberAllowList (empty)
       // Note: Clawlet onboarding skipped (no daemon in test)
@@ -190,7 +190,6 @@ describe("onboarding", () => {
 
   it("supports env-based api key for anthropic", async () => {
     const appConfigPath = join(dir, "app.yaml");
-    const workspacePath = join(dir, "workspace");
 
     answers = [
       "1",                 // AI provider: 1 = Anthropic
@@ -198,8 +197,7 @@ describe("onboarding", () => {
       "",                  // Model (default)
       "1",                 // Chat platform: 1 = Discord
       "",                  // Discord token (skip)
-      workspacePath,       // Workspace path
-      "n",                 // Gateway: no
+      "UTC",               // Timezone
       "",                  // Discord channelAllowList (empty)
       "",                  // Discord memberAllowList (empty)
       // Note: Clawlet onboarding skipped (no daemon in test)
@@ -215,7 +213,6 @@ describe("onboarding", () => {
 
   it("supports env-based api key for openai", async () => {
     const appConfigPath = join(dir, "app.yaml");
-    const workspacePath = join(dir, "workspace");
 
     answers = [
       "2",                 // AI provider: 2 = OpenAI
@@ -223,8 +220,7 @@ describe("onboarding", () => {
       "",                  // Model (default)
       "2",                 // Chat platform: 2 = Telegram
       "",                  // Telegram token (skip)
-      workspacePath,       // Workspace path
-      "n",                 // Gateway: no
+      "UTC",               // Timezone
       "",                  // Telegram allowList (empty)
       // Note: Clawlet onboarding skipped (no daemon in test)
     ];
@@ -238,9 +234,9 @@ describe("onboarding", () => {
     expect(config?.providers?.[0]?.apiKey).toBe("env");
   });
 
-  it("uses config-directory workspace as default workspace path", async () => {
+  it("stores workspace as a relative path and initializes it next to app.yaml", async () => {
     const appConfigPath = join(dir, "app.yaml");
-    const expectedWorkspacePath = join(dir, "workspace");
+    const expectedWorkspaceDir = join(dir, "workspace");
 
     answers = [
       "1",                 // AI provider: 1 = Anthropic
@@ -248,8 +244,7 @@ describe("onboarding", () => {
       "",                  // Model (default)
       "1",                 // Chat platform: 1 = Discord
       "",                  // Discord token (skip)
-      "",                  // Workspace path (use default)
-      "n",                 // Gateway: no
+      "UTC",               // Timezone
       "",                  // Discord channelAllowList (empty)
       "",                  // Discord memberAllowList (empty)
       // Note: Clawlet onboarding skipped (no daemon in test)
@@ -258,12 +253,12 @@ describe("onboarding", () => {
     await runOnboarding({ appConfigPath });
 
     const config = await loadAppConfig(appConfigPath);
-    expect(config?.workspace).toBe(expectedWorkspacePath);
+    expect(config?.workspace).toBe("workspace");
+    expect(existsSync(expectedWorkspaceDir)).toBe(true);
   });
 
   it("uses default allowlists for both platforms", async () => {
     const appConfigPath = join(dir, "app.yaml");
-    const workspacePath = join(dir, "workspace");
 
     answers = [
       "1",                 // AI provider: 1 = Anthropic
@@ -272,8 +267,7 @@ describe("onboarding", () => {
       "3",                 // Chat platform: 3 = Both
       "",                  // Discord token (skip)
       "",                  // Telegram token (skip)
-      workspacePath,       // Workspace path
-      "n",                 // Gateway: no
+      "UTC",               // Timezone
       "",                  // Discord channelAllowList (empty)
       "",                  // Discord memberAllowList (empty)
       "",                  // Telegram allowList (empty)

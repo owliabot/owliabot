@@ -42,8 +42,8 @@ docker run --rm -it \
 The wizard will prompt for:
 - AI provider (Anthropic/OpenAI/OpenAI-Codex/OpenAI-compatible)
 - Chat platform (Discord/Telegram)
-- Gateway HTTP port and token
 - Timezone
+- (Docker only) Host port to expose Gateway HTTP (default: 8787)
 
 ### Step 3: Start with Docker Compose
 
@@ -73,7 +73,6 @@ owliabot onboard --docker [options]
 ```
 
 Options:
-- `--config-dir <path>` — Config output directory (default: `./config`)
 - `--output-dir <path>` — Output directory for docker-compose.yml (default: `.`)
 
 ### Other Commands in Docker

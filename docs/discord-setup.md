@@ -81,7 +81,7 @@ https://discord.com/api/oauth2/authorize?client_id=YOUR_CLIENT_ID&permissions=27
 
 ## 4. 配置 OwliaBot
 
-在 `~/.owlia_dev/app.yaml` 或 `config.yaml` 中配置：
+在 `$OWLIABOT_HOME/app.yaml`（默认：`~/.owliabot/app.yaml`）或 `config.yaml` 中配置：
 
 ```yaml
 discord:

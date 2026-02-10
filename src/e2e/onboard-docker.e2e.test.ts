@@ -39,7 +39,7 @@ describe("onboard --docker E2E", () => {
     exitCode: number | null;
   }> {
     return new Promise((resolve) => {
-      const proc = spawn("node", ["dist/entry.js", "onboard", "--docker", "--config-dir", configDir, "--output-dir", testDir], {
+      const proc = spawn("node", ["dist/entry.js", "onboard", "--docker", "--output-dir", testDir], {
         cwd: process.cwd(),
         env: {
           ...process.env,
@@ -157,7 +157,6 @@ services:
       - "127.0.0.1:8787:8787"
     volumes:
       - ~/.owliabot:/home/owliabot/.owliabot
-      - ~/.owliabot/workspace:/app/workspace
     environment:
       - TZ=UTC
     command: ["start", "-c", "/home/owliabot/.owliabot/app.yaml"]

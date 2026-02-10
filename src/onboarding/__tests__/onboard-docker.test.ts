@@ -129,7 +129,6 @@ gateway:
       - "127.0.0.1:${gatewayPort}:8787"
     volumes:
       - ~/.owliabot:/home/owliabot/.owliabot
-      - ~/.owliabot/workspace:/app/workspace
     environment:
       - TZ=${tz}
 `;

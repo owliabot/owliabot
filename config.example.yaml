@@ -110,7 +110,7 @@ heartbeat:
 #   http:
 #     host: 127.0.0.1
 #     port: 8787
-#     token: ${GATEWAY_TOKEN}
+#     token: ${OWLIABOT_GATEWAY_TOKEN}
 #     allowlist:
 #       - "127.0.0.1"
 #       - "10.0.0.0/8"
