@@ -7,6 +7,8 @@ import { existsSync, readFileSync } from "node:fs";
 import { parse as yamlParse } from "yaml";
 import { loadSecrets } from "../secrets.js";
 import { ensureOwliabotHomeEnv } from "../../utils/paths.js";
+import { loadOAuthCredentials } from "../../auth/oauth.js";
+import { validateAnthropicSetupToken } from "../../auth/setup-token.js";
 import type { AppConfig } from "../types.js";
 
 type TelegramGroups = NonNullable<NonNullable<AppConfig["telegram"]>["groups"]>;
@@ -21,6 +23,8 @@ export interface DetectedConfig {
   gatewayToken?: string;
   hasOAuthAnthro?: boolean;
   hasOAuthCodex?: boolean;
+  oauthCodexExpires?: number;
+  anthropicTokenValid?: boolean;
   telegramAllowList?: string[];
   telegramGroups?: TelegramGroups;
 }
@@ -54,9 +58,30 @@ export async function detectExistingConfig(
       // Check OAuth tokens (same location for both modes).
       // Keep prior behavior: only check OAuth when secrets.yaml exists to avoid
       // surprising prompts in test/CI environments.
+      // Check OAuth credentials using the correct filenames (auth-${provider}.json)
+      // Note: Anthropic no longer uses OAuth files; it uses setup-token via secrets.yaml.
+      // We still check auth-anthropic.json for backward compatibility.
       const authDir = join(ensureOwliabotHomeEnv(), "auth");
-      if (existsSync(join(authDir, "anthropic.json"))) { result.hasOAuthAnthro = true; hasAny = true; }
-      if (existsSync(join(authDir, "openai-codex.json"))) { result.hasOAuthCodex = true; hasAny = true; }
+      if (existsSync(join(authDir, "auth-anthropic.json"))) { result.hasOAuthAnthro = true; hasAny = true; }
+      if (existsSync(join(authDir, "auth-openai-codex.json"))) {
+        // Validate the OAuth credentials (checks expiry, auto-refreshes if needed)
+        try {
+          const creds = await loadOAuthCredentials("openai-codex");
+          if (creds) {
+            result.hasOAuthCodex = true;
+            result.oauthCodexExpires = creds.expires;
+            hasAny = true;
+          }
+        } catch {
+          // File exists but credentials are invalid/unreadable — skip
+        }
+      }
+
+      // Validate Anthropic setup-token if present in secrets
+      if (result.anthropicToken) {
+        const err = validateAnthropicSetupToken(result.anthropicToken);
+        result.anthropicTokenValid = err === undefined;
+      }
     }
 
     // Best-effort: detect Telegram allowList/groups from app.yaml so we can offer reuse.
