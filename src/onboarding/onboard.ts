@@ -668,6 +668,7 @@ interface ChannelsSetup {
 
 async function getChannelsSetup(
   rl: ReturnType<typeof createInterface>,
+  dockerMode: boolean,
   secrets: SecretsConfig,
   existing: DetectedConfig | null,
   reuseExisting: boolean,
@@ -679,6 +680,9 @@ async function getChannelsSetup(
     let telegramEnabled = false;
     let discordToken = "";
     let telegramToken = "";
+    let reuseTelegramConfig = false;
+    let telegramAllowList: string[] | undefined;
+    let telegramGroups: TelegramGroups | undefined;
 
     success("Using your existing chat setup:");
     if (existing?.discordToken) {
@@ -689,9 +693,51 @@ async function getChannelsSetup(
     }
     if (existing?.telegramToken) {
       telegramEnabled = true;
-      telegramToken = existing.telegramToken;
-      secrets.telegram = { token: telegramToken };
       info("  - Telegram");
+
+      // Docker mode: keep behavior aligned with interactive mode by asking whether to reuse
+      // Telegram allowList/groups (and token). Default is yes.
+      const allowCount = existing.telegramAllowList?.length ?? 0;
+      const groupCount = existing.telegramGroups ? Object.keys(existing.telegramGroups).length : 0;
+      if (dockerMode && (allowCount > 0 || groupCount > 0)) {
+        console.log("");
+        info(`I found existing Telegram settings (allowList: ${allowCount}, groups: ${groupCount}).`);
+        const reuse = await askYN(
+          rl,
+          "Reuse existing Telegram configuration (token + allowList/groups)?",
+          true,
+        );
+        if (reuse) {
+          reuseTelegramConfig = true;
+          telegramAllowList = existing.telegramAllowList;
+          telegramGroups = existing.telegramGroups;
+        }
+      } else {
+        reuseTelegramConfig = true;
+        telegramAllowList = existing.telegramAllowList;
+        telegramGroups = existing.telegramGroups;
+      }
+
+      // Token: reuse by default, but let user override in docker mode when reuse was declined.
+      if (reuseTelegramConfig) {
+        telegramToken = existing.telegramToken;
+        secrets.telegram = { token: telegramToken };
+      } else if (dockerMode) {
+        console.log("");
+        info("Create a bot with BotFather: https://t.me/BotFather");
+        const token = await ask(
+          rl,
+          "Paste your Telegram bot token (or press Enter to do this later): ",
+          true,
+        );
+        if (token) {
+          telegramToken = token;
+          secrets.telegram = { token };
+        }
+      } else {
+        telegramToken = existing.telegramToken;
+        secrets.telegram = { token: telegramToken };
+      }
     }
 
     if (!discordToken && !telegramToken) {
@@ -704,9 +750,9 @@ async function getChannelsSetup(
       telegramToken,
       // If we're reusing existing credentials, also keep existing Telegram config
       // to avoid overwriting allowList/groups with prompts.
-      reuseTelegramConfig: telegramEnabled,
-      telegramAllowList: telegramEnabled ? existing?.telegramAllowList : undefined,
-      telegramGroups: telegramEnabled ? existing?.telegramGroups : undefined,
+      reuseTelegramConfig,
+      telegramAllowList,
+      telegramGroups,
     };
   }
 
@@ -1292,7 +1338,7 @@ export async function runOnboarding(options: OnboardOptions = {}): Promise<void>
     const providerResult = await getProvidersSetup(rl, dockerMode, existing, reuseExisting);
     const secrets: SecretsConfig = { ...providerResult.secrets };
 
-    const channels = await getChannelsSetup(rl, secrets, existing, reuseExisting);
+    const channels = await getChannelsSetup(rl, dockerMode, secrets, existing, reuseExisting);
 
     const tz = detectTimezone();
     const gatewayToken = ensureGatewayToken(secrets, existing, reuseExisting);
