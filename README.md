@@ -242,6 +242,7 @@ See [Clawlet documentation](https://github.com/owliabot/clawlet) for advanced co
 | Chain ID | Network |
 |----------|---------|
 | 1 | Ethereum Mainnet |
+| 11155111 | Ethereum Sepolia (testnet) |
 | 8453 | Base |
 | 10 | Optimism |
 | 42161 | Arbitrum One |

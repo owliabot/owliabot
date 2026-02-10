@@ -32,8 +32,6 @@ const WEI_PER_ETH = 1_000_000_000_000_000_000n;
 export interface WalletToolsConfig {
   /** Clawlet client configuration */
   clawletConfig?: ClawletClientConfig;
-  /** Default wallet address (used if address param not provided) */
-  defaultAddress?: string;
   /** Default chain ID if not specified (default: 8453 = Base) */
   defaultChainId?: number;
   /** Whether wallet tools are enabled (check config.wallet.clawlet.enabled) */
@@ -115,7 +113,6 @@ function parseEthAmountToWei(amount: string): bigint | null {
  */
 export function createWalletBalanceTool(config: WalletToolsConfig = {}): ToolDefinition {
   const defaultChainId = config.defaultChainId ?? 8453;
-  const defaultAddress = config.defaultAddress;
 
   return {
     name: "wallet_balance",
@@ -124,31 +121,32 @@ export function createWalletBalanceTool(config: WalletToolsConfig = {}): ToolDef
 Returns the native ETH balance and any tracked token balances.
 
 PARAMETERS:
-- address: Wallet address to query (0x-prefixed)${defaultAddress ? ` Default: ${defaultAddress.slice(0, 10)}...` : " Required if no default configured"}
+- address: Wallet address to query (0x-prefixed). If omitted, fetches address from wallet service.
 - chain_id: Chain ID (default: ${defaultChainId})
 
 SUPPORTED CHAINS:
 - 1: Ethereum Mainnet
+- 11155111: Ethereum Sepolia (testnet)
 - 8453: Base
 - 10: Optimism
 - 42161: Arbitrum One
 
 EXAMPLE:
-{ "chain_id": 8453 }  // Uses default wallet
+{ "chain_id": 8453 }  // Uses wallet's own address
 { "address": "0x1234...5678", "chain_id": 1 }  // Specific address`,
     parameters: {
       type: "object",
       properties: {
         address: {
           type: "string",
-          description: `Wallet address (0x-prefixed)${defaultAddress ? ", optional" : ", required"}`,
+          description: "Wallet address (0x-prefixed, optional — fetched from wallet service if omitted)",
         },
         chain_id: {
           type: "number",
           description: `Chain ID (default: ${defaultChainId})`,
         },
       },
-      required: defaultAddress ? [] : ["address"],
+      required: [],
     },
     security: {
       level: "read", // Read-only operation, no confirmation needed
@@ -164,14 +162,17 @@ EXAMPLE:
       }
 
       const p = parseResult.data;
-      const address = p.address ?? defaultAddress;
+      let address = p.address;
 
-      // Validate we have an address
+      // If no address provided, fetch from wallet service
       if (!address) {
-        return {
-          success: false,
-          error: "Address is required. Either provide an address parameter or configure a default wallet.",
-        };
+        try {
+          const client = getClawletClient(config.clawletConfig);
+          const addrResp = await client.address();
+          address = addrResp.address;
+        } catch (err) {
+          return handleClawletError(err, "address lookup");
+        }
       }
 
       const query: BalanceQuery = {
