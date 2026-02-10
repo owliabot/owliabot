@@ -18,6 +18,7 @@ import {
 import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { join, dirname } from "node:path";
 import open from "open";
+import { existsSync, readFileSync } from "node:fs";
 import { createInterface } from "node:readline";
 import { createLogger } from "../utils/logger.js";
 import { ensureOwliabotHomeEnv } from "../utils/paths.js";
@@ -38,6 +39,40 @@ function getAuthFile(provider: SupportedOAuthProvider): string {
 }
 
 /**
+ * Detect if running in a headless/remote environment where opening a browser
+ * is unlikely to work (SSH, Docker, no display server).
+ */
+export function isHeadlessEnvironment(): boolean {
+  // macOS and Windows typically have a display
+  if (process.platform === "darwin" || process.platform === "win32") {
+    return false;
+  }
+
+  // Docker detection
+  if (existsSync("/.dockerenv")) {
+    return true;
+  }
+  try {
+    const cgroup = readFileSync("/proc/1/cgroup", "utf-8");
+    if (cgroup.includes("docker") || cgroup.includes("containerd")) {
+      return true;
+    }
+  } catch {
+    // Not available, ignore
+  }
+
+  // No display server on Linux
+  if (!process.env.DISPLAY && !process.env.WAYLAND_DISPLAY) {
+    return true;
+  }
+
+  return false;
+}
+
+/** Timeout (ms) to wait for browser callback before falling back to manual mode */
+const BROWSER_CALLBACK_TIMEOUT_MS = 30_000;
+
+/**
  * Start OAuth flow for a provider
  * @param provider - 'openai-codex'
  */
@@ -46,7 +81,16 @@ export async function startOAuthFlow(
   options?: { headless?: boolean },
 ): Promise<OAuthCredentials> {
   log.info(`Starting ${provider} OAuth flow...`);
-  const headless = options?.headless ?? false;
+
+  // Auto-detect headless unless explicitly set
+  const headless =
+    options?.headless !== undefined
+      ? options.headless
+      : isHeadlessEnvironment();
+
+  if (headless) {
+    log.debug("Headless environment detected — using manual URL paste mode");
+  }
 
   let credentials: OAuthCredentials;
 
@@ -60,29 +104,58 @@ export async function startOAuthFlow(
     });
   };
 
+  // Track whether the browser callback has fired (non-headless timeout fallback)
+  let browserCallbackReceived = false;
+  let manualFallbackResolve: ((value: string) => void) | null = null;
+
   if (provider === "openai-codex") {
     credentials = await loginOpenAICodex({
       onAuth: (info) => {
         if (headless) {
-          log.info("Open this URL in your browser to authenticate:");
-          log.info(info.url);
-          log.info("After login, copy the redirect URL from your browser and paste it below.");
+          log.info("📋 Open this URL in your browser:\n");
+          log.info(`  ${info.url}\n`);
+          log.info(
+            "After login, copy the FULL redirect URL from your browser address bar and paste it below."
+          );
         } else {
           log.info("Opening browser for OpenAI Codex authentication...");
           log.info(`If browser doesn't open, visit: ${info.url}`);
           if (info.instructions) {
             log.info(info.instructions);
           }
-          open(info.url);
+          // Try opening browser; on failure fall back to manual
+          open(info.url).catch(() => {
+            log.warn(
+              "Failed to open browser. Paste the redirect URL manually."
+            );
+          });
+
+          // Timeout fallback: if no callback in 30s, prompt for manual paste
+          setTimeout(() => {
+            if (!browserCallbackReceived && manualFallbackResolve) {
+              log.info(
+                "Browser didn't respond. Paste the redirect URL manually:"
+              );
+              askUser("Redirect URL:").then((url) => {
+                if (manualFallbackResolve) {
+                  manualFallbackResolve(url);
+                  manualFallbackResolve = null;
+                }
+              });
+            }
+          }, BROWSER_CALLBACK_TIMEOUT_MS);
         }
       },
       onPrompt: async (prompt) => askUser(prompt.message),
-      // In headless mode (Docker), immediately ask user to paste the callback URL
-      // instead of waiting 60s for a localhost callback that can't reach the container.
-      ...(headless && {
-        onManualCodeInput: () => askUser("Paste the redirect URL (or authorization code):"),
-      }),
+      onManualCodeInput: headless
+        ? () =>
+            askUser("Paste the redirect URL (or authorization code):")
+        : () =>
+            new Promise<string>((resolve) => {
+              manualFallbackResolve = resolve;
+            }),
       onProgress: (message) => {
+        browserCallbackReceived = true;
         log.debug(message);
       },
     });
