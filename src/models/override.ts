@@ -1,3 +1,5 @@
+import { formatModelRef, parseModelRef } from "./ref.js";
+
 export type ProviderModelRef = { provider: string; model: string };
 
 type ProviderChainEntry = {
@@ -8,6 +10,32 @@ type ProviderChainEntry = {
 
 function normalizeId(value: string): string {
   return value.trim().toLowerCase();
+}
+
+export function resolveEffectiveProviders<T extends ProviderChainEntry>(
+  providers: readonly T[],
+  primaryModelRefOverride?: string,
+): { providers: T[]; modelLabel: string; error?: unknown } {
+  const providersSorted = [...providers].toSorted((a, b) => a.priority - b.priority);
+  const primary = providersSorted[0];
+  const defaultPrimaryRef = primary ? `${primary.id}/${primary.model}` : "(unknown)";
+
+  const rawOverride = primaryModelRefOverride?.trim();
+  if (!rawOverride) {
+    return { providers: providers as T[], modelLabel: defaultPrimaryRef };
+  }
+
+  const parsed = parseModelRef(rawOverride);
+  if (!parsed) {
+    return { providers: providers as T[], modelLabel: defaultPrimaryRef };
+  }
+
+  try {
+    const effectiveProviders = applyPrimaryModelRefOverride(providers, parsed);
+    return { providers: effectiveProviders, modelLabel: formatModelRef(parsed) };
+  } catch (err) {
+    return { providers: providers as T[], modelLabel: defaultPrimaryRef, error: err };
+  }
 }
 
 /**
@@ -40,4 +68,3 @@ export function applyPrimaryModelRefOverride<T extends ProviderChainEntry>(
 
   return next;
 }
-

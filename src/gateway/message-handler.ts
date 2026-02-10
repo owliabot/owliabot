@@ -22,8 +22,7 @@ import { shouldHandleMessage } from "./activation.js";
 import { tryHandleCommand, tryHandleStatusCommand } from "./commands.js";
 import { buildSystemPrompt } from "../agent/system-prompt.js";
 import { runAgenticLoop, createConversation } from "./agentic-loop.js";
-import { applyPrimaryModelRefOverride } from "../models/override.js";
-import { parseModelRef } from "../models/ref.js";
+import { resolveEffectiveProviders } from "../models/override.js";
 
 const log = createLogger("gateway:message-handler");
 
@@ -346,24 +345,12 @@ export async function handleMessage(
       displayName: ctx.senderName,
     });
 
-    const providersSorted = [...config.providers].toSorted((a, b) => a.priority - b.priority);
-    const defaultPrimaryRef = providersSorted[0]
-      ? `${providersSorted[0].id}/${providersSorted[0].model}`
-      : "(unknown)";
-
-    let effectiveProviders = config.providers;
-    let activeModelLabel = defaultPrimaryRef;
-    if (entry.primaryModelRefOverride) {
-      const parsed = parseModelRef(entry.primaryModelRefOverride);
-      if (parsed) {
-        try {
-          effectiveProviders = applyPrimaryModelRefOverride(config.providers, parsed);
-          activeModelLabel = `${parsed.provider}/${parsed.model}`;
-        } catch (err) {
-          log.warn(`Ignoring invalid primaryModelRefOverride: ${entry.primaryModelRefOverride}`, err);
-        }
-      }
+    const resolved = resolveEffectiveProviders(config.providers, entry.primaryModelRefOverride);
+    if (resolved.error) {
+      log.warn(`Ignoring invalid primaryModelRefOverride: ${entry.primaryModelRefOverride}`, resolved.error);
     }
+    const effectiveProviders = resolved.providers;
+    const activeModelLabel = resolved.modelLabel;
 
     // Append user message to transcript
     const userMessage: Message = {

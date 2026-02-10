@@ -23,9 +23,9 @@ import type { Config } from "./config/schema.js";
 import { defaultConfigPath, ensureOwliabotHomeEnv, resolvePathLike } from "./utils/paths.js";
 import { listConfiguredModelCatalog } from "./models/catalog.js";
 import { parseModelRef } from "./models/ref.js";
-import { updateAppConfigYamlPrimaryModel } from "./models/config-file.js";
-import { readFile, writeFile } from "node:fs/promises";
+import { updateAppConfigYamlPrimaryModel, updateYamlFileAtomic } from "./models/config-file.js";
 import { parse as parseYaml } from "yaml";
+import { readFile } from "node:fs/promises";
 
 const log = logger;
 
@@ -530,33 +530,50 @@ models
   .action(async (modelRefOrId: string, options) => {
     try {
       const configPath = resolvePathLike(options.config);
-      const rawYaml = await readFile(configPath, "utf-8");
 
       const token = String(modelRefOrId ?? "").trim();
       if (!token) {
         throw new Error("Model ref is required");
       }
 
-      let override = parseModelRef(token);
-      if (!override) {
-        // Treat as "model id for current default provider"
-        const doc = parseYaml(rawYaml) as any;
-        const providers = Array.isArray(doc?.providers) ? doc.providers : null;
-        if (!providers || providers.length === 0) {
-          throw new Error("No providers configured in app.yaml");
+      await updateYamlFileAtomic(configPath, (rawYaml) => {
+        let override = parseModelRef(token);
+        if (!override) {
+          // Treat as "model id for current default provider"
+          const doc = parseYaml(rawYaml) as any;
+          const providers = Array.isArray(doc?.providers) ? doc.providers : null;
+          if (!providers || providers.length === 0) {
+            throw new Error("No providers configured in app.yaml");
+          }
+          const sorted = [...providers].sort((a, b) => Number(a?.priority ?? 0) - Number(b?.priority ?? 0));
+          const primaryId = String(sorted[0]?.id ?? "").trim();
+          if (!primaryId) {
+            throw new Error("Invalid providers[]: missing id on primary provider");
+          }
+          override = { provider: primaryId, model: token };
         }
-        const sorted = [...providers].sort((a, b) => Number(a?.priority ?? 0) - Number(b?.priority ?? 0));
-        const primaryId = String(sorted[0]?.id ?? "").trim();
-        if (!primaryId) {
-          throw new Error("Invalid providers[]: missing id on primary provider");
-        }
-        override = { provider: primaryId, model: token };
+
+        return updateAppConfigYamlPrimaryModel(rawYaml, override);
+      });
+
+      // Read back the updated app.yaml to report the current primary model.
+      // (TypeScript does not track assignments inside update callbacks reliably.)
+      const updatedYaml = await readFile(configPath, "utf-8");
+      const updatedDoc = parseYaml(updatedYaml) as any;
+      const updatedProviders = Array.isArray(updatedDoc?.providers) ? updatedDoc.providers : null;
+      if (!updatedProviders || updatedProviders.length === 0) {
+        throw new Error("Default model updated but providers[] is missing in app.yaml");
+      }
+      const sorted = [...updatedProviders].sort(
+        (a, b) => Number(a?.priority ?? 0) - Number(b?.priority ?? 0)
+      );
+      const primaryId = String(sorted[0]?.id ?? "").trim();
+      const primaryModel = String(sorted[0]?.model ?? "").trim();
+      if (!primaryId || !primaryModel) {
+        throw new Error("Default model updated but primary provider is invalid in app.yaml");
       }
 
-      const updatedYaml = updateAppConfigYamlPrimaryModel(rawYaml, override);
-      await writeFile(configPath, updatedYaml, "utf-8");
-
-      log.info(`Default model updated: ${override.provider}/${override.model}`);
+      log.info(`Default model updated: ${primaryId}/${primaryModel}`);
     } catch (err) {
       log.error("Failed to set default model", err);
       process.exit(1);

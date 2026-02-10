@@ -22,9 +22,8 @@ import type { InfraStore } from "../infra/index.js";
 import { listConfiguredModelCatalog } from "../models/catalog.js";
 import { parseModelRef } from "../models/ref.js";
 import { applyPrimaryModelRefOverride } from "../models/override.js";
-import { updateAppConfigYamlPrimaryModel } from "../models/config-file.js";
+import { updateAppConfigFilePrimaryModel } from "../models/config-file.js";
 import { resolvePathLike, defaultConfigPath } from "../utils/paths.js";
-import { readFile, writeFile } from "node:fs/promises";
 
 const log = createLogger("commands");
 
@@ -270,12 +269,10 @@ export async function tryHandleCommand(
         const rawConfigPath = process.env.OWLIABOT_CONFIG_PATH ?? defaultConfigPath();
         const configPath = resolvePathLike(rawConfigPath);
         try {
-          const rawYaml = await readFile(configPath, "utf-8");
-          const updatedYaml = updateAppConfigYamlPrimaryModel(rawYaml, {
+          await updateAppConfigFilePrimaryModel(configPath, {
             provider: resolved.provider,
             model: resolved.model,
           });
-          await writeFile(configPath, updatedYaml, "utf-8");
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err);
           await channel.send(target, {
@@ -285,7 +282,9 @@ export async function tryHandleCommand(
           return { handled: true };
         }
 
-        // Update in-memory provider chain so it takes effect immediately (same process).
+        // Update in-memory provider chain so it takes effect immediately in this process.
+        // Note: this is an intentional in-place mutation because `providers` is passed
+        // by reference into the message pipeline.
         if (providers && providers.length > 0) {
           const next = applyPrimaryModelRefOverride(providers as any, {
             provider: resolved.provider,

@@ -14,6 +14,7 @@ export type ModelCatalogEntry = {
   source: "pi-ai" | "configured";
 };
 
+// SYNC: Keep this set in sync with the provider ids supported by @mariozechner/pi-ai.
 const PI_PROVIDER_IDS = new Set<string>(["anthropic", "openai", "openai-codex", "google"]);
 
 function normalize(value: string): string {
@@ -100,4 +101,3 @@ export function listConfiguredModelCatalog(params: {
     return a.model.localeCompare(b.model);
   });
 }
-

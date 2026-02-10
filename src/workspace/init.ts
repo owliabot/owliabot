@@ -1,4 +1,4 @@
-import { access, mkdir, readFile, writeFile, readdir, cp } from "node:fs/promises";
+import { access, mkdir, readFile, writeFile, cp } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -179,6 +179,10 @@ async function copyBundledSkills(workspacePath: string): Promise<{
     await cp(bundledSkillsDir, targetSkillsDir, { recursive: true });
     return { copied: true, skillsDir: targetSkillsDir };
   } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.warn(
+      `[workspace] Failed to copy bundled skills (${bundledSkillsDir}) to workspace (${targetSkillsDir}): ${message}`
+    );
     return { copied: false };
   }
 }
