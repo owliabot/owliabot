@@ -21,6 +21,7 @@ import { runOnboarding } from "./onboarding/onboard.js";
 import { DEV_APP_CONFIG_PATH } from "./onboarding/storage.js";
 import type { Config } from "./config/schema.js";
 import { defaultConfigPath, ensureOwliabotHomeEnv, resolvePathLike } from "./utils/paths.js";
+import { createDefaultDoctorIO, runDoctorCli } from "./doctor/cli.js";
 import { listConfiguredModelCatalog } from "./models/catalog.js";
 import { parseModelRef } from "./models/ref.js";
 import { updateAppConfigYamlPrimaryModel, updateYamlFileAtomic } from "./models/config-file.js";
@@ -159,11 +160,20 @@ program
     "Config file path (default: $OWLIABOT_HOME/app.yaml)",
     process.env.OWLIABOT_CONFIG_PATH ?? defaultConfigPath()
   )
+  .option("--no-interactive", "Disable interactive prompts (exit non-zero on errors)")
   .action(async (options) => {
     try {
       ensureOwliabotHomeEnv();
-      log.info("Doctor: not implemented yet");
-      log.debug(options);
+      const interactive = Boolean(
+        options.interactive && process.stdin.isTTY && process.stdout.isTTY,
+      );
+      const { io, close } = createDefaultDoctorIO({ interactive });
+      try {
+        const code = await runDoctorCli({ configPath: options.config, io });
+        process.exit(code);
+      } finally {
+        close();
+      }
     } catch (err) {
       log.error("Doctor failed", err);
       process.exit(1);
