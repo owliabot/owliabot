@@ -46,12 +46,8 @@ export interface ChannelResult {
   telegramToken: string;
 }
 
-export interface ChannelsSetup {
-  discordEnabled: boolean;
-  telegramEnabled: boolean;
-  discordToken: string;
-  telegramToken: string;
-}
+/** @deprecated Use ChannelResult instead */
+export type ChannelsSetup = ChannelResult;
 
 export interface DockerPaths {
   /** Host directory where we write app.yaml + secrets.yaml */

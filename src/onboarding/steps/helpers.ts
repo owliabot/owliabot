@@ -11,6 +11,7 @@ import { IS_DEV_MODE } from "../storage.js";
 import { info, success, header, printBanner } from "../shared.js";
 import type { DockerPaths, OnboardOptions } from "./types.js";
 import { DEFAULT_APP_CONFIG_PATH } from "../storage.js";
+import { initDevWorkspace } from "./init-dev-workspace.js";
 
 export function getDockerHostWorkspacePath(paths: DockerPaths): string {
   return join(paths.configDir, "workspace");
@@ -197,7 +198,6 @@ export async function printDevNextSteps(
   providers: ProviderConfig[],
   writeToolAllowList: string[] | null,
 ): Promise<void> {
-  const { initDevWorkspace } = await import("./init-dev-workspace.js");
   await initDevWorkspace(workspace, writeToolAllowList);
   printDevNextStepsText(discordEnabled, telegramEnabled, secrets, providers);
 }
