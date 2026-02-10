@@ -4,7 +4,9 @@
  */
 
 import { program } from "commander";
-import { join } from "node:path";
+import { join, dirname } from "node:path";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { loadConfig } from "./config/loader.js";
 import { ensureWorkspaceInitialized } from "./workspace/init.js";
 import { loadWorkspace } from "./workspace/loader.js";
@@ -135,7 +137,29 @@ program
       process.on("SIGINT", shutdown);
       process.on("SIGTERM", shutdown);
 
-      log.info("OwliaBot is running. Press Ctrl+C to stop.");
+      // ASCII art banner
+      const __dirname = dirname(fileURLToPath(import.meta.url));
+      const pkg = JSON.parse(readFileSync(join(__dirname, "..", "package.json"), "utf-8"));
+      const version = pkg.version as string;
+      const banner = [
+        "",
+        "   ___           _ _       ____        _   ",
+        "  / _ \\__      _| (_) __ _| __ )  ___ | |_ ",
+        " | | | \\ \\ /\\ / / | |/ _` |  _ \\ / _ \\| __|",
+        " | |_| |\\ V  V /| | | (_| | |_) | (_) | |_ ",
+        "  \\___/  \\_/\\_/ |_|_|\\__,_|____/ \\___/ \\__|",
+        "",
+        `  🦉  v${version} — Crypto-native AI Agent`,
+        "",
+        "  ✓ Bot is up and running",
+        `  ⚠ PRERELEASE build — not for production use`,
+        "",
+        "  Press Ctrl+C to stop.",
+        "",
+      ];
+      for (const line of banner) {
+        log.info(line);
+      }
     } catch (err) {
       log.error("Failed to start", err);
       process.exit(1);
