@@ -585,28 +585,11 @@ export async function startGatewayHttp(opts: GatewayHttpOptions): Promise<Gatewa
         return;
       }
 
-      // ── Infer trade capability from token ──────────────────────────────────
-      // Attempt a minimal transfer call to check authorization.
-      // - UNAUTHORIZED error → token lacks trade scope
-      // - Any other error (validation, etc.) → token has trade scope
-      let tradeCapable = false;
-      try {
-        await client.transfer({
-          to: walletAddress,
-          amount: "0",
-          token_type: "ETH",
-          chain_id: resolvedChainId,
-        });
-        // If no error, token has trade scope (though 0 transfer may not execute)
-        tradeCapable = true;
-      } catch (err: any) {
-        if (err?.code === "UNAUTHORIZED") {
-          tradeCapable = false;
-        } else {
-          // Validation or other errors indicate we passed authorization
-          tradeCapable = true;
-        }
-      }
+      // ── Register trade capability ──────────────────────────────────────────
+      // Always enable both balance and transfer tools upon wallet connection.
+      // Authorization checks are enforced at tool execution time by Clawlet,
+      // not during setup. This keeps the wallet-connect operation non-mutating.
+      const tradeCapable = true;
 
       // ── Register tools ────────────────────────────────────────────────────
       // Always unregister both first to handle reconnect with different scope
