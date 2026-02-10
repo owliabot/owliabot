@@ -23,6 +23,14 @@ export class ToolRegistry {
     log.debug(`Registered tool: ${tool.name}`);
   }
 
+  unregister(name: string): boolean {
+    const deleted = this.tools.delete(name);
+    if (deleted) {
+      log.debug(`Unregistered tool: ${name}`);
+    }
+    return deleted;
+  }
+
   get(name: string): ToolDefinition | undefined {
     return this.tools.get(name) ?? this.tools.get(TOOL_ALIASES[name] ?? "");
   }

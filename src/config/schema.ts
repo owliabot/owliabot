@@ -5,6 +5,7 @@
 
 import { z } from "zod";
 import { CliBackendsSchema } from "../agent/cli/cli-schema.js";
+import { mcpServerConfigSchema } from "../mcp/types.js";
 
 export const providerSchema = z
   .object({
@@ -393,6 +394,39 @@ const memorySearchSchema = z
     indexing: { autoIndex: true, minIntervalMs: 5 * 60 * 1000 },
   });
 
+// MCP (Model Context Protocol) configuration
+export const mcpGatewayConfigSchema = z
+  .object({
+    /** Named presets to auto-expand (e.g. ["playwright"]) */
+    presets: z.array(z.string()).default([]),
+    /** Explicit server definitions (reuses mcpServerConfigSchema with transport validation) */
+    servers: z
+      .array(mcpServerConfigSchema)
+      .default([]),
+    /** Start MCP servers automatically on gateway boot (default: true) */
+    autoStart: z.boolean().default(true),
+    /** Default settings for all MCP servers */
+    defaults: z
+      .object({
+        timeout: z.number().int().default(30000),
+        connectTimeout: z.number().int().default(10000),
+        restartOnCrash: z.boolean().default(true),
+        maxRestarts: z.number().int().default(3),
+        restartDelay: z.number().int().default(1000),
+      })
+      .optional(),
+    /** Security overrides for specific MCP tools (keyed by serverName__toolName) */
+    securityOverrides: z.record(
+      z.object({
+        level: z.enum(["read", "write", "sign"]),
+        confirmRequired: z.boolean().optional(),
+      }),
+    ).optional(),
+  })
+  .optional();
+
+export type MCPGatewayConfig = z.infer<typeof mcpGatewayConfigSchema>;
+
 export const configSchema = z.object({
   // AI providers
   providers: z.array(providerSchema).min(1),
@@ -458,6 +492,9 @@ export const configSchema = z.object({
 
   // Wallet integration (Clawlet)
   wallet: walletSchema,
+
+  // MCP (Model Context Protocol) servers
+  mcp: mcpGatewayConfigSchema,
 });
 
 export type Config = z.infer<typeof configSchema>;

@@ -60,6 +60,8 @@ import { createCronTool } from "../agent/tools/builtin/cron.js";
 import { createNotificationService } from "../notifications/service.js";
 import { initializeSkills, type SkillsInitResult } from "../skills/index.js";
 import { createInfraStore, hashMessage, type InfraStore } from "../infra/index.js";
+import { MCPManager, createMCPManager } from "../mcp/manager.js";
+import { expandMCPPresets } from "../mcp/presets.js";
 import { startGatewayHttp } from "./http/server.js";
 import { runBootOnce } from "./boot.js";
 import { join, dirname, resolve } from "node:path";
@@ -256,6 +258,67 @@ export async function startGateway(
 
     log.info(`Skills: loading from ${skillsDirs.length} directories`);
     skillsResult = await initializeSkills(skillsDirs);
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // MCP (Model Context Protocol) servers
+  // ─────────────────────────────────────────────────────────────────────────
+  let mcpManager: MCPManager | null = null;
+  if (config.mcp && config.mcp.autoStart !== false) {
+    const mcpConfig = config.mcp;
+    // Expand presets into server configs
+    const presetServers = expandMCPPresets(mcpConfig.presets ?? []);
+    const allServers = [...presetServers, ...(mcpConfig.servers ?? [])];
+
+    if (allServers.length > 0) {
+      mcpManager = createMCPManager({
+        defaults: mcpConfig.defaults,
+        securityOverrides: mcpConfig.securityOverrides,
+      });
+
+      for (const serverConfig of allServers) {
+        try {
+          const toolNames = await mcpManager.addServer(serverConfig);
+          log.info(`MCP server "${serverConfig.name}" loaded ${toolNames.length} tools`);
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          log.warn(`MCP server "${serverConfig.name}" failed to start: ${msg}`);
+        }
+      }
+
+      // Register MCP tools with the tool registry
+      const mcpTools = await mcpManager.getToolsAsync();
+      const mcpToolNames = new Set<string>();
+      for (const tool of mcpTools) {
+        tools.register(tool);
+        mcpToolNames.add(tool.name);
+      }
+
+      // Listen for dynamic tool changes and update registry
+      mcpManager.onToolsChanged((updatedTools) => {
+        const newToolNames = new Set<string>();
+        for (const tool of updatedTools) {
+          tools.register(tool);
+          newToolNames.add(tool.name);
+        }
+
+        // Unregister MCP tools that were removed
+        for (const oldName of mcpToolNames) {
+          if (!newToolNames.has(oldName)) {
+            tools.unregister(oldName);
+            log.info(`MCP tool removed: ${oldName}`);
+          }
+        }
+
+        // Update tracked MCP tool names
+        mcpToolNames.clear();
+        for (const name of newToolNames) {
+          mcpToolNames.add(name);
+        }
+      });
+
+      log.info(`MCP: ${mcpTools.length} tools registered from ${mcpManager.serverCount} servers`);
+    }
   }
 
   // WriteGate reply router (shared across all channels)
@@ -544,6 +607,9 @@ export async function startGateway(
     }
     if (stopHttp) {
       await stopHttp();
+    }
+    if (mcpManager) {
+      await mcpManager.close();
     }
     cronIntegration.stop();
     legacyCron.stopAll();
