@@ -414,9 +414,9 @@ export async function startGateway(
   // Register cron tool
   tools.register(createCronTool({ cronService: cronIntegration.cronService }));
 
-  // Initialize MCP servers and register their tools
+  // Initialize MCP servers and register their tools (enabled by default with Playwright preset)
   let mcpResult: CreateMCPToolsResult | null = null;
-  if (config.mcp) {
+  if (config.mcp && config.mcp.servers.length > 0) {
     try {
       mcpResult = await createMCPTools(config.mcp);
       for (const tool of mcpResult.tools) {

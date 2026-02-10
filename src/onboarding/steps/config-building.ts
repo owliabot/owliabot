@@ -137,6 +137,16 @@ export async function buildAppConfigFromPrompts(
     providers,
     memorySearch: buildDefaultMemorySearchConfig(),
     system: buildDefaultSystemConfig(),
+    mcp: {
+      servers: [
+        {
+          name: "playwright",
+          command: "npx",
+          args: ["--yes", "@playwright/mcp@latest"],
+          transport: "stdio",
+        },
+      ],
+    },
     ...(gateway ? { gateway } : {}),
   };
 
