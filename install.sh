@@ -62,7 +62,6 @@ big_success_banner() {
     echo ""
     return 0
   fi
-
   printf "%b\n" "${CYAN}  ____          _ _       ____        _     _${NC}"
   printf "%b\n" "${CYAN} / __ \\\\        (_) |     |  _ \\\\      | |   (_)_${NC}"
   printf "%b\n" "${CYAN}| |  | |_      _| | __ _  | |_) | ___ | |_   _| |${NC}"
@@ -370,6 +369,29 @@ main() {
   OAUTH_OK=true
   APP_YAML="$HOME/.owliabot/app.yaml"
   if [ -f "${APP_YAML}" ] && grep -qE 'apiKey: "?oauth"?' "${APP_YAML}" 2>/dev/null; then
+    # If we already have a valid OAuth token on disk, don't force an interactive
+    # auth setup again. This avoids redundant re-auth in cases like:
+    # - onboard detects an existing valid token and keeps it
+    # - install.sh then blindly runs `auth setup` again
+    #
+    # Token files are stored under ~/.owliabot/auth/ and are mounted into Docker.
+    AUTH_FILE="$HOME/.owliabot/auth/auth-openai-codex.json"
+    SKIP_OAUTH_SETUP=false
+    if [ -f "${AUTH_FILE}" ]; then
+      EXPIRES_MS="$(sed -nE 's/.*\"expires\"[[:space:]]*:[[:space:]]*([0-9]+).*/\\1/p' "${AUTH_FILE}" | head -n1)"
+      if [ -n "${EXPIRES_MS}" ]; then
+        NOW_S="$(date +%s)"
+        NOW_MS="$((NOW_S * 1000))"
+        if [ "${EXPIRES_MS}" -gt "${NOW_MS}" ] 2>/dev/null; then
+          SKIP_OAUTH_SETUP=true
+          info "Found existing openai-codex OAuth token (not expired). Skipping OAuth setup."
+        fi
+      fi
+    fi
+
+    if [ "${SKIP_OAUTH_SETUP}" = "true" ]; then
+      : # noop
+    else
     header "Setting up OAuth authentication"
     info "OAuth providers detected in config. Starting auth setup..."
     info "Running in a temporary container..."
@@ -384,6 +406,7 @@ main() {
     else
       OAUTH_OK=false
       warn "OAuth setup did not complete."
+    fi
     fi
   fi
 
