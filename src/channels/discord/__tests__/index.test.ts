@@ -56,22 +56,42 @@ vi.mock("../../../utils/logger.js", () => ({
   }),
 }));
 
-const makeMessage = (overrides: Partial<any> = {}) => ({
-  author: {
-    id: "user1",
-    bot: false,
-    displayName: "User One",
-    username: "user1",
-  },
-  guild: undefined,
-  channel: { id: "channel-1", sendTyping: vi.fn().mockResolvedValue(undefined) },
-  content: "Hello",
-  createdTimestamp: 123456,
-  id: "msg-1",
-  reference: undefined,
-  mentions: { has: vi.fn(() => false) },
-  ...overrides,
-});
+const makeMessage = (overrides: Partial<any> = {}) => {
+  const base: any = {
+    author: {
+      id: "user1",
+      bot: false,
+      displayName: "User One",
+      username: "user1",
+    },
+    guild: undefined,
+    channel: {
+      id: "channel-1",
+      sendTyping: vi.fn().mockResolvedValue(undefined),
+      messages: {
+        fetch: vi.fn().mockRejectedValue(new Error("not found")),
+      },
+    },
+    content: "Hello",
+    createdTimestamp: 123456,
+    id: "msg-1",
+    reference: undefined,
+    mentions: { has: vi.fn(() => false) },
+    ...overrides,
+  };
+  // Merge channel deeply if overrides provide it
+  if (overrides.channel) {
+    base.channel = {
+      ...base.channel,
+      ...overrides.channel,
+      messages: {
+        fetch: vi.fn().mockRejectedValue(new Error("not found")),
+        ...(overrides.channel.messages || {}),
+      },
+    };
+  }
+  return base;
+};
 
 describe("discord plugin", () => {
   beforeEach(() => {
@@ -195,6 +215,77 @@ describe("discord plugin", () => {
       content: "Ping",
       reply: { messageReference: "msg-9" },
     });
+  });
+
+  it("treats reply-to-bot as mention trigger in guild", async () => {
+    const plugin = createDiscordPlugin({ token: "test-token" });
+    const handler = vi.fn();
+    plugin.onMessage(handler);
+
+    await plugin.start();
+
+    const discord = (await import("discord.js")) as any;
+    const client = discord.__getLastClient();
+
+    const replyToBot = makeMessage({
+      guild: { name: "Guild" },
+      channel: {
+        id: "channel-2",
+        sendTyping: vi.fn().mockResolvedValue(undefined),
+        messages: {
+          fetch: vi.fn().mockResolvedValue({ author: { id: "bot123" } }),
+        },
+      },
+      reference: { messageId: "bot-msg-1" },
+    });
+    await client.handlers.messageCreate(replyToBot);
+    expect(handler).toHaveBeenCalledTimes(1);
+  });
+
+  it("does NOT trigger when replying to another user's message", async () => {
+    const plugin = createDiscordPlugin({ token: "test-token" });
+    const handler = vi.fn();
+    plugin.onMessage(handler);
+
+    await plugin.start();
+
+    const discord = (await import("discord.js")) as any;
+    const client = discord.__getLastClient();
+
+    const replyToOther = makeMessage({
+      guild: { name: "Guild" },
+      channel: {
+        id: "channel-2",
+        sendTyping: vi.fn().mockResolvedValue(undefined),
+        messages: {
+          fetch: vi.fn().mockResolvedValue({ author: { id: "other-user" } }),
+        },
+      },
+      reference: { messageId: "other-msg-1" },
+    });
+    await client.handlers.messageCreate(replyToOther);
+    expect(handler).not.toHaveBeenCalled();
+  });
+
+  it("does NOT trigger guild message with neither reply nor mention", async () => {
+    const plugin = createDiscordPlugin({ token: "test-token" });
+    const handler = vi.fn();
+    plugin.onMessage(handler);
+
+    await plugin.start();
+
+    const discord = (await import("discord.js")) as any;
+    const client = discord.__getLastClient();
+
+    const plainMsg = makeMessage({
+      guild: { name: "Guild" },
+      channel: {
+        id: "channel-2",
+        sendTyping: vi.fn().mockResolvedValue(undefined),
+      },
+    });
+    await client.handlers.messageCreate(plainMsg);
+    expect(handler).not.toHaveBeenCalled();
   });
 
   it("falls back to DM send when channel fetch fails", async () => {

@@ -2,6 +2,7 @@
  * Provider setup for onboarding (AI provider configuration)
  */
 
+import { createInterface } from "node:readline";
 import type { ProviderConfig, LLMProviderId } from "../types.js";
 import type { SecretsConfig } from "../secrets.js";
 import { startOAuthFlow } from "../../auth/oauth.js";
@@ -16,29 +17,14 @@ import {
   warn,
   header,
   DEFAULT_MODELS,
-  type ExistingConfig,
 } from "../shared.js";
-import type { createInterface } from "node:readline";
+import type { DetectedConfig, ProviderResult, ProviderSetupState } from "./types.js";
 
 type RL = ReturnType<typeof createInterface>;
 
-export interface ProviderResult {
-  providers: ProviderConfig[];
-  secrets: SecretsConfig;
-  useAnthropic: boolean;
-  useOpenaiCodex: boolean;
-}
-
-interface ProviderSetupState {
-  providers: ProviderConfig[];
-  secrets: SecretsConfig;
-  priority: number;
-  useAnthropic: boolean;
-  useOpenaiCodex: boolean;
-}
-
 /**
  * Prompt for which model to use for a given provider.
+ * Uses the model catalog when available, falls back to free-text input.
  */
 export async function promptModel(
   rl: RL,
@@ -291,7 +277,7 @@ export async function askProviders(
 /**
  * Reuse existing provider configuration.
  */
-export function reuseProvidersFromExisting(existing: ExistingConfig): ProviderResult {
+export function reuseProvidersFromExisting(existing: DetectedConfig): ProviderResult {
   const secrets: SecretsConfig = {};
   const providers: ProviderConfig[] = [];
   let priority = 1;
@@ -299,7 +285,7 @@ export function reuseProvidersFromExisting(existing: ExistingConfig): ProviderRe
   let useOpenaiCodex = false;
 
   // Anthropic
-  if (existing.anthropicKey || existing.anthropicToken || existing.hasOAuthAnthro) {
+  if (existing.anthropicKey || existing.anthropicToken || existing.anthropicOAuth) {
     useAnthropic = true;
     if (existing.anthropicKey) secrets.anthropic = { apiKey: existing.anthropicKey };
     if (existing.anthropicToken) secrets.anthropic = { ...secrets.anthropic, token: existing.anthropicToken };
@@ -326,7 +312,7 @@ export function reuseProvidersFromExisting(existing: ExistingConfig): ProviderRe
   }
 
   // OpenAI Codex (OAuth)
-  if (existing.hasOAuthCodex) {
+  if (existing.openaiOAuth) {
     useOpenaiCodex = true;
     providers.push({
       id: "openai-codex",
@@ -346,7 +332,7 @@ export function reuseProvidersFromExisting(existing: ExistingConfig): ProviderRe
 export async function getProvidersSetup(
   rl: RL,
   dockerMode: boolean,
-  existing: any | null,
+  existing: DetectedConfig | null,
   reuseExisting: boolean,
 ): Promise<ProviderResult> {
   header("AI");

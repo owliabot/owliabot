@@ -1,13 +1,9 @@
 /**
  * Unit tests for configureDiscordConfig step function.
- *
- * configureDiscordConfig prompts for Discord bot token, application ID,
- * and optional guild-specific settings when Discord is the chosen channel.
- *
- * NOT exported yet — tests are skipped until the refactor exports this function.
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { createInterface } from "node:readline";
 
 let answers: string[] = [];
 let promptLog: string[] = [];
@@ -21,6 +17,8 @@ vi.mock("node:readline", () => ({
       cb(next);
     },
     close: vi.fn(),
+    once: vi.fn(),
+    removeListener: vi.fn(),
     pause: vi.fn(),
     resume: vi.fn(),
   }),
@@ -34,13 +32,17 @@ vi.mock("../clawlet-onboard.js", () => ({
   runClawletOnboarding: vi.fn().mockResolvedValue({ enabled: false }),
 }));
 
+import { configureDiscordConfig } from "../steps/configure-discord.js";
+
 describe("configureDiscordConfig step", () => {
   let consoleSpy: ReturnType<typeof vi.spyOn>;
+  let rl: ReturnType<typeof createInterface>;
 
   beforeEach(() => {
     consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
     answers = [];
     promptLog = [];
+    rl = createInterface({ input: process.stdin, output: process.stdout });
   });
 
   afterEach(() => {
@@ -48,37 +50,41 @@ describe("configureDiscordConfig step", () => {
     vi.restoreAllMocks();
   });
 
-  it.skip("requires export after refactor — configures discord with token and app id", async () => {
-    // answers = ["discord-bot-token-123", "app-id-456"];
-    // const config: any = { channels: {} };
-    // const secrets: Record<string, any> = {};
-    // await configureDiscordConfig(rl, config, secrets);
-    // expect(config.channels.discord).toBeDefined();
-    // expect(secrets.discord?.token).toBe("discord-bot-token-123");
-    // expect(config.channels.discord.applicationId).toBe("app-id-456");
+  it("configures discord with channel and member allowlists", async () => {
+    answers = ["chan1,chan2", "user1,user2"];
+    const config: any = {};
+    const userAllowLists: any = { discord: [], telegram: [] };
+    await configureDiscordConfig(rl, config, userAllowLists);
+    expect(config.discord).toBeDefined();
+    expect(config.discord.channelAllowList).toEqual(["chan1", "chan2"]);
+    expect(config.discord.memberAllowList).toEqual(["user1", "user2"]);
+    expect(userAllowLists.discord).toEqual(["user1", "user2"]);
   });
 
-  it.skip("requires export after refactor — uses existing token from secrets when available", async () => {
-    // const secrets = { discord: { token: "existing-tok" } };
-    // answers = ["", "app-id"];  // empty token = keep existing
-    // const config: any = { channels: {} };
-    // await configureDiscordConfig(rl, config, secrets);
-    // expect(secrets.discord.token).toBe("existing-tok");
+  it("sets requireMentionInGuild to true", async () => {
+    answers = ["", ""];
+    const config: any = {};
+    const userAllowLists: any = { discord: [], telegram: [] };
+    await configureDiscordConfig(rl, config, userAllowLists);
+    expect(config.discord.requireMentionInGuild).toBe(true);
   });
 
-  it.skip("requires export after refactor — handles empty app id gracefully", async () => {
-    // answers = ["tok-123", ""];
-    // const config: any = { channels: {} };
-    // const secrets: Record<string, any> = {};
-    // await configureDiscordConfig(rl, config, secrets);
-    // expect(config.channels.discord).toBeDefined();
-    // expect(config.channels.discord.applicationId).toBeUndefined();
+  it("handles empty allowlists", async () => {
+    answers = ["", ""];
+    const config: any = {};
+    const userAllowLists: any = { discord: [], telegram: [] };
+    await configureDiscordConfig(rl, config, userAllowLists);
+    expect(config.discord).toBeDefined();
+    expect(config.discord.channelAllowList).toEqual([]);
+    expect(config.discord.memberAllowList).toBeUndefined();
   });
 
-  it.skip("requires export after refactor — sets up guild-specific config when guild ID provided", async () => {
-    // answers = ["tok", "app-id", "guild-123"];
-    // const config: any = { channels: {} };
-    // await configureDiscordConfig(rl, config, {});
-    // expect(config.channels.discord.guildId).toBe("guild-123");
+  it("trims whitespace from IDs", async () => {
+    answers = [" chan1 , chan2 ", " user1 "];
+    const config: any = {};
+    const userAllowLists: any = { discord: [], telegram: [] };
+    await configureDiscordConfig(rl, config, userAllowLists);
+    expect(config.discord.channelAllowList).toEqual(["chan1", "chan2"]);
+    expect(userAllowLists.discord).toEqual(["user1"]);
   });
 });

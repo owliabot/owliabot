@@ -1,9 +1,5 @@
-# Heartbeat Checklist
+# HEARTBEAT.md
 
-Run this checklist periodically:
+# Keep this file empty (or with only comments) to skip heartbeat API calls.
 
-1. Check system health and connectivity.
-2. Review pending tasks or reminders.
-3. Summarize important changes since last check.
-
-If nothing needs attention, respond with: HEARTBEAT_OK
+# Add tasks below when you want the agent to check something periodically.

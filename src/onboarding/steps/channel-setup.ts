@@ -2,37 +2,14 @@
  * Channel setup for onboarding (Discord, Telegram)
  */
 
+import { createInterface } from "node:readline";
 import type { SecretsConfig } from "../secrets.js";
 import type { AppConfig } from "../types.js";
 import { ask, askYN, selectOption, info, success, warn, header } from "../shared.js";
-import type { createInterface } from "node:readline";
+import type { DetectedConfig, ChannelResult, UserAllowLists } from "./types.js";
 
 type RL = ReturnType<typeof createInterface>;
 type TelegramGroups = NonNullable<NonNullable<AppConfig["telegram"]>["groups"]>;
-
-export interface DetectedConfig {
-  anthropicKey?: string;
-  anthropicToken?: string;
-  openaiKey?: string;
-  openaiCompatKey?: string;
-  discordToken?: string;
-  telegramToken?: string;
-  gatewayToken?: string;
-  hasOAuthAnthro?: boolean;
-  hasOAuthCodex?: boolean;
-  telegramAllowList?: string[];
-  telegramGroups?: TelegramGroups;
-}
-
-export interface ChannelResult {
-  discordEnabled: boolean;
-  telegramEnabled: boolean;
-  discordToken: string;
-  telegramToken: string;
-  reuseTelegramConfig: boolean;
-  telegramAllowList?: string[];
-  telegramGroups?: TelegramGroups;
-}
 
 /**
  * Interactive prompt for chat channels.
@@ -130,8 +107,6 @@ export async function askChannels(
   };
 }
 
-type UserAllowLists = { discord: string[]; telegram: string[] };
-
 /**
  * Configure Discord-specific settings.
  */
@@ -218,8 +193,6 @@ export async function getChannelsSetup(
       telegramEnabled = true;
       info("  - Telegram");
 
-      // Ask whether to reuse when there are allowList/groups to carry over.
-      // If it's token-only, silently reuse (nothing security-sensitive to confirm).
       const allowCount = existing.telegramAllowList?.length ?? 0;
       const groupCount = existing.telegramGroups ? Object.keys(existing.telegramGroups).length : 0;
       if (allowCount > 0 || groupCount > 0) {
@@ -234,7 +207,6 @@ export async function getChannelsSetup(
           reuseTelegramConfig = false;
         }
       } else {
-        // Token only — silently reuse.
         reuseTelegramConfig = true;
       }
 

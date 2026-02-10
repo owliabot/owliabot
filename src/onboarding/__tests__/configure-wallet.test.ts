@@ -1,13 +1,9 @@
 /**
  * Unit tests for configureWallet step function.
- *
- * configureWallet handles the clawlet wallet setup during onboarding,
- * delegating to runClawletOnboarding and integrating the result into config.
- *
- * NOT exported yet — tests are skipped until the refactor exports this function.
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { createInterface } from "node:readline";
 
 let answers: string[] = [];
 let promptLog: string[] = [];
@@ -21,6 +17,8 @@ vi.mock("node:readline", () => ({
       cb(next);
     },
     close: vi.fn(),
+    once: vi.fn(),
+    removeListener: vi.fn(),
     pause: vi.fn(),
     resume: vi.fn(),
   }),
@@ -34,13 +32,18 @@ vi.mock("../clawlet-onboard.js", () => ({
   runClawletOnboarding: vi.fn().mockResolvedValue({ enabled: false }),
 }));
 
+import { configureWallet } from "../steps/configure-wallet.js";
+import { runClawletOnboarding } from "../clawlet-onboard.js";
+
 describe("configureWallet step", () => {
   let consoleSpy: ReturnType<typeof vi.spyOn>;
+  let rl: ReturnType<typeof createInterface>;
 
   beforeEach(() => {
     consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
     answers = [];
     promptLog = [];
+    rl = createInterface({ input: process.stdin, output: process.stdout });
   });
 
   afterEach(() => {
@@ -48,29 +51,32 @@ describe("configureWallet step", () => {
     vi.restoreAllMocks();
   });
 
-  it.skip("requires export after refactor — skips wallet when clawlet returns enabled=false", async () => {
-    // const { runClawletOnboarding } = await import("../clawlet-onboard.js");
-    // vi.mocked(runClawletOnboarding).mockResolvedValue({ enabled: false });
-    // const config: any = {};
-    // await configureWallet(rl, config);
-    // expect(config.wallet).toBeUndefined();
+  it("skips wallet when clawlet returns enabled=false", async () => {
+    vi.mocked(runClawletOnboarding).mockResolvedValue({ enabled: false });
+    const config: any = {};
+    await configureWallet(rl, {}, config);
+    expect(config.wallet).toBeUndefined();
   });
 
-  it.skip("requires export after refactor — configures wallet when clawlet returns enabled=true", async () => {
-    // const { runClawletOnboarding } = await import("../clawlet-onboard.js");
-    // vi.mocked(runClawletOnboarding).mockResolvedValue({ enabled: true, address: "0xABC" });
-    // const config: any = {};
-    // await configureWallet(rl, config);
-    // expect(config.wallet).toBeDefined();
-    // expect(config.wallet.address).toBe("0xABC");
+  it("configures wallet when clawlet returns enabled=true", async () => {
+    vi.mocked(runClawletOnboarding).mockResolvedValue({
+      enabled: true,
+      baseUrl: "http://localhost:3000",
+      defaultChainId: 1,
+      defaultAddress: "0xABC",
+    });
+    const config: any = {};
+    await configureWallet(rl, {}, config);
+    expect(config.wallet).toBeDefined();
+    expect(config.wallet.clawlet.enabled).toBe(true);
+    expect(config.wallet.clawlet.defaultAddress).toBe("0xABC");
+    expect(config.wallet.clawlet.baseUrl).toBe("http://localhost:3000");
   });
 
-  it.skip("requires export after refactor — handles clawlet onboarding error gracefully", async () => {
-    // const { runClawletOnboarding } = await import("../clawlet-onboard.js");
-    // vi.mocked(runClawletOnboarding).mockRejectedValue(new Error("daemon not running"));
-    // const config: any = {};
-    // await configureWallet(rl, config);
-    // expect(config.wallet).toBeUndefined();
-    // // Should log warning but not throw
+  it("handles clawlet onboarding error gracefully", async () => {
+    vi.mocked(runClawletOnboarding).mockRejectedValue(new Error("daemon not running"));
+    const config: any = {};
+    // configureWallet doesn't catch errors itself, so it will throw
+    await expect(configureWallet(rl, {}, config)).rejects.toThrow("daemon not running");
   });
 });

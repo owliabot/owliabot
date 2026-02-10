@@ -135,9 +135,20 @@ export function createDiscordPlugin(config: DiscordConfig): ChannelPlugin {
           
           log.debug(`Guild message: mentioned=${mentioned}, requireMention=${requireMention}, botUser=${botUser?.id}`);
 
-          // Strict mode: if mention is required, ONLY respond when the bot user is mentioned.
-          // (Channel allowlist does not bypass mention requirement.)
-          if (requireMention && !mentioned) {
+          // Check if this is a reply to a bot message
+          let isReplyToBot = false;
+          if (!mentioned && message.reference?.messageId && botUser) {
+            try {
+              const refMsg = await message.channel.messages.fetch(message.reference.messageId);
+              isReplyToBot = refMsg.author.id === botUser.id;
+            } catch {
+              // Referenced message not available, ignore
+            }
+          }
+
+          // Strict mode: if mention is required, ONLY respond when the bot user
+          // is mentioned OR the user is replying to one of the bot's messages.
+          if (requireMention && !mentioned && !isReplyToBot) {
             return;
           }
 

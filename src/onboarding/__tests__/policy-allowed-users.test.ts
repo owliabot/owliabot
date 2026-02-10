@@ -1,11 +1,5 @@
 /**
  * Unit tests for maybeUpdateWorkspacePolicyAllowedUsers.
- *
- * This function updates the workspace policy's allowed user list based on
- * the configured channel tokens / IDs. Security-relevant — ensures the
- * allow-list is correctly derived from config.
- *
- * NOT exported yet — tests are skipped until the refactor exports this function.
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
@@ -14,68 +8,69 @@ vi.mock("node:readline", () => ({ createInterface: vi.fn() }));
 vi.mock("../../auth/oauth.js", () => ({ startOAuthFlow: vi.fn() }));
 vi.mock("../clawlet-onboard.js", () => ({ runClawletOnboarding: vi.fn().mockResolvedValue({ enabled: false }) }));
 
+const mockExistsSync = vi.fn(() => true);
+const mockReadFileSync = vi.fn(() => "defaults:\n  allowedUsers:\n    - existing\n");
+const mockWriteFileSync = vi.fn();
+
+vi.mock("node:fs", async (importOriginal) => {
+  const original = await importOriginal<typeof import("node:fs")>();
+  return {
+    ...original,
+    existsSync: (...args: any[]) => mockExistsSync(...args),
+    readFileSync: (...args: any[]) => mockReadFileSync(...args),
+    writeFileSync: (...args: any[]) => mockWriteFileSync(...args),
+  };
+});
+
+import { maybeUpdateWorkspacePolicyAllowedUsers } from "../steps/policy-allowed-users.js";
+
 describe("maybeUpdateWorkspacePolicyAllowedUsers", () => {
   let consoleSpy: ReturnType<typeof vi.spyOn>;
 
   beforeEach(() => {
     consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    mockExistsSync.mockReturnValue(true);
+    mockReadFileSync.mockReturnValue("defaults:\n  allowedUsers:\n    - existing\n");
+    mockWriteFileSync.mockReset();
   });
 
   afterEach(() => {
     consoleSpy.mockRestore();
-    vi.restoreAllMocks();
   });
 
-  it.skip("requires export after refactor — adds discord user IDs to allowed list", () => {
-    // const config = {
-    //   channels: { discord: { allowedUserIds: ["user1", "user2"] } },
-    //   workspace: "/w",
-    //   system: { capabilities: { writeTools: { allowedUsers: [] } } },
-    // };
-    // maybeUpdateWorkspacePolicyAllowedUsers(config);
-    // expect(config.system.capabilities.writeTools.allowedUsers).toContain("user1");
-    // expect(config.system.capabilities.writeTools.allowedUsers).toContain("user2");
+  it("merges user IDs into existing allowed list", () => {
+    maybeUpdateWorkspacePolicyAllowedUsers("/w", ["user1", "user2"]);
+    expect(mockWriteFileSync).toHaveBeenCalledWith(
+      expect.stringContaining("policy.yml"),
+      expect.stringContaining("user1"),
+      "utf-8",
+    );
+    const written = mockWriteFileSync.mock.calls[0][1] as string;
+    expect(written).toContain("user2");
+    expect(written).toContain("existing");
   });
 
-  it.skip("requires export after refactor — deduplicates user IDs", () => {
-    // const config = {
-    //   channels: { discord: { allowedUserIds: ["user1", "user1", "user2"] } },
-    //   workspace: "/w",
-    //   system: { capabilities: { writeTools: { allowedUsers: ["user1"] } } },
-    // };
-    // maybeUpdateWorkspacePolicyAllowedUsers(config);
-    // const ids = config.system.capabilities.writeTools.allowedUsers;
-    // expect(ids.filter((id: string) => id === "user1")).toHaveLength(1);
+  it("deduplicates user IDs", () => {
+    mockReadFileSync.mockReturnValue("defaults:\n  allowedUsers:\n    - user1\n");
+    maybeUpdateWorkspacePolicyAllowedUsers("/w", ["user1", "user2"]);
+    const written = mockWriteFileSync.mock.calls[0][1] as string;
+    const matches = written.match(/user1/g);
+    expect(matches).toHaveLength(1);
   });
 
-  it.skip("requires export after refactor — is a no-op when no channel user IDs configured", () => {
-    // const config = {
-    //   channels: {},
-    //   workspace: "/w",
-    //   system: { capabilities: { writeTools: { allowedUsers: [] } } },
-    // };
-    // maybeUpdateWorkspacePolicyAllowedUsers(config);
-    // expect(config.system.capabilities.writeTools.allowedUsers).toEqual([]);
+  it("is a no-op when no user IDs provided", () => {
+    maybeUpdateWorkspacePolicyAllowedUsers("/w", []);
+    expect(mockWriteFileSync).not.toHaveBeenCalled();
   });
 
-  it.skip("requires export after refactor — filters out empty and whitespace-only IDs", () => {
-    // const config = {
-    //   channels: { discord: { allowedUserIds: ["user1", "", "  ", "user2"] } },
-    //   workspace: "/w",
-    //   system: { capabilities: { writeTools: { allowedUsers: [] } } },
-    // };
-    // maybeUpdateWorkspacePolicyAllowedUsers(config);
-    // const ids = config.system.capabilities.writeTools.allowedUsers;
-    // expect(ids).toEqual(["user1", "user2"]);
+  it("is a no-op when allowedUserIds is null", () => {
+    maybeUpdateWorkspacePolicyAllowedUsers("/w", null);
+    expect(mockWriteFileSync).not.toHaveBeenCalled();
   });
 
-  it.skip("requires export after refactor — handles missing writeTools config gracefully", () => {
-    // const config = {
-    //   channels: { discord: { allowedUserIds: ["user1"] } },
-    //   workspace: "/w",
-    //   system: {},
-    // };
-    // // Should not throw
-    // expect(() => maybeUpdateWorkspacePolicyAllowedUsers(config)).not.toThrow();
+  it("does not throw when policy.yml does not exist", () => {
+    mockExistsSync.mockReturnValue(false);
+    expect(() => maybeUpdateWorkspacePolicyAllowedUsers("/w", ["user1"])).not.toThrow();
+    expect(mockWriteFileSync).not.toHaveBeenCalled();
   });
 });

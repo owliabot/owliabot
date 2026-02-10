@@ -7,6 +7,7 @@ import {
   createMemoryGetTool,
   createListFilesTool,
   createEditFileTool,
+  createDeleteFileTool,
 } from "../index.js";
 
 describe("builtin tools index", () => {
@@ -43,5 +44,10 @@ describe("builtin tools index", () => {
   it("should export createEditFileTool", () => {
     expect(createEditFileTool).toBeDefined();
     expect(typeof createEditFileTool).toBe("function");
+  });
+
+  it("should export createDeleteFileTool", () => {
+    expect(createDeleteFileTool).toBeDefined();
+    expect(typeof createDeleteFileTool).toBe("function");
   });
 });
