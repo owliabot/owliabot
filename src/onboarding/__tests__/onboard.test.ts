@@ -25,6 +25,8 @@ vi.mock("node:readline", () => ({
       }
       cb(next);
     },
+    once: () => {},
+    removeListener: () => {},
     close: () => {},
   }),
 }));

@@ -26,6 +26,7 @@ import { ensureWorkspaceInitialized } from "../workspace/init.js";
 import { runClawletOnboarding } from "./clawlet-onboard.js";
 import { validateAnthropicSetupToken, isSetupToken } from "../auth/setup-token.js";
 import {
+  AbortError,
   COLORS,
   info,
   success,
@@ -1420,6 +1421,16 @@ export async function runOnboarding(options: OnboardOptions = {}): Promise<void>
 
     success("All set!");
 
+  } catch (err) {
+    if (err instanceof AbortError) {
+      const cmd = dockerMode ? "owliabot onboard --docker" : "owliabot onboard";
+      console.log("");
+      info("Setup cancelled. No changes were made.");
+      console.log(`  You can run this again anytime with: ${COLORS.CYAN}${cmd}${COLORS.NC}`);
+      console.log("");
+      process.exit(130);
+    }
+    throw err;
   } finally {
     rl.close();
   }
