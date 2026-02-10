@@ -12,7 +12,7 @@ import {
   configureTelegramConfig,
 } from "./channel-setup.js";
 import type { UserAllowLists } from "./types.js";
-import { info, header, askYN } from "../shared.js";
+import { ask, info, warn, header, askYN } from "../shared.js";
 import { playwrightServerConfig, playwrightSecurityOverrides } from "../../mcp/servers/playwright.js";
 
 type RL = ReturnType<typeof createInterface>;
@@ -207,17 +207,43 @@ export async function buildAppConfigFromPrompts(
   const mcpConfig = await configureMcpServers(rl);
   if (mcpConfig) config.mcp = mcpConfig;
 
-  // Auto-derive writeToolAllowList from channel allowlists (no interactive prompt).
+  const playwrightEnabled = Boolean(
+    mcpConfig?.servers?.some((server) => server.name === "playwright")
+  );
+
+  // Auto-derive writeToolAllowList from channel allowlists.
   const allUserIds = [...new Set([...userAllowLists.discord, ...userAllowLists.telegram])];
-  const writeToolAllowList = allUserIds.length > 0 ? allUserIds : null;
+  let writeToolAllowList = allUserIds.length > 0 ? allUserIds : null;
+
+  if (playwrightEnabled && (!writeToolAllowList || writeToolAllowList.length === 0)) {
+    header("Write tools");
+    info("Playwright needs write-level tool access for actions like click/type/install.");
+    const writeAllowListAns = await ask(
+      rl,
+      "Write-tool allowlist (comma-separated user IDs; press Enter to skip): ",
+    );
+    const extraIds = writeAllowListAns.split(",").map((s) => s.trim()).filter(Boolean);
+    writeToolAllowList = extraIds.length > 0 ? extraIds : null;
+
+    if (!writeToolAllowList) {
+      warn("No write-tool allowlist set. Playwright write actions will be denied until you add user IDs.");
+    }
+  }
+
   if (writeToolAllowList) {
     config.tools = {
       ...(config.tools ?? {}),
       allowWrite: true,
     };
     config.security = {
-      writeGateEnabled: false,
+      writeGateEnabled: playwrightEnabled ? true : false,
       writeToolAllowList,
+      writeToolConfirmation: false,
+    };
+  } else if (playwrightEnabled) {
+    config.security = {
+      writeGateEnabled: true,
+      writeToolAllowList: [],
       writeToolConfirmation: false,
     };
   }
