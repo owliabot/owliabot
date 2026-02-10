@@ -553,7 +553,7 @@ describe("onboarding", () => {
         "1", // "Which AI should OwliaBot use?" -> 1 (Anthropic)
         "",  // "Anthropic setup-token / API key" -> empty (use env)
         "1", // "Which model should I use?" -> 1 = default
-        "",  // "Reuse existing Telegram configuration (token + allowList/groups)?" -> default yes
+        // No reuse prompt — token only, silently reused
         "",  // "Which port should I use on your machine for Gateway HTTP?" -> default
         "",  // "Extra allowlisted user IDs for write/edit tools?" -> none
       ];
@@ -561,11 +561,10 @@ describe("onboarding", () => {
       await runOnboarding({ docker: true, outputDir: dir });
 
       const prompts = promptLog.join("\n");
-      expect(prompts).toContain("Reuse your existing Telegram setup");
+      // Token-only: no reuse prompt, silently reused
+      expect(prompts).not.toContain("Reuse your existing Telegram setup");
 
       const out = stripAnsi(logs.join("\n"));
-      expect(out).toContain("token only");
-      expect(out).not.toContain("allowList");
       expect(out).toContain("Saved docker-compose.yml in ");
       expect(out).not.toContain("Created ");
     } finally {

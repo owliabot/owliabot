@@ -232,11 +232,10 @@ async function promptModel(
     return (await ask(rl, `Which model should I use? [${defaultModel}]: `)) || defaultModel;
   }
 
-  // Keep default model first (selectOption has no "default", so ordering matters).
-  const orderedModels = [
-    defaultModel,
-    ...uniqueCatalogModels.filter((m) => m !== defaultModel),
-  ];
+  // Keep default model first if it exists in the catalog; otherwise just use catalog order.
+  const orderedModels = uniqueCatalogModels.includes(defaultModel)
+    ? [defaultModel, ...uniqueCatalogModels.filter((m) => m !== defaultModel)]
+    : uniqueCatalogModels;
 
   const CUSTOM = "Custom (type your own)";
   const picked = await selectOption(rl, "Which model should I use?", [
@@ -751,23 +750,24 @@ async function getChannelsSetup(
       telegramEnabled = true;
       info("  - Telegram");
 
-      // Ask in both docker + local (npm) modes; otherwise we'd silently reuse allowList/groups.
-      // Default is yes.
+      // Ask whether to reuse when there are allowList/groups to carry over.
+      // If it's token-only, silently reuse (nothing security-sensitive to confirm).
       const allowCount = existing.telegramAllowList?.length ?? 0;
       const groupCount = existing.telegramGroups ? Object.keys(existing.telegramGroups).length : 0;
-      console.log("");
-      const details =
-        allowCount > 0 || groupCount > 0
-          ? `allowed users: ${allowCount}, groups: ${groupCount}`
-          : "token only";
-      info(`I found existing Telegram settings (${details}).`);
-      const reuse = await askYN(rl, "Reuse your existing Telegram setup?", true);
-      if (reuse) {
-        reuseTelegramConfig = true;
-        telegramAllowList = existing.telegramAllowList;
-        telegramGroups = existing.telegramGroups;
+      if (allowCount > 0 || groupCount > 0) {
+        console.log("");
+        info(`I found existing Telegram settings (allowed users: ${allowCount}, groups: ${groupCount}).`);
+        const reuse = await askYN(rl, "Reuse your existing Telegram setup?", true);
+        if (reuse) {
+          reuseTelegramConfig = true;
+          telegramAllowList = existing.telegramAllowList;
+          telegramGroups = existing.telegramGroups;
+        } else {
+          reuseTelegramConfig = false;
+        }
       } else {
-        reuseTelegramConfig = false;
+        // Token only — silently reuse.
+        reuseTelegramConfig = true;
       }
 
       if (reuseTelegramConfig) {
