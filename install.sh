@@ -252,9 +252,14 @@ main() {
   if [ "$BUILD_LOCAL" = "true" ]; then
     header "Building Docker image locally"
     SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-    if [ -f "${SCRIPT_DIR}/Dockerfile" ]; then
+    # Only use local Dockerfile if it matches the requested channel
+    LOCAL_BRANCH=""
+    if [ -f "${SCRIPT_DIR}/Dockerfile" ] && command -v git &>/dev/null; then
+      LOCAL_BRANCH=$(git -C "${SCRIPT_DIR}" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
+    fi
+    if [ -f "${SCRIPT_DIR}/Dockerfile" ] && { [ "$CHANNEL" = "stable" ] || [ "$LOCAL_BRANCH" = "$BUILD_BRANCH" ]; }; then
       OWLIABOT_IMAGE="owliabot:local"
-      info "Building ${OWLIABOT_IMAGE} from ${SCRIPT_DIR}/Dockerfile ..."
+      info "Building ${OWLIABOT_IMAGE} from ${SCRIPT_DIR}/Dockerfile (branch: ${LOCAL_BRANCH:-unknown})..."
       docker build -t "${OWLIABOT_IMAGE}" "${SCRIPT_DIR}" || die "Build failed."
     else
       # No local Dockerfile — clone and build

@@ -13,7 +13,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)"
 
 if [ -f "${SCRIPT_DIR}/install.sh" ]; then
-  exec "${SCRIPT_DIR}/install.sh" --channel develop "$@"
+  exec bash "${SCRIPT_DIR}/install.sh" --channel develop "$@"
 else
   # When piped via curl, download install.sh to a temp file first to catch errors
   TMPSCRIPT=$(mktemp)
