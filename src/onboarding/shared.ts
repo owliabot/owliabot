@@ -45,7 +45,8 @@ export function printBanner(subtitle = "") {
   console.log(`${CYAN} | |__| |\\ V  V /| | | (_| | |_) | (_) | |_ ${NC}`);
   console.log(`${CYAN}  \\____/  \\_/\\_/ |_|_|\\__,_|____/ \\___/ \\__|${NC}`);
   console.log("");
-  console.log(`  OwliaBot Interactive Setup ${subtitle}`);
+  const sub = subtitle ? ` ${subtitle}` : "";
+  console.log(`  Let's set up OwliaBot${sub}`);
   console.log("");
 }
 
@@ -65,6 +66,13 @@ type RL = ReturnType<typeof createInterface>;
 export function ask(rl: RL, q: string, secret = false): Promise<string> {
   return new Promise((resolve) => {
     if (secret) {
+      // In non-interactive environments (CI/tests, piped input), stdin isn't a TTY.
+      // Raw-mode secret input would hang there, so fall back to readline question.
+      if (!process.stdin.isTTY) {
+        rl.question(q, (ans) => resolve(ans.trim()));
+        return;
+      }
+
       // Hide input for secrets with proper cleanup
       process.stdout.write(q);
       const stdin = process.stdin;
@@ -133,10 +141,10 @@ export async function selectOption(rl: RL, prompt: string, options: string[]): P
   console.log(prompt);
   options.forEach((opt, i) => console.log(`  ${i + 1}) ${opt}`));
   while (true) {
-    const ans = await ask(rl, `Select [1-${options.length}]: `);
+    const ans = await ask(rl, `Your choice [1-${options.length}]: `);
     const num = parseInt(ans, 10);
     if (num >= 1 && num <= options.length) return num - 1;
-    warn(`Please enter a number between 1 and ${options.length}`);
+    warn(`Just type a number between 1 and ${options.length}.`);
   }
 }
 

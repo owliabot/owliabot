@@ -20,7 +20,12 @@ import {
 import { runOnboarding } from "./onboarding/onboard.js";
 import { DEV_APP_CONFIG_PATH } from "./onboarding/storage.js";
 import type { Config } from "./config/schema.js";
-import { defaultConfigPath, ensureOwliabotHomeEnv } from "./utils/paths.js";
+import { defaultConfigPath, ensureOwliabotHomeEnv, resolvePathLike } from "./utils/paths.js";
+import { listConfiguredModelCatalog } from "./models/catalog.js";
+import { parseModelRef } from "./models/ref.js";
+import { updateAppConfigYamlPrimaryModel } from "./models/config-file.js";
+import { readFile, writeFile } from "node:fs/promises";
+import { parse as parseYaml } from "yaml";
 
 const log = logger;
 
@@ -97,6 +102,10 @@ program
     try {
       ensureOwliabotHomeEnv();
       log.info("Starting OwliaBot...");
+
+      // Make the effective config path available to runtime commands (e.g. /model default).
+      // This also keeps behavior consistent across "start -c <path>" and Docker env usage.
+      process.env.OWLIABOT_CONFIG_PATH = options.config;
 
       // Load config
       const config = await loadConfig(options.config);
@@ -454,6 +463,102 @@ program
       }
     } catch (err) {
       log.error("Pairing failed", err);
+      process.exit(1);
+    }
+  });
+
+// Models command group
+const models = program.command("models").description("List and configure available LLM models");
+
+models
+  .command("list [filter]")
+  .description("List available models for configured providers (optional substring filter)")
+  .option(
+    "-c, --config <path>",
+    "Config file path (default: $OWLIABOT_HOME/app.yaml)",
+    process.env.OWLIABOT_CONFIG_PATH ?? defaultConfigPath(),
+  )
+  .action(async (filter: string | undefined, options) => {
+    try {
+      const config = await loadConfig(options.config);
+      const entries = listConfiguredModelCatalog({ providers: config.providers, filter });
+      if (entries.length === 0) {
+        log.info("No models found.");
+        return;
+      }
+      for (const e of entries) {
+        const label = e.name && e.name !== e.model ? `  # ${e.name}` : "";
+        console.log(`${e.key}${label}`);
+      }
+    } catch (err) {
+      log.error("Failed to list models", err);
+      process.exit(1);
+    }
+  });
+
+models
+  .command("get")
+  .description("Show current default primary model from app.yaml")
+  .option(
+    "-c, --config <path>",
+    "Config file path (default: $OWLIABOT_HOME/app.yaml)",
+    process.env.OWLIABOT_CONFIG_PATH ?? defaultConfigPath(),
+  )
+  .action(async (options) => {
+    try {
+      const config = await loadConfig(options.config);
+      const sorted = [...config.providers].sort((a, b) => a.priority - b.priority);
+      const primary = sorted[0];
+      if (!primary) {
+        throw new Error("No providers configured");
+      }
+      console.log(`${primary.id}/${primary.model}`);
+    } catch (err) {
+      log.error("Failed to get default model", err);
+      process.exit(1);
+    }
+  });
+
+models
+  .command("set <modelRefOrId>")
+  .description("Set default primary model (writes app.yaml providers priorities and model)")
+  .option(
+    "-c, --config <path>",
+    "Config file path (default: $OWLIABOT_HOME/app.yaml)",
+    process.env.OWLIABOT_CONFIG_PATH ?? defaultConfigPath(),
+  )
+  .action(async (modelRefOrId: string, options) => {
+    try {
+      const configPath = resolvePathLike(options.config);
+      const rawYaml = await readFile(configPath, "utf-8");
+
+      const token = String(modelRefOrId ?? "").trim();
+      if (!token) {
+        throw new Error("Model ref is required");
+      }
+
+      let override = parseModelRef(token);
+      if (!override) {
+        // Treat as "model id for current default provider"
+        const doc = parseYaml(rawYaml) as any;
+        const providers = Array.isArray(doc?.providers) ? doc.providers : null;
+        if (!providers || providers.length === 0) {
+          throw new Error("No providers configured in app.yaml");
+        }
+        const sorted = [...providers].sort((a, b) => Number(a?.priority ?? 0) - Number(b?.priority ?? 0));
+        const primaryId = String(sorted[0]?.id ?? "").trim();
+        if (!primaryId) {
+          throw new Error("Invalid providers[]: missing id on primary provider");
+        }
+        override = { provider: primaryId, model: token };
+      }
+
+      const updatedYaml = updateAppConfigYamlPrimaryModel(rawYaml, override);
+      await writeFile(configPath, updatedYaml, "utf-8");
+
+      log.info(`Default model updated: ${override.provider}/${override.model}`);
+    } catch (err) {
+      log.error("Failed to set default model", err);
       process.exit(1);
     }
   });

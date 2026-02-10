@@ -22,6 +22,8 @@ import { shouldHandleMessage } from "./activation.js";
 import { tryHandleCommand, tryHandleStatusCommand } from "./commands.js";
 import { buildSystemPrompt } from "../agent/system-prompt.js";
 import { runAgenticLoop, createConversation } from "./agentic-loop.js";
+import { applyPrimaryModelRefOverride } from "../models/override.js";
+import { parseModelRef } from "../models/ref.js";
 
 const log = createLogger("gateway:message-handler");
 
@@ -308,8 +310,11 @@ export async function handleMessage(
       sessionStore,
       transcripts,
       channels,
+      providers: config.providers,
       resetTriggers: config.session?.resetTriggers,
-      defaultModelLabel: config.providers?.[0]?.model,
+      defaultModelLabel: config.providers?.[0]
+        ? `${config.providers[0].id}/${config.providers[0].model}`
+        : undefined,
       workspacePath: config.workspace,
       summaryModel: config.session?.summaryModel
         ? {
@@ -341,6 +346,25 @@ export async function handleMessage(
       displayName: ctx.senderName,
     });
 
+    const providersSorted = [...config.providers].toSorted((a, b) => a.priority - b.priority);
+    const defaultPrimaryRef = providersSorted[0]
+      ? `${providersSorted[0].id}/${providersSorted[0].model}`
+      : "(unknown)";
+
+    let effectiveProviders = config.providers;
+    let activeModelLabel = defaultPrimaryRef;
+    if (entry.primaryModelRefOverride) {
+      const parsed = parseModelRef(entry.primaryModelRefOverride);
+      if (parsed) {
+        try {
+          effectiveProviders = applyPrimaryModelRefOverride(config.providers, parsed);
+          activeModelLabel = `${parsed.provider}/${parsed.model}`;
+        } catch (err) {
+          log.warn(`Ignoring invalid primaryModelRefOverride: ${entry.primaryModelRefOverride}`, err);
+        }
+      }
+    }
+
     // Append user message to transcript
     const userMessage: Message = {
       role: "user",
@@ -358,7 +382,7 @@ export async function handleMessage(
       channel: ctx.channel,
       chatType: ctx.chatType,
       timezone: config.timezone,
-      model: config.providers[0].model,
+      model: activeModelLabel,
       skills: skillsResult ?? undefined,
     });
 
@@ -381,7 +405,7 @@ export async function handleMessage(
         securityConfig: config.security,
       },
       {
-        providers: config.providers,
+        providers: effectiveProviders,
         tools,
         writeGateChannel: writeGateChannels.get(ctx.channel),
         transcripts,

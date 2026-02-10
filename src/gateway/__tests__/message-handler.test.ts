@@ -382,7 +382,7 @@ describe("message-handler", () => {
   describe("handleMessage", () => {
     const makeDeps = () => ({
       config: {
-        providers: [{ id: "test", model: "test-model", apiKey: "key" }],
+        providers: [{ id: "test", model: "test-model", apiKey: "key", priority: 1 }],
         workspace: "/workspace",
       } as any,
       workspace: {},
@@ -501,6 +501,41 @@ describe("message-handler", () => {
       expect(vi.mocked(ctx.setTyping as any)).toHaveBeenCalledTimes(2);
       expect(vi.mocked(ctx.setTyping as any)).toHaveBeenNthCalledWith(1, true);
       expect(vi.mocked(ctx.setTyping as any)).toHaveBeenLastCalledWith(false);
+    });
+
+    it("applies primaryModelRefOverride to provider chain and system prompt", async () => {
+      const { shouldHandleMessage } = await import("../activation.js");
+      vi.mocked(shouldHandleMessage).mockReturnValue(true);
+
+      const { runAgenticLoop } = await import("../agentic-loop.js");
+      const { buildSystemPrompt } = await import("../../agent/system-prompt.js");
+
+      const mockChannel = { id: "telegram", send: vi.fn() };
+      const deps = makeDeps();
+      deps.channels.register(mockChannel as any);
+      deps.config.providers = [
+        { id: "anthropic", model: "claude-opus-4-5", apiKey: "k1", priority: 1 },
+        { id: "openai", model: "gpt-4o", apiKey: "k2", priority: 2 },
+      ];
+      deps.sessionStore.getOrCreate = vi.fn(async () => ({
+        sessionId: "sid123",
+        primaryModelRefOverride: "openai/gpt-5.2",
+      }));
+
+      const ctx = makeCtx();
+      await handleMessage(ctx, deps);
+
+      const loopConfig = vi.mocked(runAgenticLoop).mock.calls[0]?.[2] as any;
+      expect(loopConfig.providers).toEqual([
+        expect.objectContaining({ id: "openai", model: "gpt-5.2", priority: 1 }),
+        expect.objectContaining({ id: "anthropic", model: "claude-opus-4-5", priority: 2 }),
+      ]);
+
+      expect(buildSystemPrompt).toHaveBeenCalledWith(
+        expect.objectContaining({
+          model: "openai/gpt-5.2",
+        }),
+      );
     });
 
     it("appends messages to transcript", async () => {

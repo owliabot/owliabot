@@ -13,6 +13,7 @@ describe("entry", () => {
     expect(content).toContain('.command("onboard")');
     expect(content).toContain('.command("token")');
     expect(content).toContain('.command("auth")');
+    expect(content).toContain('.command("models")');
   });
 
   it("should check Node.js version requirements", () => {
