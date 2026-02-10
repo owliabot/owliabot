@@ -91,13 +91,25 @@ export function createDiscordPlugin(config: DiscordConfig): ChannelPlugin {
 
         // Calculate mentioned status early (needed for msgCtx)
         const botUser = client.user;
-        const mentioned = !isDM && botUser
+        const mentionedByAt = !isDM && botUser
           ? message.mentions.has(botUser, {
               ignoreEveryone: true,
               ignoreRoles: true,
               ignoreRepliedUser: true,
             })
           : false;
+
+        // Also treat replies to bot messages as mentions
+        const repliedToBot = !isDM && botUser && message.reference?.messageId
+          ? await (async () => {
+              try {
+                const ref = await message.fetchReference();
+                return ref.author.id === botUser.id;
+              } catch { return false; }
+            })()
+          : false;
+
+        const mentioned = mentionedByAt || repliedToBot;
 
         const msgCtx: MsgContext = {
           from: message.author.id,
@@ -135,20 +147,9 @@ export function createDiscordPlugin(config: DiscordConfig): ChannelPlugin {
           
           log.debug(`Guild message: mentioned=${mentioned}, requireMention=${requireMention}, botUser=${botUser?.id}`);
 
-          // Check if this is a reply to a bot message
-          let isReplyToBot = false;
-          if (!mentioned && message.reference?.messageId && botUser) {
-            try {
-              const refMsg = await message.channel.messages.fetch(message.reference.messageId);
-              isReplyToBot = refMsg.author.id === botUser.id;
-            } catch {
-              // Referenced message not available, ignore
-            }
-          }
-
           // Strict mode: if mention is required, ONLY respond when the bot user
-          // is mentioned OR the user is replying to one of the bot's messages.
-          if (requireMention && !mentioned && !isReplyToBot) {
+          // is mentioned (by @mention or by replying to a bot message).
+          if (requireMention && !mentioned) {
             return;
           }
 

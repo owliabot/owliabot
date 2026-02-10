@@ -90,6 +90,11 @@ const makeMessage = (overrides: Partial<any> = {}) => {
       },
     };
   }
+  // Build fetchReference from channel.messages.fetch if not explicitly provided
+  if (!base.fetchReference) {
+    const msgFetch = base.channel.messages.fetch;
+    base.fetchReference = vi.fn((...args: any[]) => msgFetch(base.reference?.messageId));
+  }
   return base;
 };
 
@@ -240,6 +245,8 @@ describe("discord plugin", () => {
     });
     await client.handlers.messageCreate(replyToBot);
     expect(handler).toHaveBeenCalledTimes(1);
+    // The mentioned field in MsgContext should be true for reply-to-bot
+    expect(handler.mock.calls[0][0].mentioned).toBe(true);
   });
 
   it("does NOT trigger when replying to another user's message", async () => {
