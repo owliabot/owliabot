@@ -611,4 +611,50 @@ apiKey
     }
   });
 
+// Logs command — view real-time logs (auto-detects npm/Docker environment)
+program
+  .command("logs")
+  .description("View real-time logs (auto-detects npm/Docker environment)")
+  .option("-f, --follow", "Follow log output", true)
+  .option("--no-follow", "Do not follow (print and exit)")
+  .option("-n, --lines <number>", "Number of initial lines to show", "100")
+  .option("--level <level>", "Filter by log level (debug|info|warn|error)")
+  .option("--grep <pattern>", "Filter by text pattern")
+  .option("--container <name>", "Docker container name", "owliabot")
+  .option("--file <path>", "Log file path (overrides auto-detect)")
+  .action(async (options) => {
+    try {
+      const { detectLogSource, streamLogs } = await import("./logs/index.js");
+
+      const { source, hint } = await detectLogSource({
+        file: options.file,
+        container: options.container,
+      });
+
+      if (!source) {
+        if (hint) log.info(hint);
+        process.exit(0);
+      }
+
+      const stream = streamLogs({
+        follow: options.follow,
+        lines: parseInt(options.lines, 10) || 100,
+        level: options.level,
+        grep: options.grep,
+        source,
+      });
+
+      for await (const line of stream) {
+        console.log(line);
+      }
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === "ERR_USE_AFTER_CLOSE") {
+        // Stream closed (e.g. container stopped) — exit cleanly
+        process.exit(0);
+      }
+      log.error("Failed to read logs", err);
+      process.exit(1);
+    }
+  });
+
 await program.parseAsync();
