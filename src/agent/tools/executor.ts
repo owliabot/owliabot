@@ -12,6 +12,7 @@ import { PolicyEngine } from "../../policy/engine.js";
 import { CooldownTracker } from "../../policy/cooldown.js";
 import { AuditLogger, type AuditEntry } from "../../audit/logger.js";
 import { AuditQueryService } from "../../audit/query.js";
+import { join } from "node:path";
 import type {
   ToolDefinition,
   ToolCall,
@@ -49,16 +50,20 @@ export interface ExecutorOptions {
 }
 
 // Global instances (lazy-initialized)
-let globalPolicyEngine: PolicyEngine | null = null;
+const globalPolicyEngines = new Map<string, PolicyEngine>();
 let globalAuditLogger: AuditLogger | null = null;
 let globalAuditQueryService: AuditQueryService | null = null;
 let globalCooldownTracker: CooldownTracker | null = null;
 
-function getOrCreatePolicyEngine(): PolicyEngine {
-  if (!globalPolicyEngine) {
-    globalPolicyEngine = new PolicyEngine();
-  }
-  return globalPolicyEngine;
+function getOrCreatePolicyEngine(workspacePath?: string): PolicyEngine {
+  const key = workspacePath ? `workspace:${workspacePath}` : "default";
+  const existing = globalPolicyEngines.get(key);
+  if (existing) return existing;
+
+  const policyPath = workspacePath ? join(workspacePath, "policy.yml") : undefined;
+  const engine = new PolicyEngine(policyPath);
+  globalPolicyEngines.set(key, engine);
+  return engine;
 }
 
 function getOrCreateAuditLogger(): AuditLogger {
@@ -159,7 +164,7 @@ export async function executeToolCall(
   options: ExecutorOptions
 ): Promise<ToolResult> {
   const { registry, context } = options;
-  const policyEngine = options.policyEngine ?? getOrCreatePolicyEngine();
+  const policyEngine = options.policyEngine ?? getOrCreatePolicyEngine(options.workspacePath);
   const auditLogger = options.auditLogger ?? getOrCreateAuditLogger();
   const auditQueryService = options.auditQueryService ?? getOrCreateAuditQueryService();
   const cooldownTracker = options.cooldownTracker ?? getOrCreateCooldownTracker();
