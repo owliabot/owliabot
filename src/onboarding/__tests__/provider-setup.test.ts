@@ -115,17 +115,26 @@ describe("provider-setup step", () => {
 
     it("reuses anthropic setup-token", () => {
       const token = "sk-ant-oat01-" + "a".repeat(68);
-      const existing: DetectedConfig = { anthropicToken: token };
+      const existing: DetectedConfig = { anthropicToken: token, anthropicTokenValid: true };
       const result = reuseProvidersFromExisting(existing);
       expect(result.secrets.anthropic?.token).toBe(token);
       expect(result.providers[0].apiKey).toBe("secrets");
     });
 
-    it("reuses anthropic OAuth", () => {
-      const existing: DetectedConfig = { anthropicOAuth: true };
+    it("does not reuse invalid anthropic setup-token", () => {
+      const token = "sk-ant-oat01-" + "a".repeat(68);
+      const existing: DetectedConfig = { anthropicToken: token, anthropicTokenValid: false };
       const result = reuseProvidersFromExisting(existing);
-      expect(result.providers[0].apiKey).toBe("oauth");
-      expect(result.useAnthropic).toBe(true);
+      expect(result.providers).toHaveLength(0);
+      expect(result.useAnthropic).toBe(false);
+      expect(result.secrets.anthropic).toBeUndefined();
+    });
+
+    it("does not treat legacy anthropic OAuth file as usable auth", () => {
+      const existing: DetectedConfig = { hasOAuthAnthro: true };
+      const result = reuseProvidersFromExisting(existing);
+      expect(result.providers).toHaveLength(0);
+      expect(result.useAnthropic).toBe(false);
     });
 
     it("reuses openai API key", () => {
@@ -136,7 +145,7 @@ describe("provider-setup step", () => {
     });
 
     it("reuses openai codex OAuth", () => {
-      const existing: DetectedConfig = { openaiOAuth: true };
+      const existing: DetectedConfig = { hasOAuthCodex: true };
       const result = reuseProvidersFromExisting(existing);
       expect(result.providers[0].id).toBe("openai-codex");
       expect(result.providers[0].apiKey).toBe("oauth");
@@ -144,7 +153,7 @@ describe("provider-setup step", () => {
     });
 
     it("reuses multiple providers with correct priority", () => {
-      const existing: DetectedConfig = { anthropicKey: "k1", openaiKey: "k2", openaiOAuth: true };
+      const existing: DetectedConfig = { anthropicKey: "k1", openaiKey: "k2", hasOAuthCodex: true };
       const result = reuseProvidersFromExisting(existing);
       expect(result.providers).toHaveLength(3);
       expect(result.providers[0].priority).toBe(1);
@@ -176,6 +185,32 @@ describe("provider-setup step", () => {
       expect(state.secrets.anthropic?.token).toBeDefined();
       expect(state.secrets.anthropic?.apiKey).toBeUndefined();
       expect(state.useAnthropic).toBe(true);
+    });
+
+    it("reuses existing setup-token and skips auth prompt", async () => {
+      const token = "sk-ant-oat01-" + "x".repeat(68);
+      const existing: DetectedConfig = { anthropicToken: token, anthropicTokenValid: true };
+      answers = ["1"]; // model selection only
+      const state = makeState();
+      await maybeConfigureAnthropic(rl, state, 0, existing, true);
+      expect(state.secrets.anthropic?.token).toBe(token);
+      expect(state.providers[0].apiKey).toBe("secrets");
+      expect(promptLog.some((q) => q.includes("Paste your setup-token"))).toBe(false);
+    });
+
+    it("asks before reusing existing setup-token when reuseExisting=false", async () => {
+      const token = "sk-ant-oat01-" + "x".repeat(68);
+      const existing: DetectedConfig = { anthropicToken: token, anthropicTokenValid: true };
+      // 1) Reuse existing token? -> n
+      // 2) Paste token/api key -> "" (env)
+      // 3) model selection -> "1"
+      answers = ["n", "", "1"];
+      const state = makeState();
+      await maybeConfigureAnthropic(rl, state, 0, existing, false);
+      expect(state.secrets.anthropic?.token).toBeUndefined();
+      expect(state.providers[0].apiKey).toBe("env");
+      expect(promptLog.some((q) => q.includes("Reuse"))).toBe(true);
+      expect(promptLog.some((q) => q.includes("Paste your setup-token"))).toBe(true);
     });
 
     it("configures API key when not setup-token", async () => {
@@ -242,6 +277,27 @@ describe("provider-setup step", () => {
       expect(state.providers[0].id).toBe("openai-codex");
       expect(state.providers[0].apiKey).toBe("oauth");
       expect(state.useOpenaiCodex).toBe(true);
+    });
+
+    it("skips OAuth prompt when existing OAuth token is detected", async () => {
+      const existing: DetectedConfig = { hasOAuthCodex: true };
+      const state = makeState();
+      await maybeConfigureOpenAICodex(rl, false, state, 2, existing, true);
+      expect(startOAuthFlow).not.toHaveBeenCalled();
+      expect(promptLog.some((q) => q.includes("Want to connect it now?"))).toBe(false);
+      expect(state.providers[0].id).toBe("openai-codex");
+    });
+
+    it("asks before reusing existing OAuth when reuseExisting=false", async () => {
+      const existing: DetectedConfig = { hasOAuthCodex: true };
+      // 1) Reuse existing sign-in? -> n
+      // 2) Want to connect it now? -> n
+      answers = ["n", "n"];
+      const state = makeState();
+      await maybeConfigureOpenAICodex(rl, false, state, 2, existing, false);
+      expect(startOAuthFlow).not.toHaveBeenCalled();
+      expect(promptLog.some((q) => q.includes("Reuse"))).toBe(true);
+      expect(promptLog.some((q) => q.includes("Want to connect it now?"))).toBe(true);
     });
 
     it("runs OAuth flow when user says yes", async () => {

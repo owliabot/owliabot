@@ -30,6 +30,7 @@ import { executeSystemRequest } from "../../system/executor.js";
 import type { SystemCapabilityConfig } from "../../system/interface.js";
 import { dirname } from "node:path";
 import { existsSync, mkdirSync } from "node:fs";
+import { ensureWorkspaceInitialized } from "../../workspace/init.js";
 import {
   checkToolScope,
   checkSystemScope,
@@ -95,6 +96,9 @@ export interface GatewayHttpResult {
 export async function startGatewayHttp(opts: GatewayHttpOptions): Promise<GatewayHttpResult> {
   const { config, toolRegistry: tools, workspacePath } = opts;
   const fetchImpl = opts.fetchImpl ?? fetch;
+
+  // Ensure the provided workspace has required templates (e.g. policy.yml) before any tool execution.
+  await ensureWorkspaceInitialized({ workspacePath });
 
   // Ensure sqlite parent dir exists (better-sqlite3 won't create it).
   const dbDir = dirname(config.sqlitePath);
@@ -825,6 +829,7 @@ export async function startGatewayHttp(opts: GatewayHttpOptions): Promise<Gatewa
           agentId: "gateway/http",
           config: {},
         },
+        workspacePath,
         securityConfig: { writeGateEnabled: false },
       });
 
@@ -1059,6 +1064,7 @@ export async function startGatewayHttp(opts: GatewayHttpOptions): Promise<Gatewa
             agentId: "gateway/mcp",
             config: {},
           },
+          workspacePath,
           securityConfig: { writeGateEnabled: false },
         });
 
