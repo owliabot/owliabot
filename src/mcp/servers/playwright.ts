@@ -63,14 +63,18 @@ export function createPlaywrightConfig(options?: {
  * Recommended security overrides for Playwright tools
  * 
  * Most browser automation tools can modify state (click, type, navigate)
- * so they should be at least "write" level
+ * so they should be at least "write" level.
+ *
+ * Note: we treat pure navigation as "read" in OwliaBot because it doesn't
+ * persistently mutate user data on third-party services, and it makes
+ * browser-assisted research workflows usable without tripping the WriteGate.
  */
 export const playwrightSecurityOverrides: Record<string, MCPSecurityOverride> = {
-  // Navigation tools - write level (changes page state)
-  "playwright__browser_navigate": { level: "write" },
-  "playwright__browser_go_back": { level: "write" },
-  "playwright__browser_go_forward": { level: "write" },
-  "playwright__browser_refresh": { level: "write" },
+  // Navigation tools - read level (changes page state but doesn't modify external services)
+  "playwright__browser_navigate": { level: "read" },
+  "playwright__browser_go_back": { level: "read" },
+  "playwright__browser_go_forward": { level: "read" },
+  "playwright__browser_refresh": { level: "read" },
   
   // Interaction tools - write level (modifies page)
   "playwright__browser_click": { level: "write" },
