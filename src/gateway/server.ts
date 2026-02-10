@@ -46,6 +46,7 @@ import { createNotificationService } from "../notifications/service.js";
 import { initializeSkills, type SkillsInitResult } from "../skills/index.js";
 import { createInfraStore, hashMessage, type InfraStore } from "../infra/index.js";
 import { startGatewayHttp } from "./http/server.js";
+import { runBootOnce } from "./boot.js";
 import { join, dirname, resolve } from "node:path";
 import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
@@ -466,6 +467,27 @@ export async function startGateway(
   // Start cron service after channels are live so proactive deliveries can be sent.
   await cronIntegration.start();
   log.info("Cron service started");
+
+  // Run BOOT.md once after everything is ready
+  runBootOnce({
+    workspacePath: config.workspace,
+    executePrompt: async (prompt) => {
+      const bootSessionKey = "boot" as SessionKey;
+      const history = sessionStore.getOrCreateHistory(bootSessionKey);
+      history.push({ role: "user", content: prompt });
+      const providers: LLMProvider[] = config.providers;
+      const response = await callWithFailover(providers, history);
+      return response.content;
+    },
+  }).then((result) => {
+    if (result.status === "ran") {
+      log.info("BOOT.md executed successfully");
+    } else if (result.status === "failed") {
+      log.warn(`BOOT.md failed: ${result.reason}`);
+    }
+  }).catch((err) => {
+    log.error(`BOOT.md unexpected error: ${err}`);
+  });
 
   // Schedule periodic infra cleanup (every 5 minutes)
   let infraCleanupInterval: NodeJS.Timeout | null = null;
