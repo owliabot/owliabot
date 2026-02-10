@@ -4,7 +4,20 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createLogger } from "../utils/logger.js";
 
-const log = createLogger("workspace.init");
+type LoggerLike = {
+  debug: (message: string) => void;
+  info: (message: string) => void;
+  warn: (message: string) => void;
+  error: (message: string) => void;
+};
+
+const defaultLog = createLogger("workspace.init");
+const silentLog: LoggerLike = {
+  debug: () => {},
+  info: () => {},
+  warn: () => {},
+  error: () => {},
+};
 
 const BASE_TEMPLATE_FILES = [
   "AGENTS.md",
@@ -23,6 +36,11 @@ const BOOTSTRAP_FILENAME = "BOOTSTRAP.md";
 export interface WorkspaceInitOptions {
   workspacePath: string;
   templatesDir?: string;
+  /**
+   * Suppress logger output. Useful for interactive onboarding flows where
+   * log-style output would feel like "computer noise".
+   */
+  quiet?: boolean;
 }
 
 export interface WorkspaceInitResult {
@@ -39,6 +57,7 @@ export interface WorkspaceInitResult {
 export async function ensureWorkspaceInitialized(
   options: WorkspaceInitOptions
 ): Promise<WorkspaceInitResult> {
+  const log = options.quiet ? silentLog : defaultLog;
   const workspacePath = resolve(options.workspacePath);
   const templatesDir = resolveTemplatesDir(options.templatesDir);
 
@@ -77,7 +96,7 @@ export async function ensureWorkspaceInitialized(
   }
 
   // Copy bundled skills to workspace
-  const result = await copyBundledSkills(workspacePath);
+  const result = await copyBundledSkills(workspacePath, log);
   const copiedSkills = result.copied;
   const skillsDir = result.skillsDir;
 
@@ -165,7 +184,10 @@ function resolveBundledSkillsDir(): string | undefined {
  * @param workspacePath - Workspace root directory
  * @returns Object with copied status and target skills directory
  */
-async function copyBundledSkills(workspacePath: string): Promise<{
+async function copyBundledSkills(
+  workspacePath: string,
+  log: LoggerLike,
+): Promise<{
   copied: boolean;
   skillsDir?: string;
 }> {
