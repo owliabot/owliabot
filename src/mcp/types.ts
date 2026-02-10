@@ -213,6 +213,8 @@ export const mcpDefaultsSchema = z.object({
   restartOnCrash: z.boolean().default(true),
   maxRestarts: z.number().default(3),
   restartDelay: z.number().default(1000),
+  /** Enable LLM-driven auto-repair when MCP servers fail to start */
+  autoRepair: z.boolean().default(true),
 });
 
 export type MCPDefaults = z.infer<typeof mcpDefaultsSchema>;

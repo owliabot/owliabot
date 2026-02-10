@@ -418,7 +418,7 @@ export async function startGateway(
   let mcpResult: CreateMCPToolsResult | null = null;
   if (config.mcp) {
     try {
-      mcpResult = await createMCPTools(config.mcp);
+      mcpResult = await createMCPTools(config.mcp, { providers: config.providers });
       for (const tool of mcpResult.tools) {
         tools.register(tool);
       }

@@ -186,6 +186,7 @@ heartbeat:
 #   #   connectTimeout: 10000
 #   #   restartOnCrash: true
 #   #   maxRestarts: 3
+#   #   autoRepair: true        # LLM-driven auto-repair: diagnose & fix spawn failures
 
 # Wallet Tools (Clawlet integration) - optional
 # Enables wallet_balance and wallet_transfer tools for on-chain operations

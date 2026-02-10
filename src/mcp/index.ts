@@ -15,6 +15,8 @@ import {
   type MCPSecurityOverride,
 } from "./types.js";
 import type { ToolDefinition } from "../agent/tools/interface.js";
+import type { LLMProvider } from "../agent/runner.js";
+import { attemptAutoRepair, MAX_REPAIR_ATTEMPTS } from "./auto-repair.js";
 
 // Re-export types and classes
 export { MCPClient, createMCPClient } from "./client.js";
@@ -39,6 +41,9 @@ export {
   type MCPToolDefinition,
   type ToolCallResult,
 } from "./types.js";
+
+// Re-export auto-repair
+export { attemptAutoRepair, type RepairContext, type RepairResult } from "./auto-repair.js";
 
 // Re-export manager
 export {
@@ -113,7 +118,8 @@ export interface CreateMCPToolsResult {
  * ```
  */
 export async function createMCPTools(
-  config: MCPConfig | unknown
+  config: MCPConfig | unknown,
+  options?: { providers?: LLMProvider[] },
 ): Promise<CreateMCPToolsResult> {
   // Validate configuration
   const validatedConfig = mcpConfigSchema.parse(config);
@@ -136,16 +142,15 @@ export async function createMCPTools(
   const failed: Array<{ name: string; error: string }> = [];
   let allTools: ToolDefinition[] = [];
 
+  const autoRepairEnabled = defaults?.autoRepair !== false;
+  const repairProvider = options?.providers?.[0]; // Use first (highest priority) provider
+
   // Connect to each server
   for (const serverConfig of servers) {
-    try {
-      log.info(`Connecting to MCP server: ${serverConfig.name}`);
-
-      // Create and connect client
+    const connectServer = async (): Promise<boolean> => {
       const client = await createMCPClient(serverConfig, defaults);
       clients.set(serverConfig.name, client);
 
-      // Create adapter with security overrides for this server
       const serverOverrides = filterSecurityOverrides(
         securityOverrides ?? {},
         serverConfig.name
@@ -156,20 +161,75 @@ export async function createMCPTools(
       });
       adapters.set(serverConfig.name, adapter);
 
-      // Get tools
       const tools = await adapter.getTools();
       allTools.push(...tools);
 
       log.info(
         `Loaded ${tools.length} tools from MCP server: ${serverConfig.name}`
       );
+      return true;
+    };
+
+    try {
+      log.info(`Connecting to MCP server: ${serverConfig.name}`);
+      await connectServer();
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : String(err);
       log.error(`Failed to connect to MCP server ${serverConfig.name}: ${errorMsg}`);
-      failed.push({
-        name: serverConfig.name,
-        error: errorMsg,
-      });
+
+      // Attempt LLM-driven auto-repair if enabled and a provider is available
+      let repaired = false;
+      if (autoRepairEnabled && repairProvider) {
+        for (let attempt = 0; attempt < MAX_REPAIR_ATTEMPTS; attempt++) {
+          log.info(
+            `Auto-repair attempt ${attempt + 1}/${MAX_REPAIR_ATTEMPTS} for "${serverConfig.name}"`
+          );
+
+          const result = await attemptAutoRepair(
+            {
+              serverName: serverConfig.name,
+              command: serverConfig.command ?? "",
+              args: serverConfig.args,
+              errorOutput: errorMsg,
+              exitCode: undefined,
+            },
+            repairProvider,
+          );
+
+          if (!result.attempted) {
+            log.info(`No repair suggested for "${serverConfig.name}", skipping`);
+            break;
+          }
+
+          if (!result.repairSucceeded) {
+            log.warn(
+              `Repair command failed for "${serverConfig.name}": ${result.repairError}`
+            );
+            continue;
+          }
+
+          log.info(`Repair command succeeded for "${serverConfig.name}", retrying connection`);
+
+          try {
+            await connectServer();
+            repaired = true;
+            break;
+          } catch (retryErr) {
+            log.warn(
+              `Retry after repair still failed for "${serverConfig.name}": ${
+                retryErr instanceof Error ? retryErr.message : String(retryErr)
+              }`
+            );
+          }
+        }
+      }
+
+      if (!repaired) {
+        failed.push({
+          name: serverConfig.name,
+          error: errorMsg,
+        });
+      }
     }
   }
 
