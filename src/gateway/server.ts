@@ -472,11 +472,11 @@ export async function startGateway(
   runBootOnce({
     workspacePath: config.workspace,
     executePrompt: async (prompt) => {
-      const bootSessionKey = "boot" as SessionKey;
-      const history = sessionStore.getOrCreateHistory(bootSessionKey);
-      history.push({ role: "user", content: prompt });
+      const messages: Message[] = [
+        { role: "user", content: prompt, timestamp: Date.now() },
+      ];
       const providers: LLMProvider[] = config.providers;
-      const response = await callWithFailover(providers, history);
+      const response = await callWithFailover(providers, messages);
       return response.content;
     },
   }).then((result) => {
