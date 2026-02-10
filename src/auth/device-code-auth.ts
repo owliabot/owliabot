@@ -79,9 +79,15 @@ export async function pollForDeviceCodeCompletion(
   timeoutMs: number = DEFAULT_TIMEOUT_MS,
 ): Promise<DeviceCodeCompletion> {
   const deadline = Date.now() + timeoutMs;
+  let firstPoll = true;
 
   while (Date.now() < deadline) {
-    await sleep(interval * 1000);
+    // Sleep between retries, but poll immediately on first attempt
+    if (firstPoll) {
+      firstPoll = false;
+    } else {
+      await sleep(interval * 1000);
+    }
 
     const res = await fetch(
       `${AUTH_BASE_URL}/api/accounts/deviceauth/token`,
@@ -110,7 +116,8 @@ export async function pollForDeviceCodeCompletion(
 
     // 403 or 404 means "still pending" — keep polling
     if (res.status === 403 || res.status === 404) {
-      log.debug(`Polling... (${res.status})`);
+      const body = await res.text().catch(() => "");
+      log.debug(`Polling... (${res.status}${body ? `: ${body}` : ""})`);
       continue;
     }
 
@@ -211,17 +218,17 @@ export async function runDeviceCodeLogin(): Promise<OAuthTokens> {
 
   // Step 2: Show instructions
   console.log();
-  console.log("🔐 OpenAI Device Code 登录");
+  console.log("🔐 OpenAI Device Code Login");
   console.log();
-  console.log("请在浏览器中打开以下链接并登录：");
+  console.log("Open this URL in your browser and sign in:");
   console.log(`  ${verificationUrl}`);
   console.log();
-  console.log("然后输入此一次性验证码（15 分钟内有效）：");
+  console.log("Then enter this one-time code (valid for 15 minutes):");
   console.log(`  ${userCode}`);
   console.log();
-  console.log("⚠️ 请勿分享此验证码。");
+  console.log("⚠️ Do not share this code.");
   console.log();
-  console.log("等待验证中...");
+  console.log("Waiting for verification...");
 
   // Step 3: Poll
   const { authorizationCode, codeVerifier } =
