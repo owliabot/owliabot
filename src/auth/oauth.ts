@@ -52,7 +52,14 @@ export async function startOAuthFlow(
 
   const askUser = (message: string): Promise<string> => {
     const rl = createInterface({ input: process.stdin, output: process.stdout });
-    return new Promise<string>((resolve) => {
+    return new Promise<string>((resolve, reject) => {
+      rl.on("SIGINT", () => {
+        rl.close();
+        process.exit(130);
+      });
+      rl.on("close", () => {
+        reject(new Error("User cancelled input"));
+      });
       rl.question(message + " ", (answer) => {
         rl.close();
         resolve(answer.trim());
