@@ -6,7 +6,6 @@
 import { z } from "zod";
 import { CliBackendsSchema } from "../agent/cli/cli-schema.js";
 import { mcpConfigSchema } from "../mcp/types.js";
-import { playwrightServerConfig } from "../mcp/servers/playwright.js";
 
 export const providerSchema = z
   .object({
@@ -461,11 +460,8 @@ export const configSchema = z.object({
   // Wallet integration (Clawlet)
   wallet: walletSchema,
 
-  // MCP (Model Context Protocol) servers — enabled by default with Playwright preset.
-  // If the user provides their own `mcp` section it is used as-is.
-  mcp: mcpConfigSchema.default({
-    servers: [playwrightServerConfig],
-  }),
+  // MCP (Model Context Protocol) servers
+  mcp: mcpConfigSchema.optional(),
 });
 
 export type Config = z.infer<typeof configSchema>;

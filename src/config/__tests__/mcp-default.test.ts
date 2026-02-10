@@ -1,18 +1,14 @@
 import { describe, it, expect } from "vitest";
 import { configSchema } from "../schema.js";
 
-describe("MCP default preset", () => {
-  it("defaults to Playwright MCP server when mcp is omitted", () => {
+describe("MCP config", () => {
+  it("defaults to undefined when mcp is omitted", () => {
     const minimal = {
       providers: [{ id: "anthropic", model: "claude-sonnet-4-5", priority: 1 }],
     };
     const parsed = configSchema.parse(minimal);
 
-    expect(parsed.mcp).toBeDefined();
-    expect(parsed.mcp.servers).toHaveLength(1);
-    expect(parsed.mcp.servers[0].name).toBe("playwright");
-    expect(parsed.mcp.servers[0].command).toBe("npx");
-    expect(parsed.mcp.servers[0].transport).toBe("stdio");
+    expect(parsed.mcp).toBeUndefined();
   });
 
   it("uses user-provided mcp config when explicitly set", () => {
@@ -26,8 +22,8 @@ describe("MCP default preset", () => {
     };
     const parsed = configSchema.parse(config);
 
-    expect(parsed.mcp.servers).toHaveLength(1);
-    expect(parsed.mcp.servers[0].name).toBe("custom-server");
+    expect(parsed.mcp!.servers).toHaveLength(1);
+    expect(parsed.mcp!.servers![0].name).toBe("custom-server");
   });
 
   it("allows empty servers list to disable MCP", () => {
@@ -36,6 +32,6 @@ describe("MCP default preset", () => {
       mcp: { servers: [] },
     };
     const parsed = configSchema.parse(config);
-    expect(parsed.mcp.servers).toHaveLength(0);
+    expect(parsed.mcp!.servers).toHaveLength(0);
   });
 });

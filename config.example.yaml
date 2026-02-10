@@ -169,25 +169,23 @@ heartbeat:
 #     timeoutMs: 15000
 #     maxResults: 10
 
-# MCP (Model Context Protocol) servers — enabled by default with Playwright preset.
-# The Playwright MCP server is included out of the box so new users get browser
-# automation tools without manual configuration. Remove or replace the servers
-# list to customise.
-mcp:
-  servers:
-    - name: playwright
-      command: npx
-      args: ["--yes", "@playwright/mcp@latest"]
-      transport: stdio
-    # - name: filesystem
-    #   command: npx
-    #   args: ["@anthropic/mcp-server-filesystem", "./workspace"]
-    #   transport: stdio
-  # defaults:
-  #   timeout: 30000
-  #   connectTimeout: 10000
-  #   restartOnCrash: true
-  #   maxRestarts: 3
+# MCP (Model Context Protocol) servers - optional
+# Enable MCP servers during onboarding (owliabot onboard) or add them here manually.
+# mcp:
+#   servers:
+#     - name: playwright
+#       command: npx
+#       args: ["--yes", "@playwright/mcp@latest"]
+#       transport: stdio
+#     # - name: filesystem
+#     #   command: npx
+#     #   args: ["@anthropic/mcp-server-filesystem", "./workspace"]
+#     #   transport: stdio
+#   # defaults:
+#   #   timeout: 30000
+#   #   connectTimeout: 10000
+#   #   restartOnCrash: true
+#   #   maxRestarts: 3
 
 # Wallet Tools (Clawlet integration) - optional
 # Enables wallet_balance and wallet_transfer tools for on-chain operations
