@@ -1,4 +1,4 @@
-import { access, mkdir, readFile, writeFile, cp } from "node:fs/promises";
+import { access, mkdir, readFile, writeFile, cp, copyFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -30,6 +30,7 @@ export interface WorkspaceInitResult {
   wroteBootstrap: boolean;
   copiedSkills: boolean;
   skillsDir?: string;
+  copiedConfig: boolean;
 }
 
 export async function ensureWorkspaceInitialized(
@@ -77,6 +78,9 @@ export async function ensureWorkspaceInitialized(
   const copiedSkills = result.copied;
   const skillsDir = result.skillsDir;
 
+  // Copy config.example.yaml as config.yaml
+  const copiedConfig = await copyConfigExample(workspacePath);
+
   return {
     workspacePath,
     templatesDir,
@@ -86,6 +90,7 @@ export async function ensureWorkspaceInitialized(
     wroteBootstrap,
     copiedSkills,
     skillsDir,
+    copiedConfig,
   };
 }
 
@@ -132,30 +137,32 @@ async function writeTemplateIfMissing(params: {
 }
 
 /**
- * Resolve bundled skills directory
- * Similar to resolveTemplatesDir, checks multiple locations
+ * Resolve a file from cwd first, then relative to module dir.
  */
-function resolveBundledSkillsDir(): string | undefined {
-  // Check cwd first (for dev mode)
-  const cwdSkills = resolve(process.cwd(), "skills");
-  if (existsSync(cwdSkills)) {
-    return cwdSkills;
+function resolveFromCwdOrModule(relativePath: string): string | undefined {
+  const cwdPath = resolve(process.cwd(), relativePath);
+  if (existsSync(cwdPath)) {
+    return cwdPath;
   }
 
-  // Check relative to module (for installed package)
   const moduleDir = dirname(fileURLToPath(import.meta.url));
-  const moduleSkills = resolve(moduleDir, "../../skills");
-  if (existsSync(moduleSkills)) {
-    return moduleSkills;
+  const modulePath = resolve(moduleDir, "../..", relativePath);
+  if (existsSync(modulePath)) {
+    return modulePath;
   }
 
   return undefined;
 }
 
 /**
+ * Resolve bundled skills directory
+ */
+function resolveBundledSkillsDir(): string | undefined {
+  return resolveFromCwdOrModule("skills");
+}
+
+/**
  * Copy bundled skills to workspace directory
- * @param workspacePath - Workspace root directory
- * @returns Object with copied status and target skills directory
  */
 async function copyBundledSkills(workspacePath: string): Promise<{
   copied: boolean;
@@ -163,19 +170,16 @@ async function copyBundledSkills(workspacePath: string): Promise<{
 }> {
   const targetSkillsDir = join(workspacePath, "skills");
 
-  // Skip if skills directory already exists
   if (await pathExists(targetSkillsDir)) {
     return { copied: false, skillsDir: targetSkillsDir };
   }
 
-  // Find bundled skills
   const bundledSkillsDir = resolveBundledSkillsDir();
   if (!bundledSkillsDir) {
     return { copied: false };
   }
 
   try {
-    // Copy the entire skills directory
     await cp(bundledSkillsDir, targetSkillsDir, { recursive: true });
     return { copied: true, skillsDir: targetSkillsDir };
   } catch (err) {
@@ -184,5 +188,30 @@ async function copyBundledSkills(workspacePath: string): Promise<{
       `[workspace] Failed to copy bundled skills (${bundledSkillsDir}) to workspace (${targetSkillsDir}): ${message}`
     );
     return { copied: false };
+  }
+}
+
+/**
+ * Copy config.example.yaml to workspace as config.yaml if it doesn't already exist.
+ */
+async function copyConfigExample(workspacePath: string): Promise<boolean> {
+  const targetPath = join(workspacePath, "config.example.yaml");
+
+  if (await pathExists(targetPath)) {
+    return false;
+  }
+
+  const sourcePath = resolveFromCwdOrModule("config.example.yaml");
+  if (!sourcePath) {
+    return false;
+  }
+
+  try {
+    await copyFile(sourcePath, targetPath);
+    return true;
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.warn(`[workspace] Failed to copy config.example.yaml: ${message}`);
+    return false;
   }
 }
