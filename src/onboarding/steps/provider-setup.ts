@@ -79,6 +79,7 @@ export async function maybeConfigureAnthropic(
   state: ProviderSetupState,
   aiChoice: number,
   existing?: DetectedConfig | null,
+  reuseExisting = false,
 ): Promise<void> {
   if (!(aiChoice === 0 || aiChoice === 4)) return;
 
@@ -88,13 +89,26 @@ export async function maybeConfigureAnthropic(
   header("Connect Claude (Anthropic)");
   const existingToken = existing?.anthropicToken;
   const existingTokenValid = existing?.anthropicTokenValid;
-  const canReuseToken = !!existingToken && existingTokenValid !== false;
+  const canReuseToken = !!existingToken && existingTokenValid === true;
 
-  // If we already have a valid setup-token, don't force the user through auth again.
+  // If we already have a valid setup-token, optionally reuse it.
+  // If the user selected a "fresh setup", don't silently reuse; ask explicitly.
   if (canReuseToken) {
-    state.secrets.anthropic = { ...(state.secrets.anthropic ?? {}), token: existingToken };
-    success("Detected an existing Claude setup-token. Skipping authorization.");
-  } else {
+    const shouldReuse = reuseExisting
+      ? true
+      : await askYN(rl, "Reuse the existing Claude setup-token?", false);
+
+    if (shouldReuse) {
+      state.secrets.anthropic = { ...(state.secrets.anthropic ?? {}), token: existingToken };
+      success("Reusing your existing Claude setup-token. Skipping authorization.");
+      info("If this fails later, generate a new one with `claude setup-token`.");
+    }
+  } else if (existingToken && existingTokenValid === false) {
+    warn("Found a Claude setup-token, but it looks invalid. You'll need to paste a new one.");
+  }
+
+  // Only prompt for credentials if we didn't reuse anything.
+  if (!state.secrets.anthropic) {
     info("Quick question: how do you want to authenticate?");
     info("");
     info("  • Claude subscription (Pro/Max): use a setup-token");
@@ -176,6 +190,7 @@ export async function maybeConfigureOpenAICodex(
   state: ProviderSetupState,
   aiChoice: number,
   existing?: DetectedConfig | null,
+  reuseExisting = false,
 ): Promise<void> {
   if (!(aiChoice === 2 || aiChoice === 4)) return;
 
@@ -185,7 +200,38 @@ export async function maybeConfigureOpenAICodex(
 
   const hasExistingOAuth = existing?.hasOAuthCodex === true;
   if (hasExistingOAuth) {
-    success("Detected an existing OpenAI Codex OAuth token. Skipping authorization.");
+    const shouldReuse = reuseExisting
+      ? true
+      : await askYN(rl, "Reuse the existing OpenAI Codex sign-in?", false);
+
+    if (shouldReuse) {
+      success("Reusing your existing OpenAI Codex sign-in. Skipping authorization.");
+      if (dockerMode) {
+        info("If this fails later, run: docker exec -it owliabot owliabot auth setup openai-codex");
+      } else {
+        info("If this fails later, run: `owliabot auth setup openai-codex`");
+      }
+    } else {
+      // Fresh setup: proceed to the standard OAuth prompt.
+      const runOAuth = await askYN(rl, "Want to connect it now?", false);
+      if (runOAuth) {
+        info("Starting the sign-in flow...");
+        // Pause onboard readline so OAuth's own readline doesn't fight for stdin
+        rl.pause();
+        try {
+          await startOAuthFlow("openai-codex", { headless: dockerMode });
+          success("You're connected.");
+        } finally {
+          rl.resume();
+        }
+      } else {
+        if (dockerMode) {
+          info("After the container is running, run: docker exec -it owliabot owliabot auth setup openai-codex");
+        } else {
+          info("You can connect later with: `owliabot auth setup openai-codex`");
+        }
+      }
+    }
   } else {
     const runOAuth = await askYN(rl, "Want to connect it now?", false);
     if (runOAuth) {
@@ -262,6 +308,7 @@ export async function askProviders(
   rl: RL,
   dockerMode: boolean,
   existing?: DetectedConfig | null,
+  reuseExisting = false,
 ): Promise<ProviderResult> {
   const state: ProviderSetupState = {
     secrets: {},
@@ -279,9 +326,9 @@ export async function askProviders(
     "Use multiple providers (fallback chain)",
   ]);
 
-  await maybeConfigureAnthropic(rl, state, aiChoice, existing);
+  await maybeConfigureAnthropic(rl, state, aiChoice, existing, reuseExisting);
   await maybeConfigureOpenAI(rl, state, aiChoice);
-  await maybeConfigureOpenAICodex(rl, dockerMode, state, aiChoice, existing);
+  await maybeConfigureOpenAICodex(rl, dockerMode, state, aiChoice, existing, reuseExisting);
   await maybeConfigureOpenAICompatible(rl, state, aiChoice);
 
   return {
@@ -303,10 +350,15 @@ export function reuseProvidersFromExisting(existing: DetectedConfig): ProviderRe
   let useOpenaiCodex = false;
 
   // Anthropic
-  if (existing.anthropicKey || existing.anthropicToken) {
+  const canReuseToken = !!existing.anthropicToken && existing.anthropicTokenValid !== false;
+  if (existing.anthropicKey || canReuseToken) {
     useAnthropic = true;
     if (existing.anthropicKey) secrets.anthropic = { apiKey: existing.anthropicKey };
-    if (existing.anthropicToken) secrets.anthropic = { ...secrets.anthropic, token: existing.anthropicToken };
+    if (canReuseToken && existing.anthropicToken) {
+      secrets.anthropic = { ...secrets.anthropic, token: existing.anthropicToken };
+    } else if (existing.anthropicToken && existing.anthropicTokenValid === false) {
+      warn("Found a Claude setup-token in secrets, but it looks invalid. You'll need to paste a new one.");
+    }
     providers.push({
       id: "anthropic",
       model: DEFAULT_MODELS.anthropic,
@@ -359,7 +411,7 @@ export async function getProvidersSetup(
     if (reused.providers.length > 0) return reused;
   }
 
-  const result = await askProviders(rl, dockerMode, existing);
+  const result = await askProviders(rl, dockerMode, existing, reuseExisting);
   if (result.providers.length > 0) return result;
 
   warn("No AI provider yet. You can add one later in app.yaml.");

@@ -52,9 +52,9 @@ export function printExistingConfigSummary(
     info(`Found Anthropic API key: ${existing.anthropicKey.slice(0, truncLen)}...`);
   }
   if (existing.anthropicToken) info("Found Anthropic setup-token");
-  if (existing.anthropicOAuth) info("Found Anthropic OAuth token");
+  if (dockerMode && existing.anthropicOAuth) info("Found Anthropic OAuth token");
   if (existing.openaiKey) info(`Found OpenAI API key: ${existing.openaiKey.slice(0, 10)}...`);
-  if (existing.openaiOAuth) info("Found OpenAI OAuth token (openai-codex)");
+  if (dockerMode && existing.openaiOAuth) info("Found OpenAI OAuth token (openai-codex)");
   if (existing.discordToken) info(`Found Discord token: ${existing.discordToken.slice(0, 20)}...`);
   if (existing.telegramToken) info(`Found Telegram token: ${existing.telegramToken.slice(0, 10)}...`);
   if (dockerMode && existing.gatewayToken) info(`Found Gateway token: ${existing.gatewayToken.slice(0, 10)}...`);
