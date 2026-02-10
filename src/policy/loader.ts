@@ -45,10 +45,15 @@ export class PolicyLoader {
       return this.cachedPolicy;
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code === "ENOENT") {
-        log.error(`Policy file not found: ${this.policyPath}`);
-        throw new Error(
-          `Policy file not found: ${this.policyPath}. Please create a policy.yml file.`
-        );
+        log.warn(`Policy file not found: ${this.policyPath}, using defaults`);
+        const defaultPolicy: PolicyConfig = {
+          version: "1",
+          defaults: {},
+          tools: {},
+          fallback: { tier: "none", requireConfirmation: false },
+        };
+        this.cachedPolicy = defaultPolicy;
+        return this.cachedPolicy;
       }
       throw err;
     }
