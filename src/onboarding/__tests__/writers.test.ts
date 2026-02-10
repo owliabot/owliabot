@@ -7,7 +7,17 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
-vi.mock("node:readline", () => ({ createInterface: vi.fn() }));
+vi.mock("node:readline", () => ({
+  createInterface: () => ({
+    question: vi.fn(),
+    close: vi.fn(),
+    pause: vi.fn(),
+    resume: vi.fn(),
+    once: vi.fn(),
+    on: vi.fn(),
+    removeListener: vi.fn(),
+  }),
+}));
 vi.mock("../../auth/oauth.js", () => ({ startOAuthFlow: vi.fn() }));
 vi.mock("../clawlet-onboard.js", () => ({ runClawletOnboarding: vi.fn().mockResolvedValue({ enabled: false }) }));
 
