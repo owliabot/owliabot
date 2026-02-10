@@ -40,13 +40,9 @@ RUN npm prune --production
 # ==============================================================================
 FROM node:22-slim AS production
 
-# Install runtime dependencies:
-# - Chromium + libs for Playwright MCP browser automation
-# - coreutils for GNU date/etc
+# Install runtime dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    chromium \
     ca-certificates \
-    fonts-freefont-ttf \
     coreutils \
     wget \
     && rm -rf /var/lib/apt/lists/*
@@ -87,10 +83,6 @@ USER owliabot
 # Set HOME for the non-root user (needed for ~/.owliabot and ~/.owlia_dev)
 ENV HOME=/home/owliabot
 ENV OWLIABOT_HOME=/home/owliabot/.owliabot
-
-# Tell Playwright to use system-installed Chromium instead of downloading its own
-ENV PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium
-ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
 
 # Expose gateway HTTP port (configurable, default 8787)
 EXPOSE 8787
