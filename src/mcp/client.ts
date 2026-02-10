@@ -262,7 +262,7 @@ export class MCPClient {
       );
     }
 
-    const id = `${Date.now()}-${this.idCounter++}`;
+    const id = this.idCounter++;
     const timeout = this.options.defaults?.timeout ?? 30000;
 
     const request: JSONRPCRequest = {
