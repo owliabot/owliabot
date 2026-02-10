@@ -588,30 +588,11 @@ export async function startGatewayHttp(opts: GatewayHttpOptions): Promise<Gatewa
         return;
       }
 
-      // ── Verify trade capability ───────────────────────────────────────────
-      // Attempt to detect trade capability from the token itself by trying
-      // a minimal operation. Default to read-only to prevent registering
-      // unusable tools when the token lacks trade permissions.
-      let tradeCapable = false;
-      try {
-        // Probe trade capability with a purposefully invalid transfer to check auth
-        // without risk of executing a real transaction
-        const { ClawletClient } = await import("../../wallet/clawlet-client.js");
-        const probeClient = new ClawletClient(clawletConfig);
-        await probeClient.transfer({
-          to: "0x0000000000000000000000000000000000000000",
-          amount: "0",
-          chain_id: resolvedChainId,
-        });
-        // If we get here without auth error, token has trade capability
-        tradeCapable = true;
-      } catch (err: any) {
-        // If error is auth-related, token is read-only
-        // If error is validation-related (amount=0, invalid address), token has trade scope
-        if (err?.message && !err.message.toLowerCase().includes("unauthorized") && !err.message.toLowerCase().includes("forbidden")) {
-          tradeCapable = true;
-        }
-      }
+      // ── Determine tool scope ──────────────────────────────────────────────
+      // Respect the requested scope from the caller.
+      // Default to read-only for safety if scope is not explicitly provided.
+      const requestedScope = scope ?? "read";
+      const enableTrade = requestedScope === "trade";
 
       // ── Register tools ────────────────────────────────────────────────────
       // Always unregister both first to handle reconnect with different scope
@@ -623,7 +604,7 @@ export async function startGatewayHttp(opts: GatewayHttpOptions): Promise<Gatewa
 
       const toolConfig = { clawletConfig, defaultChainId: resolvedChainId };
       let walletTools = [createWalletBalanceTool(toolConfig)];
-      if (tradeCapable) {
+      if (enableTrade) {
         walletTools.push(createWalletTransferTool(toolConfig));
       }
 
@@ -641,7 +622,7 @@ export async function startGatewayHttp(opts: GatewayHttpOptions): Promise<Gatewa
         data: {
           message: "Wallet tools registered",
           tools: registeredNames,
-          wallet: { address: walletAddress, ethBalance, tradeCapable },
+          wallet: { address: walletAddress, ethBalance, scope: requestedScope },
           config: { baseUrl, defaultChainId: resolvedChainId },
         },
       });
