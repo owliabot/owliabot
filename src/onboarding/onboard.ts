@@ -1203,14 +1203,18 @@ export async function runOnboarding(options: OnboardOptions = {}): Promise<void>
     header(dockerMode ? "Writing config" : "Saving configuration");
     if (dockerMode) {
       if (!dockerPaths || !dockerCompose) throw new Error("Internal error: missing docker paths/docker setup");
+
+      // Ensure the container's UID/GID can write into bind-mounted dirs BEFORE
+      // writing any files. Without this, writeDockerConfigLocalStyle will fail
+      // with EACCES when the host directory is owned by a different UID.
+      mkdirSync(join(dockerPaths.configDir, "auth"), { recursive: true });
+      tryMakeTreeWritableForDocker(dockerPaths.configDir);
+
       await writeDockerConfigLocalStyle(dockerPaths, config, secrets);
 
       // Docker mode: initialize a host workspace directory that is bind-mounted into the container.
       // This matches local mode behavior (BOOTSTRAP.md + bundled skills copy).
       await initDevWorkspace(workspacePath, resolvedWriteToolAllowList);
-      // Ensure the container's UID/GID can write into bind-mounted dirs (workspace, auth, etc.).
-      mkdirSync(join(dockerPaths.configDir, "auth"), { recursive: true });
-      tryMakeTreeWritableForDocker(dockerPaths.configDir);
 
       const dockerEnv = buildDockerEnvLines(config, secrets, tz);
 
