@@ -197,7 +197,7 @@ export function reuseProvidersFromExisting(existing: DetectedConfig): ProviderRe
   let useOpenaiCodex = false;
 
   // Anthropic
-  if (existing.anthropicKey || existing.anthropicToken || existing.anthropicOAuth) {
+  if (existing.anthropicKey || existing.anthropicToken || existing.hasOAuthAnthro) {
     useAnthropic = true;
     if (existing.anthropicKey) secrets.anthropic = { apiKey: existing.anthropicKey };
     if (existing.anthropicToken) secrets.anthropic = { ...secrets.anthropic, token: existing.anthropicToken };
@@ -224,7 +224,7 @@ export function reuseProvidersFromExisting(existing: DetectedConfig): ProviderRe
   }
 
   // OpenAI Codex (OAuth)
-  if (existing.openaiOAuth) {
+  if (existing.hasOAuthCodex) {
     useOpenaiCodex = true;
     providers.push({
       id: "openai-codex",
