@@ -472,12 +472,71 @@ export async function startGateway(
   runBootOnce({
     workspacePath: config.workspace,
     executePrompt: async (prompt) => {
-      const messages: Message[] = [
+      const bootMessages: Message[] = [
         { role: "user", content: prompt, timestamp: Date.now() },
       ];
       const providers: LLMProvider[] = config.providers;
-      const response = await callWithFailover(providers, messages);
-      return response.content;
+      const bootSessionKey = "boot:startup" as SessionKey;
+      const bootAgentId = resolveAgentId({ config });
+
+      // Agentic loop with tool support (so BOOT.md can send messages etc.)
+      const MAX_BOOT_ITERATIONS = 3;
+      let iteration = 0;
+      let finalContent = "";
+
+      while (iteration < MAX_BOOT_ITERATIONS) {
+        iteration++;
+        const response = await callWithFailover(providers, bootMessages, {
+          tools: tools.getAll(),
+        });
+
+        if (!response.toolCalls || response.toolCalls.length === 0) {
+          finalContent = response.content;
+          break;
+        }
+
+        log.info(`boot: tool calls in iteration ${iteration}: ${response.toolCalls.map(c => c.name).join(", ")}`);
+
+        const toolResults = await executeToolCalls(response.toolCalls, {
+          registry: tools,
+          context: {
+            sessionKey: bootSessionKey,
+            agentId: bootAgentId,
+            config: {
+              channel: "boot",
+              target: "boot",
+            },
+          },
+          workspacePath: config.workspace,
+        });
+
+        // Add assistant + tool results to conversation
+        const assistantMsg: Message = {
+          role: "assistant",
+          content: response.content || "",
+          toolCalls: response.toolCalls,
+          timestamp: Date.now(),
+        };
+        bootMessages.push(assistantMsg);
+
+        // Add tool results as user message (matching main handler pattern)
+        const bootToolResults = response.toolCalls.map((call) => {
+          const result = toolResults.get(call.id);
+          return {
+            ...(result ?? { success: false, error: "Missing tool result" }),
+            toolCallId: call.id,
+            toolName: call.name,
+          } as ToolResult;
+        });
+        bootMessages.push({
+          role: "user",
+          content: "",
+          timestamp: Date.now(),
+          toolResults: bootToolResults,
+        });
+      }
+
+      return finalContent;
     },
   }).then((result) => {
     if (result.status === "ran") {
