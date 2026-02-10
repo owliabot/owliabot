@@ -13,7 +13,7 @@ import {
 } from "./channel-setup.js";
 import type { UserAllowLists } from "./types.js";
 import { info, header, askYN } from "../shared.js";
-import { playwrightServerConfig } from "../../mcp/servers/playwright.js";
+import { playwrightServerConfig, playwrightSecurityOverrides } from "../../mcp/servers/playwright.js";
 
 type RL = ReturnType<typeof createInterface>;
 type TelegramGroups = NonNullable<NonNullable<AppConfig["telegram"]>["groups"]>;
@@ -132,15 +132,27 @@ export async function configureMcpServers(
   info("Available presets:\n");
 
   const selected: typeof MCP_PRESETS[number]["config"][] = [];
+  const securityOverrides: Record<string, { level: string; confirmRequired?: boolean }> = {};
 
   for (const preset of MCP_PRESETS) {
     const enable = await askYN(rl, `Enable ${preset.name}? (${preset.description})`, true);
-    if (enable) selected.push(preset.config);
+    if (!enable) continue;
+
+    selected.push(preset.config);
+
+    // If user enables Playwright MCP, write the recommended security overrides
+    // directly into app.yaml so runtime doesn't have to guess.
+    if (preset.config.name === "playwright") {
+      Object.assign(securityOverrides, playwrightSecurityOverrides);
+    }
   }
 
   if (selected.length === 0) return undefined;
 
-  return { servers: selected.map((s) => ({ ...s })) };
+  return {
+    servers: selected.map((s) => ({ ...s })),
+    ...(Object.keys(securityOverrides).length > 0 ? { securityOverrides } : {}),
+  };
 }
 
 /**

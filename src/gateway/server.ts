@@ -46,11 +46,7 @@ import { createNotificationService } from "../notifications/service.js";
 import { initializeSkills, type SkillsInitResult } from "../skills/index.js";
 import { createInfraStore, hashMessage, type InfraStore } from "../infra/index.js";
 import { MCPManager, createMCPManager } from "../mcp/manager.js";
-import {
-  expandMCPPresets,
-  expandMCPPresetSecurityOverrides,
-  getKnownServerSecurityOverrides,
-} from "../mcp/presets.js";
+import { expandMCPPresets } from "../mcp/presets.js";
 import { startGatewayHttp } from "./http/server.js";
 import { runBootOnce } from "./boot.js";
 import { join, dirname, resolve } from "node:path";
@@ -267,37 +263,20 @@ export async function startGateway(
   }
 
   // ─────────────────────────────────────────────────────────────────────────
-  // MCP (Model Context Protocol) servers
-  // ─────────────────────────────────────────────────────────────────────────
-  let mcpManager: MCPManager | null = null;
-	  if (config.mcp && config.mcp.autoStart !== false) {
-	    const mcpConfig = config.mcp;
-	    // Expand presets into server configs
-	    const presetServers = expandMCPPresets(mcpConfig.presets ?? []);
-	    const allServers = [...presetServers, ...(mcpConfig.servers ?? [])];
+	  // MCP (Model Context Protocol) servers
+	  // ─────────────────────────────────────────────────────────────────────────
+	  let mcpManager: MCPManager | null = null;
+		  if (config.mcp && config.mcp.autoStart !== false) {
+		    const mcpConfig = config.mcp;
+		    // Expand presets into server configs
+		    const presetServers = expandMCPPresets(mcpConfig.presets ?? []);
+		    const allServers = [...presetServers, ...(mcpConfig.servers ?? [])];
 
-	    if (allServers.length > 0) {
-	      // Built-in security defaults:
-	      // 1) preset-based overrides
-	      // 2) well-known server-name overrides (when server is configured explicitly)
-	      // 3) user config overrides (highest precedence)
-	      const presetSecurity = expandMCPPresetSecurityOverrides(mcpConfig.presets ?? []);
-	      const knownServerSecurity = allServers.reduce((acc, s) => {
-	        const overrides = getKnownServerSecurityOverrides(s.name);
-	        if (overrides) Object.assign(acc, overrides);
-	        return acc;
-	      }, {} as Record<string, { level: "read" | "write" | "sign"; confirmRequired?: boolean }>);
-
-	      const mergedSecurityOverrides = {
-	        ...presetSecurity,
-	        ...knownServerSecurity,
-	        ...(mcpConfig.securityOverrides ?? {}),
-	      };
-
-	      mcpManager = createMCPManager({
-	        defaults: mcpConfig.defaults,
-	        securityOverrides: mergedSecurityOverrides,
-	      });
+		    if (allServers.length > 0) {
+		      mcpManager = createMCPManager({
+		        defaults: mcpConfig.defaults,
+		        securityOverrides: mcpConfig.securityOverrides,
+		      });
 
       for (const serverConfig of allServers) {
         try {
