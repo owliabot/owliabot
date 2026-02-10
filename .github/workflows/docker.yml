@@ -58,10 +58,12 @@ jobs:
             # --- develop branch: develop + prerelease dev tags ---
             type=raw,value=develop,enable=${{ github.ref == 'refs/heads/develop' }}
             type=raw,value=${{ steps.pkg.outputs.version }}-dev.${{ steps.pkg.outputs.short_sha }},enable=${{ github.ref == 'refs/heads/develop' }}
-            # --- release: latest + clean semver ---
-            type=raw,value=latest,enable=${{ github.event_name == 'release' }}
-            type=raw,value=${{ steps.pkg.outputs.version }},enable=${{ github.event_name == 'release' }}
-            type=raw,value=${{ steps.pkg.outputs.major_minor }},enable=${{ github.event_name == 'release' }}
+            # --- release (non-draft): latest + clean semver ---
+            type=raw,value=latest,enable=${{ github.event_name == 'release' && !github.event.release.draft }}
+            type=raw,value=${{ steps.pkg.outputs.version }},enable=${{ github.event_name == 'release' && !github.event.release.draft }}
+            type=raw,value=${{ steps.pkg.outputs.major_minor }},enable=${{ github.event_name == 'release' && !github.event.release.draft }}
+            # --- release (draft): prerelease-style tags ---
+            type=raw,value=${{ steps.pkg.outputs.version }}-draft.${{ steps.pkg.outputs.short_sha }},enable=${{ github.event_name == 'release' && github.event.release.draft }}
             # --- all pushes + releases: sha ---
             type=sha,prefix=,enable=${{ github.event_name != 'pull_request' }}
             # --- PR: pr number ---
