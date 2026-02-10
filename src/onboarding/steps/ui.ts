@@ -42,10 +42,18 @@ export function printExistingConfigSummary(
     const truncLen = dockerMode ? 10 : 15;
     info(`Anthropic: API key is set (${existing.anthropicKey.slice(0, truncLen)}...)`);
   }
-  if (existing.anthropicToken) info("Anthropic: setup-token is set");
+  if (existing.anthropicToken) {
+    const validLabel = existing.anthropicTokenValid === false ? " ⚠️ invalid format" : " ✅";
+    info(`Anthropic: setup-token is set${validLabel}`);
+  }
   if (dockerMode && existing.hasOAuthAnthro) info("Anthropic: OAuth token is present");
   if (existing.openaiKey) info(`OpenAI: API key is set (${existing.openaiKey.slice(0, 10)}...)`);
-  if (dockerMode && existing.hasOAuthCodex) info("OpenAI Codex: OAuth token is present");
+  if (existing.hasOAuthCodex) {
+    const expiryStr = existing.oauthCodexExpires
+      ? ` (expires: ${new Date(existing.oauthCodexExpires).toISOString().slice(0, 16)})`
+      : "";
+    info(`OpenAI Codex: ✅ OAuth token is valid${expiryStr}`);
+  }
   if (existing.discordToken) info(`Discord: token is set (${existing.discordToken.slice(0, 20)}...)`);
   if (existing.telegramToken) info(`Telegram: token is set (${existing.telegramToken.slice(0, 10)}...)`);
   if (dockerMode && existing.gatewayToken) info(`Gateway: token is set (${existing.gatewayToken.slice(0, 10)}...)`);

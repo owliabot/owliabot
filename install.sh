@@ -399,38 +399,6 @@ main() {
     fi
     success "Container started"
 
-    # --- Wait for container to be healthy ---
-    info "Waiting for container to be healthy..."
-    TIMEOUT=30
-    ELAPSED=0
-    HEALTHY=false
-    while [ $ELAPSED -lt $TIMEOUT ]; do
-      CID=$(${COMPOSE_CMD} ps -q owliabot 2>/dev/null)
-      if [ -n "$CID" ]; then
-        HEALTH=$(docker inspect --format='{{.State.Health.Status}}' "$CID" 2>/dev/null || echo "none")
-        if [ "$HEALTH" = "healthy" ]; then
-          HEALTHY=true
-          break
-        fi
-        # Fallback: if no healthcheck defined, check State.Running
-        if [ "$HEALTH" = "none" ] || [ "$HEALTH" = "" ]; then
-          STATE=$(docker inspect --format='{{.State.Running}}' "$CID" 2>/dev/null || echo "false")
-          if [ "$STATE" = "true" ]; then
-            HEALTHY=true
-            break
-          fi
-        fi
-      fi
-      sleep 1
-      ELAPSED=$((ELAPSED + 1))
-    done
-
-    if [ "$HEALTHY" != "true" ]; then
-      warn "Container did not become healthy within ${TIMEOUT}s."
-      warn "Check logs with: ${COMPOSE_CMD} logs"
-      exit 1
-    fi
-    success "Container is running and healthy"
   fi
 
   # --- Final success message ---

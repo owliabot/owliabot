@@ -149,6 +149,27 @@ export interface AppConfig {
     allowWrite?: boolean;
   };
 
+  // MCP (Model Context Protocol) servers
+  mcp?: {
+    servers?: Array<{
+      name: string;
+      command?: string;
+      args?: string[];
+      env?: Record<string, string>;
+      url?: string;
+      transport?: "stdio" | "sse";
+      cwd?: string;
+    }>;
+    securityOverrides?: Record<string, { level: string; confirmRequired?: boolean }>;
+    defaults?: {
+      timeout?: number;
+      connectTimeout?: number;
+      restartOnCrash?: boolean;
+      maxRestarts?: number;
+      restartDelay?: number;
+    };
+  };
+
   // Wallet configuration (Clawlet integration)
   wallet?: {
     clawlet?: {

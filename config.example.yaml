@@ -170,7 +170,7 @@ heartbeat:
 #     maxResults: 10
 
 # MCP (Model Context Protocol) servers - optional
-# Enables external tool servers (e.g. Playwright browser automation)
+# Enable MCP servers during onboarding (owliabot onboard) or add them here manually.
 # mcp:
 #   autoStart: true              # Start MCP servers on gateway boot (default: true)
 #   presets:                     # Named presets for common servers
