@@ -621,10 +621,9 @@ async function promptDockerComposeSetup(
   return { gatewayToken, gatewayPort };
 }
 
-function buildDefaultMemorySearchConfig(workspace: string): MemorySearchConfig {
+function buildDefaultMemorySearchConfig(): MemorySearchConfig {
   // Use {workspace} placeholder so the store path resolves correctly even when
   // config.workspace is a relative path.
-  void workspace;
   return {
     enabled: true,
     provider: "sqlite",
@@ -669,20 +668,6 @@ function buildDefaultSystemConfig(): SystemCapabilityConfig {
   };
 }
 
-async function getWorkspacePath(
-  rl: ReturnType<typeof createInterface>,
-  dockerMode: boolean,
-  appConfigPath: string,
-): Promise<string> {
-  // Intentionally not prompted:
-  // - Keeps local + docker onboarding aligned
-  // - Ensures the workspace is created next to app.yaml (portable across host + container)
-  void rl;
-  void dockerMode;
-  void appConfigPath;
-  return "workspace";
-}
-
 async function getGatewayConfig(
   rl: ReturnType<typeof createInterface>,
   dockerMode: boolean,
@@ -693,6 +678,9 @@ async function getGatewayConfig(
       host: dockerMode ? "0.0.0.0" : "127.0.0.1",
       port: 8787,
       token: "secrets",
+      // Strict by default in local mode. In docker mode, the compose template
+      // binds the published port to 127.0.0.1 on the host.
+      ...(dockerMode ? {} : { allowlist: ["127.0.0.1"] }),
     },
   };
 }
@@ -812,14 +800,16 @@ async function buildAppConfigFromPrompts(
   discordEnabled: boolean,
   telegramEnabled: boolean,
 ): Promise<{ config: AppConfig; workspacePath: string; writeToolAllowList: string[] | null }> {
-  const workspace = await getWorkspacePath(rl, dockerMode, appConfigPath);
+  // Keep local + docker onboarding aligned: workspace is always created next to app.yaml
+  // and referenced via a relative path for portability.
+  const workspace = "workspace";
   const workspacePath = join(dirname(appConfigPath), workspace);
   const gateway = await getGatewayConfig(rl, dockerMode);
 
   const config: AppConfig = {
     workspace,
     providers,
-    memorySearch: buildDefaultMemorySearchConfig(workspace),
+    memorySearch: buildDefaultMemorySearchConfig(),
     system: buildDefaultSystemConfig(),
     ...(gateway ? { gateway } : {}),
   };
@@ -888,6 +878,8 @@ services:
       - "127.0.0.1:${gatewayPort}:8787"
     volumes:
       - ${dockerConfigPath}:/home/owliabot/.owliabot
+      # Legacy compatibility: older configs may use workspace: /app/workspace
+      - ${dockerConfigPath}/workspace:/app/workspace
     environment:
 ${envBlock}
     command: ["start", "-c", "/home/owliabot/.owliabot/app.yaml"]
@@ -948,6 +940,7 @@ docker run -d \\
   --restart unless-stopped \\
   -p 127.0.0.1:${gatewayPort}:8787 \\
   -v ${paths.shellConfigPath}:/home/owliabot/.owliabot \\
+  -v ${paths.shellConfigPath}/workspace:/app/workspace \\
 ${envFlags}
   \${OWLIABOT_IMAGE:-${defaultImage}} \\
   start -c /home/owliabot/.owliabot/app.yaml

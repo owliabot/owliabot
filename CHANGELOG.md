@@ -4,6 +4,13 @@ All notable changes to OwliaBot will be documented in this file.
 
 ## [Unreleased]
 
+### Changed
+- Onboarding now writes config and secrets under `$OWLIABOT_HOME` (`~/.owliabot` by default) for both local and Docker flows.
+- Docker `docker-compose.yml` generation includes a legacy `/app/workspace` bind mount pointing at `$OWLIABOT_HOME/workspace` for backward compatibility with older configs.
+
+### Migration Notes
+- If you have an existing config under `~/.owlia_dev`, set `OWLIABOT_DEV=1` (or set `OWLIABOT_HOME`) to keep using it, or move your files into `~/.owliabot`.
+
 ## [0.2.0] - 2026-02-07
 
 ### Added
