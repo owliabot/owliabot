@@ -121,11 +121,11 @@ describe("provider-setup step", () => {
       expect(result.providers[0].apiKey).toBe("secrets");
     });
 
-    it("reuses anthropic OAuth", () => {
-      const existing: DetectedConfig = { anthropicOAuth: true };
+    it("does not treat legacy anthropic OAuth file as usable auth", () => {
+      const existing: DetectedConfig = { hasOAuthAnthro: true };
       const result = reuseProvidersFromExisting(existing);
-      expect(result.providers[0].apiKey).toBe("oauth");
-      expect(result.useAnthropic).toBe(true);
+      expect(result.providers).toHaveLength(0);
+      expect(result.useAnthropic).toBe(false);
     });
 
     it("reuses openai API key", () => {
@@ -136,7 +136,7 @@ describe("provider-setup step", () => {
     });
 
     it("reuses openai codex OAuth", () => {
-      const existing: DetectedConfig = { openaiOAuth: true };
+      const existing: DetectedConfig = { hasOAuthCodex: true };
       const result = reuseProvidersFromExisting(existing);
       expect(result.providers[0].id).toBe("openai-codex");
       expect(result.providers[0].apiKey).toBe("oauth");
@@ -144,7 +144,7 @@ describe("provider-setup step", () => {
     });
 
     it("reuses multiple providers with correct priority", () => {
-      const existing: DetectedConfig = { anthropicKey: "k1", openaiKey: "k2", openaiOAuth: true };
+      const existing: DetectedConfig = { anthropicKey: "k1", openaiKey: "k2", hasOAuthCodex: true };
       const result = reuseProvidersFromExisting(existing);
       expect(result.providers).toHaveLength(3);
       expect(result.providers[0].priority).toBe(1);
@@ -176,6 +176,17 @@ describe("provider-setup step", () => {
       expect(state.secrets.anthropic?.token).toBeDefined();
       expect(state.secrets.anthropic?.apiKey).toBeUndefined();
       expect(state.useAnthropic).toBe(true);
+    });
+
+    it("reuses existing setup-token and skips auth prompt", async () => {
+      const token = "sk-ant-oat01-" + "x".repeat(68);
+      const existing: DetectedConfig = { anthropicToken: token, anthropicTokenValid: true };
+      answers = ["1"]; // model selection only
+      const state = makeState();
+      await maybeConfigureAnthropic(rl, state, 0, existing);
+      expect(state.secrets.anthropic?.token).toBe(token);
+      expect(state.providers[0].apiKey).toBe("secrets");
+      expect(promptLog.some((q) => q.includes("Paste your setup-token"))).toBe(false);
     });
 
     it("configures API key when not setup-token", async () => {
@@ -242,6 +253,15 @@ describe("provider-setup step", () => {
       expect(state.providers[0].id).toBe("openai-codex");
       expect(state.providers[0].apiKey).toBe("oauth");
       expect(state.useOpenaiCodex).toBe(true);
+    });
+
+    it("skips OAuth prompt when existing OAuth token is detected", async () => {
+      const existing: DetectedConfig = { hasOAuthCodex: true };
+      const state = makeState();
+      await maybeConfigureOpenAICodex(rl, false, state, 2, existing);
+      expect(startOAuthFlow).not.toHaveBeenCalled();
+      expect(promptLog.some((q) => q.includes("Want to connect it now?"))).toBe(false);
+      expect(state.providers[0].id).toBe("openai-codex");
     });
 
     it("runs OAuth flow when user says yes", async () => {

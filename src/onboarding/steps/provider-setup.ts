@@ -78,6 +78,7 @@ export async function maybeConfigureAnthropic(
   rl: RL,
   state: ProviderSetupState,
   aiChoice: number,
+  existing?: DetectedConfig | null,
 ): Promise<void> {
   if (!(aiChoice === 0 || aiChoice === 4)) return;
 
@@ -85,30 +86,40 @@ export async function maybeConfigureAnthropic(
   console.log("");
 
   header("Connect Claude (Anthropic)");
-  info("Quick question: how do you want to authenticate?");
-  info("");
-  info("  • Claude subscription (Pro/Max): use a setup-token");
-  info("    Generate one with: `claude setup-token`");
-  info("    It looks like: sk-ant-oat01-...");
-  info("");
-  info("  • Pay-as-you-go: use an API key from console.anthropic.com");
-  info("    It looks like: sk-ant-api03-...");
-  console.log("");
+  const existingToken = existing?.anthropicToken;
+  const existingTokenValid = existing?.anthropicTokenValid;
+  const canReuseToken = !!existingToken && existingTokenValid !== false;
 
-  const tokenAns = await ask(
-    rl,
-    "Paste your setup-token or API key (or press Enter to use an environment variable): ",
-    true,
-  );
-  if (tokenAns) {
-    if (isSetupToken(tokenAns)) {
-      const err = validateAnthropicSetupToken(tokenAns);
-      if (err) warn(`Quick check: ${err}`);
-      state.secrets.anthropic = { token: tokenAns };
-      success("Got it. I'll use that setup-token.");
-    } else {
-      state.secrets.anthropic = { apiKey: tokenAns };
-      success("Got it. I'll use that API key.");
+  // If we already have a valid setup-token, don't force the user through auth again.
+  if (canReuseToken) {
+    state.secrets.anthropic = { ...(state.secrets.anthropic ?? {}), token: existingToken };
+    success("Detected an existing Claude setup-token. Skipping authorization.");
+  } else {
+    info("Quick question: how do you want to authenticate?");
+    info("");
+    info("  • Claude subscription (Pro/Max): use a setup-token");
+    info("    Generate one with: `claude setup-token`");
+    info("    It looks like: sk-ant-oat01-...");
+    info("");
+    info("  • Pay-as-you-go: use an API key from console.anthropic.com");
+    info("    It looks like: sk-ant-api03-...");
+    console.log("");
+
+    const tokenAns = await ask(
+      rl,
+      "Paste your setup-token or API key (or press Enter to use an environment variable): ",
+      true,
+    );
+    if (tokenAns) {
+      if (isSetupToken(tokenAns)) {
+        const err = validateAnthropicSetupToken(tokenAns);
+        if (err) warn(`Quick check: ${err}`);
+        state.secrets.anthropic = { token: tokenAns };
+        success("Got it. I'll use that setup-token.");
+      } else {
+        state.secrets.anthropic = { apiKey: tokenAns };
+        success("Got it. I'll use that API key.");
+      }
     }
   }
 
@@ -164,6 +175,7 @@ export async function maybeConfigureOpenAICodex(
   dockerMode: boolean,
   state: ProviderSetupState,
   aiChoice: number,
+  existing?: DetectedConfig | null,
 ): Promise<void> {
   if (!(aiChoice === 2 || aiChoice === 4)) return;
 
@@ -171,22 +183,27 @@ export async function maybeConfigureOpenAICodex(
   console.log("");
   info("If you have ChatGPT Plus/Pro, you can connect via OAuth (no API key needed).");
 
-  const runOAuth = await askYN(rl, "Want to connect it now?", false);
-  if (runOAuth) {
-    info("Starting the sign-in flow...");
-    // Pause onboard readline so OAuth's own readline doesn't fight for stdin
-    rl.pause();
-    try {
-      await startOAuthFlow("openai-codex", { headless: dockerMode });
-      success("You're connected.");
-    } finally {
-      rl.resume();
-    }
+  const hasExistingOAuth = existing?.hasOAuthCodex === true;
+  if (hasExistingOAuth) {
+    success("Detected an existing OpenAI Codex OAuth token. Skipping authorization.");
   } else {
-    if (dockerMode) {
-      info("After the container is running, run: docker exec -it owliabot owliabot auth setup openai-codex");
+    const runOAuth = await askYN(rl, "Want to connect it now?", false);
+    if (runOAuth) {
+      info("Starting the sign-in flow...");
+      // Pause onboard readline so OAuth's own readline doesn't fight for stdin
+      rl.pause();
+      try {
+        await startOAuthFlow("openai-codex", { headless: dockerMode });
+        success("You're connected.");
+      } finally {
+        rl.resume();
+      }
     } else {
-      info("You can connect later with: `owliabot auth setup openai-codex`");
+      if (dockerMode) {
+        info("After the container is running, run: docker exec -it owliabot owliabot auth setup openai-codex");
+      } else {
+        info("You can connect later with: `owliabot auth setup openai-codex`");
+      }
     }
   }
 
@@ -244,6 +261,7 @@ export async function maybeConfigureOpenAICompatible(
 export async function askProviders(
   rl: RL,
   dockerMode: boolean,
+  existing?: DetectedConfig | null,
 ): Promise<ProviderResult> {
   const state: ProviderSetupState = {
     secrets: {},
@@ -261,9 +279,9 @@ export async function askProviders(
     "Use multiple providers (fallback chain)",
   ]);
 
-  await maybeConfigureAnthropic(rl, state, aiChoice);
+  await maybeConfigureAnthropic(rl, state, aiChoice, existing);
   await maybeConfigureOpenAI(rl, state, aiChoice);
-  await maybeConfigureOpenAICodex(rl, dockerMode, state, aiChoice);
+  await maybeConfigureOpenAICodex(rl, dockerMode, state, aiChoice, existing);
   await maybeConfigureOpenAICompatible(rl, state, aiChoice);
 
   return {
@@ -285,15 +303,14 @@ export function reuseProvidersFromExisting(existing: DetectedConfig): ProviderRe
   let useOpenaiCodex = false;
 
   // Anthropic
-  if (existing.anthropicKey || existing.anthropicToken || existing.anthropicOAuth) {
+  if (existing.anthropicKey || existing.anthropicToken) {
     useAnthropic = true;
     if (existing.anthropicKey) secrets.anthropic = { apiKey: existing.anthropicKey };
     if (existing.anthropicToken) secrets.anthropic = { ...secrets.anthropic, token: existing.anthropicToken };
-    const apiKey = (existing.anthropicKey || existing.anthropicToken) ? "secrets" : "oauth";
     providers.push({
       id: "anthropic",
       model: DEFAULT_MODELS.anthropic,
-      apiKey,
+      apiKey: "secrets",
       priority: priority++,
     } as ProviderConfig);
     success("Using your existing Anthropic setup.");
@@ -312,7 +329,7 @@ export function reuseProvidersFromExisting(existing: DetectedConfig): ProviderRe
   }
 
   // OpenAI Codex (OAuth)
-  if (existing.openaiOAuth) {
+  if (existing.hasOAuthCodex) {
     useOpenaiCodex = true;
     providers.push({
       id: "openai-codex",
@@ -342,7 +359,7 @@ export async function getProvidersSetup(
     if (reused.providers.length > 0) return reused;
   }
 
-  const result = await askProviders(rl, dockerMode);
+  const result = await askProviders(rl, dockerMode, existing);
   if (result.providers.length > 0) return result;
 
   warn("No AI provider yet. You can add one later in app.yaml.");
