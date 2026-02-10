@@ -624,7 +624,11 @@ async function loadGatewayInfo(): Promise<{ gatewayUrl: string; gatewayToken: st
   const configPath = process.env.OWLIABOT_CONFIG_PATH ?? defaultConfigPath();
   const config = await loadConfig(configPath);
   const http = config.gateway?.http;
-  const host = http?.host ?? "127.0.0.1";
+  let host = http?.host ?? "127.0.0.1";
+  // Normalize wildcard bind addresses to localhost for client requests
+  if (host === "0.0.0.0" || host === "::") {
+    host = "127.0.0.1";
+  }
   const port = http?.port ?? 8787;
   return {
     gatewayUrl: `http://${host}:${port}`,
