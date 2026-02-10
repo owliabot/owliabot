@@ -77,7 +77,7 @@ describe("provider-setup step", () => {
     });
 
     it.skip("requires export after refactor — reuses anthropic OAuth", () => {
-      // const existing: DetectedConfig = { anthropicOAuth: true };
+      // const existing: DetectedConfig = { hasOAuthAnthro: true };
       // const result = reuseProvidersFromExisting(existing);
       // expect(result.providers[0].apiKey).toBe("oauth");
       // expect(result.useAnthropic).toBe(true);
@@ -91,7 +91,7 @@ describe("provider-setup step", () => {
     });
 
     it.skip("requires export after refactor — reuses openai codex OAuth", () => {
-      // const existing: DetectedConfig = { openaiOAuth: true };
+      // const existing: DetectedConfig = { hasOAuthCodex: true };
       // const result = reuseProvidersFromExisting(existing);
       // expect(result.providers[0].id).toBe("openai-codex");
       // expect(result.providers[0].apiKey).toBe("oauth");
@@ -99,7 +99,7 @@ describe("provider-setup step", () => {
     });
 
     it.skip("requires export after refactor — reuses multiple providers with correct priority", () => {
-      // const existing: DetectedConfig = { anthropicKey: "k1", openaiKey: "k2", openaiOAuth: true };
+      // const existing: DetectedConfig = { anthropicKey: "k1", openaiKey: "k2", hasOAuthCodex: true };
       // const result = reuseProvidersFromExisting(existing);
       // expect(result.providers).toHaveLength(3);
       // expect(result.providers[0].priority).toBe(1);

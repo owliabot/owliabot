@@ -43,9 +43,9 @@ export function printExistingConfigSummary(
     info(`Anthropic: API key is set (${existing.anthropicKey.slice(0, truncLen)}...)`);
   }
   if (existing.anthropicToken) info("Anthropic: setup-token is set");
-  if (dockerMode && existing.anthropicOAuth) info("Anthropic: OAuth token is present");
+  if (dockerMode && existing.hasOAuthAnthro) info("Anthropic: OAuth token is present");
   if (existing.openaiKey) info(`OpenAI: API key is set (${existing.openaiKey.slice(0, 10)}...)`);
-  if (dockerMode && existing.openaiOAuth) info("OpenAI Codex: OAuth token is present");
+  if (dockerMode && existing.hasOAuthCodex) info("OpenAI Codex: OAuth token is present");
   if (existing.discordToken) info(`Discord: token is set (${existing.discordToken.slice(0, 20)}...)`);
   if (existing.telegramToken) info(`Telegram: token is set (${existing.telegramToken.slice(0, 10)}...)`);
   if (dockerMode && existing.gatewayToken) info(`Gateway: token is set (${existing.gatewayToken.slice(0, 10)}...)`);

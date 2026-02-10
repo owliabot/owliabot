@@ -84,13 +84,13 @@ describe("detect-existing step", () => {
     it.skip("requires export after refactor — detects OAuth anthropic.json", async () => {
       // Mock existsSync for auth/anthropic.json → true
       // const result = await detectExistingConfig(false, "/fake/app.yaml");
-      // expect(result?.anthropicOAuth).toBe(true);
+      // expect(result?.hasOAuthAnthro).toBe(true);
     });
 
     it.skip("requires export after refactor — detects OAuth openai-codex.json", async () => {
       // Mock existsSync for auth/openai-codex.json → true
       // const result = await detectExistingConfig(false, "/fake/app.yaml");
-      // expect(result?.openaiOAuth).toBe(true);
+      // expect(result?.hasOAuthCodex).toBe(true);
     });
 
     it.skip("requires export after refactor — detects discord and telegram tokens", async () => {
@@ -139,7 +139,7 @@ describe("detect-existing step", () => {
     });
 
     it.skip("requires export after refactor — prints OAuth only in docker mode", () => {
-      // const existing: DetectedConfig = { anthropicOAuth: true, openaiOAuth: true };
+      // const existing: DetectedConfig = { hasOAuthAnthro: true, hasOAuthCodex: true };
       // printExistingConfigSummary(false, "/fake/app.yaml", existing);
       // // dev mode: OAuth lines NOT printed
       // printExistingConfigSummary(true, "/fake/app.yaml", existing);

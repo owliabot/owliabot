@@ -19,8 +19,8 @@ export interface DetectedConfig {
   discordToken?: string;
   telegramToken?: string;
   gatewayToken?: string;
-  anthropicOAuth?: boolean;
-  openaiOAuth?: boolean;
+  hasOAuthAnthro?: boolean;
+  hasOAuthCodex?: boolean;
   telegramAllowList?: string[];
   telegramGroups?: TelegramGroups;
 }
@@ -55,8 +55,8 @@ export async function detectExistingConfig(
       // Keep prior behavior: only check OAuth when secrets.yaml exists to avoid
       // surprising prompts in test/CI environments.
       const authDir = join(ensureOwliabotHomeEnv(), "auth");
-      if (existsSync(join(authDir, "anthropic.json"))) { result.anthropicOAuth = true; hasAny = true; }
-      if (existsSync(join(authDir, "openai-codex.json"))) { result.openaiOAuth = true; hasAny = true; }
+      if (existsSync(join(authDir, "anthropic.json"))) { result.hasOAuthAnthro = true; hasAny = true; }
+      if (existsSync(join(authDir, "openai-codex.json"))) { result.hasOAuthCodex = true; hasAny = true; }
     }
 
     // Best-effort: detect Telegram allowList/groups from app.yaml so we can offer reuse.
