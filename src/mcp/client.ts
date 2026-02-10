@@ -313,15 +313,18 @@ export class MCPClient {
   }
 
   private handleMessage(message: JSONRPCMessage): void {
-    // Check if it's a response (has id)
-    if ("id" in message && message.id !== undefined) {
-      this.handleResponse(message as JSONRPCResponse);
+    if ("method" in message) {
+      if ("id" in message && message.id !== undefined) {
+        this.handleRequest(message as JSONRPCRequest);
+        return;
+      }
+
+      this.handleNotification(message);
       return;
     }
 
-    // Otherwise it's a notification
-    if ("method" in message) {
-      this.handleNotification(message);
+    if ("id" in message && message.id !== undefined) {
+      this.handleResponse(message as JSONRPCResponse);
     }
   }
 
@@ -345,6 +348,33 @@ export class MCPClient {
       );
     } else {
       pending.resolve((response.result ?? {}) as unknown);
+    }
+  }
+
+  private handleRequest(request: JSONRPCRequest): void {
+    if (!this.transport?.isConnected()) {
+      log.warn(`Cannot respond to request ${request.method}: not connected`);
+      return;
+    }
+
+    switch (request.method) {
+      case "roots/list":
+        this.transport.send({
+          jsonrpc: "2.0",
+          id: request.id,
+          result: { roots: [] },
+        });
+        return;
+
+      default:
+        this.transport.send({
+          jsonrpc: "2.0",
+          id: request.id,
+          error: {
+            code: -32601,
+            message: `Method not found: ${request.method}`,
+          },
+        });
     }
   }
 
