@@ -58,6 +58,9 @@ describe("createBuiltinTools", () => {
 
     const names = tools.map((t) => t.name);
     expect(names).toContain("edit_file");
+    expect(names).toContain("write_file");
+    expect(names).toContain("apply_patch");
+    expect(names).toContain("delete_file");
   });
 
   it("does not include help or cron tools (registered separately)", () => {

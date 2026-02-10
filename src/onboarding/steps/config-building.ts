@@ -2,6 +2,7 @@
  * Build AppConfig from onboarding prompts
  */
 
+import { createInterface } from "node:readline";
 import { dirname, join } from "node:path";
 import type { AppConfig, ProviderConfig, MemorySearchConfig, SystemCapabilityConfig } from "../types.js";
 import type { SecretsConfig } from "../secrets.js";
@@ -9,9 +10,8 @@ import { runClawletOnboarding } from "../clawlet-onboard.js";
 import {
   configureDiscordConfig,
   configureTelegramConfig,
-  type DetectedConfig,
 } from "./channel-setup.js";
-import type { createInterface } from "node:readline";
+import type { UserAllowLists } from "./types.js";
 import { info, header, askYN } from "../shared.js";
 import { playwrightServerConfig } from "../../mcp/servers/playwright.js";
 
@@ -173,9 +173,8 @@ export async function buildAppConfigFromPrompts(
     ...(gateway ? { gateway } : {}),
   };
 
-  type UserAllowLists = { discord: string[]; telegram: string[] };
   const userAllowLists: UserAllowLists = { discord: [], telegram: [] };
-  
+
   if (discordEnabled) await configureDiscordConfig(rl, config, userAllowLists);
   if (telegramEnabled) {
     if (reuseTelegramConfig) {

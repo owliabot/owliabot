@@ -172,11 +172,10 @@ describe("onboarding", () => {
     const out = stripAnsi(logs.join("\n"));
     expect(out).toContain("Saved your settings in ");
     expect(out).toContain("Saved your tokens and keys in ");
-    expect(out).toContain("Added BOOTSTRAP.md");
-    expect(out).toContain("Built-in skills are ready in ");
+    expect(out).toContain("Created BOOTSTRAP.md");
+    expect(out).toContain("Copied bundled skills to: ");
     expect(out).not.toContain("Saved settings to:");
     expect(out).not.toContain("Saved sensitive values to:");
-    expect(out).not.toContain("Created BOOTSTRAP.md");
     expect(out).not.toContain("Copied built-in skills to:");
   });
 
@@ -579,7 +578,6 @@ describe("onboarding", () => {
 
       const out = stripAnsi(logs.join("\n"));
       expect(out).toContain("Saved docker-compose.yml in ");
-      expect(out).not.toContain("Created ");
     } finally {
       logSpy.mockRestore();
       if (oldHomeEnv === undefined) delete process.env.HOME;

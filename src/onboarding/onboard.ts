@@ -28,7 +28,8 @@ import {
   printDockerNextSteps,
 } from "./steps/docker.js";
 import { writeDockerConfigLocalStyle, writeDevConfig, prepareDockerWorkspace } from "./steps/writers.js";
-import { printDevNextSteps, initDevWorkspace } from "./steps/workspace-setup.js";
+import { printDevNextSteps } from "./steps/workspace-setup.js";
+import { initDevWorkspace } from "./steps/init-dev-workspace.js";
 import {
   printOnboardingBanner,
   printExistingConfigSummary,
@@ -36,6 +37,9 @@ import {
   ensureGatewayToken,
 } from "./steps/ui.js";
 import type { SecretsConfig } from "./secrets.js";
+
+// Re-export all step functions so consumers can import from onboard.ts
+export * from "./steps/index.js";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Public interface
@@ -106,7 +110,7 @@ export async function runOnboarding(options: OnboardOptions = {}): Promise<void>
       secrets,
       channels.discordEnabled,
       channels.telegramEnabled,
-      channels.reuseTelegramConfig,
+      channels.reuseTelegramConfig ?? false,
       channels.telegramAllowList,
       channels.telegramGroups,
     );

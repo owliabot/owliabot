@@ -2,64 +2,34 @@
  * Workspace initialization and next steps
  */
 
-import { join } from "node:path";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { parse as yamlParse, stringify as yamlStringify } from "yaml";
-import { ensureWorkspaceInitialized } from "../../workspace/init.js";
+import { createInterface } from "node:readline";
+import { dirname, join } from "node:path";
 import type { SecretsConfig } from "../secrets.js";
 import type { ProviderConfig } from "../types.js";
-import { header, info, success, warn } from "../shared.js";
+import { header, info, success, ask } from "../shared.js";
+import { initDevWorkspace } from "./init-dev-workspace.js";
 
 /**
- * Update workspace policy.yml with allowed user IDs.
+ * Get workspace path from user or defaults.
  */
-export function maybeUpdateWorkspacePolicyAllowedUsers(
-  workspacePath: string,
-  allowedUserIds: string[] | null,
-): void {
-  if (!allowedUserIds || allowedUserIds.length === 0) return;
-  const policyPath = join(workspacePath, "policy.yml");
-  if (!existsSync(policyPath)) return;
+export async function getWorkspacePath(
+  rl: ReturnType<typeof createInterface>,
+  dockerMode: boolean,
+  appConfigPath: string,
+): Promise<string> {
+  header("Workspace");
 
-  try {
-    const raw = readFileSync(policyPath, "utf-8");
-    const doc = (yamlParse(raw) ?? {}) as Record<string, any>;
-    const defaults = (doc.defaults ?? {}) as Record<string, any>;
-    const current = defaults.allowedUsers as unknown;
-
-    if (Array.isArray(current)) {
-      // Merge to avoid clobbering manual edits.
-      const merged = [...new Set([...current, ...allowedUserIds])];
-      defaults.allowedUsers = merged;
-    } else if (current === "assignee-only" || current == null) {
-      defaults.allowedUsers = allowedUserIds;
-    } else {
-      // Unknown type; leave as-is.
-      return;
-    }
-
-    doc.defaults = defaults;
-    writeFileSync(policyPath, yamlStringify(doc, { indent: 2 }), "utf-8");
-  } catch (err) {
-    warn(`I couldn't update policy.yml automatically: ${(err as Error).message}`);
+  if (dockerMode) {
+    const workspace = "/app/workspace";
+    info("Docker mode uses the default workspace path inside the container.");
+    success(`Workspace: ${workspace}`);
+    return workspace;
   }
-}
 
-/**
- * Initialize workspace for dev mode.
- */
-export async function initDevWorkspace(
-  workspace: string,
-  writeToolAllowList: string[] | null,
-): Promise<void> {
-  const workspaceInit = await ensureWorkspaceInitialized({ workspacePath: workspace });
-  maybeUpdateWorkspacePolicyAllowedUsers(workspace, writeToolAllowList);
-  if (workspaceInit.wroteBootstrap) {
-    success("Added BOOTSTRAP.md to help you get started.");
-  }
-  if (workspaceInit.copiedSkills && workspaceInit.skillsDir) {
-    success(`Built-in skills are ready in ${workspaceInit.skillsDir}`);
-  }
+  const defaultWorkspace = join(dirname(appConfigPath), "workspace");
+  const workspace = (await ask(rl, `Workspace path [${defaultWorkspace}]: `)) || defaultWorkspace;
+  success(`Workspace: ${workspace}`);
+  return workspace;
 }
 
 /**

@@ -9,8 +9,7 @@ import { saveSecrets, type SecretsConfig } from "../secrets.js";
 import { saveAppConfig } from "../storage.js";
 import { success } from "../shared.js";
 import { saveAppConfigWithComments } from "./helpers.js";
-import type { DockerPaths } from "./docker.js";
-import { tryMakeTreeWritableForDocker } from "./docker.js";
+import { tryMakeTreeWritableForDocker, type DockerPaths } from "./docker.js";
 
 /**
  * Write Docker config files in local style.
@@ -53,9 +52,9 @@ export async function writeDevConfig(
  * Ensure Docker workspace is writable before writing config.
  */
 export function prepareDockerWorkspace(paths: DockerPaths): void {
-  // Ensure the container's UID/GID can write into bind-mounted dirs BEFORE
-  // writing any files. Without this, writeDockerConfigLocalStyle will fail
-  // with EACCES when the host directory is owned by a different UID.
   mkdirSync(join(paths.configDir, "auth"), { recursive: true });
   tryMakeTreeWritableForDocker(paths.configDir);
 }
+
+// Re-export for backward compatibility
+export { buildDockerComposeYaml } from "./docker.js";

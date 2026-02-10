@@ -34,6 +34,7 @@ import { createReadFileTool } from "./read-file.js";
 // FS write tools (gated by allowWrite)
 import { createEditFileTool } from "./edit-file.js";
 import { createWriteFileTool } from "./write-file.js";
+import { createDeleteFileTool } from "./delete-file.js";
 import { createApplyPatchTool } from "./apply-patch.js";
 
 // System tools (require capability config)
@@ -177,6 +178,7 @@ export function createBuiltinTools(
     // ─────────────────────────────────────────────────────────────────────────
     allowWrite ? createEditFileTool({ workspace }) : null,
     allowWrite ? createWriteFileTool(workspace) : null,
+    allowWrite ? createDeleteFileTool(workspace) : null,
     allowWrite ? createApplyPatchTool(workspace) : null,
 
     // ─────────────────────────────────────────────────────────────────────────

@@ -172,20 +172,25 @@ heartbeat:
 # MCP (Model Context Protocol) servers - optional
 # Enable MCP servers during onboarding (owliabot onboard) or add them here manually.
 # mcp:
-#   servers:
+#   autoStart: true              # Start MCP servers on gateway boot (default: true)
+#   presets:                     # Named presets for common servers
+#     - playwright               # Auto-expands to headless Playwright MCP server
+#   servers:                     # Or define servers explicitly:
 #     - name: playwright
 #       command: npx
-#       args: ["--yes", "@playwright/mcp@latest"]
+#       args: ["--yes", "@playwright/mcp@latest", "--headless"]
 #       transport: stdio
-#     # - name: filesystem
-#     #   command: npx
-#     #   args: ["@anthropic/mcp-server-filesystem", "./workspace"]
-#     #   transport: stdio
-#   # defaults:
-#   #   timeout: 30000
-#   #   connectTimeout: 10000
-#   #   restartOnCrash: true
-#   #   maxRestarts: 3
+#     - name: my-custom-server
+#       url: http://localhost:3001/sse
+#       transport: sse
+#   defaults:
+#     timeout: 30000
+#     connectTimeout: 10000
+#   securityOverrides:
+#     playwright__browser_navigate:
+#       level: write
+#     playwright__browser_screenshot:
+#       level: read
 
 # Wallet Tools (Clawlet integration) - optional
 # Enables wallet_balance and wallet_transfer tools for on-chain operations
