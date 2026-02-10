@@ -46,6 +46,7 @@ import { createNotificationService } from "../notifications/service.js";
 import { initializeSkills, type SkillsInitResult } from "../skills/index.js";
 import { createInfraStore, hashMessage, type InfraStore } from "../infra/index.js";
 import { startGatewayHttp } from "./http/server.js";
+import { runBootOnce } from "./boot.js";
 import { join, dirname, resolve } from "node:path";
 import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
@@ -466,6 +467,86 @@ export async function startGateway(
   // Start cron service after channels are live so proactive deliveries can be sent.
   await cronIntegration.start();
   log.info("Cron service started");
+
+  // Run BOOT.md once after everything is ready
+  runBootOnce({
+    workspacePath: config.workspace,
+    executePrompt: async (prompt) => {
+      const bootMessages: Message[] = [
+        { role: "user", content: prompt, timestamp: Date.now() },
+      ];
+      const providers: LLMProvider[] = config.providers;
+      const bootSessionKey = "boot:startup" as SessionKey;
+      const bootAgentId = resolveAgentId({ config });
+
+      // Agentic loop with tool support (so BOOT.md can send messages etc.)
+      const MAX_BOOT_ITERATIONS = 3;
+      let iteration = 0;
+      let finalContent = "";
+
+      while (iteration < MAX_BOOT_ITERATIONS) {
+        iteration++;
+        const response = await callWithFailover(providers, bootMessages, {
+          tools: tools.getAll(),
+        });
+
+        if (!response.toolCalls || response.toolCalls.length === 0) {
+          finalContent = response.content;
+          break;
+        }
+
+        log.info(`boot: tool calls in iteration ${iteration}: ${response.toolCalls.map(c => c.name).join(", ")}`);
+
+        const toolResults = await executeToolCalls(response.toolCalls, {
+          registry: tools,
+          context: {
+            sessionKey: bootSessionKey,
+            agentId: bootAgentId,
+            config: {
+              channel: "boot",
+              target: "boot",
+            },
+          },
+          workspacePath: config.workspace,
+        });
+
+        // Add assistant + tool results to conversation
+        const assistantMsg: Message = {
+          role: "assistant",
+          content: response.content || "",
+          toolCalls: response.toolCalls,
+          timestamp: Date.now(),
+        };
+        bootMessages.push(assistantMsg);
+
+        // Add tool results as user message (matching main handler pattern)
+        const bootToolResults = response.toolCalls.map((call) => {
+          const result = toolResults.get(call.id);
+          return {
+            ...(result ?? { success: false, error: "Missing tool result" }),
+            toolCallId: call.id,
+            toolName: call.name,
+          } as ToolResult;
+        });
+        bootMessages.push({
+          role: "user",
+          content: "",
+          timestamp: Date.now(),
+          toolResults: bootToolResults,
+        });
+      }
+
+      return finalContent;
+    },
+  }).then((result) => {
+    if (result.status === "ran") {
+      log.info("BOOT.md executed successfully");
+    } else if (result.status === "failed") {
+      log.warn(`BOOT.md failed: ${result.reason}`);
+    }
+  }).catch((err) => {
+    log.error(`BOOT.md unexpected error: ${err}`);
+  });
 
   // Schedule periodic infra cleanup (every 5 minutes)
   let infraCleanupInterval: NodeJS.Timeout | null = null;

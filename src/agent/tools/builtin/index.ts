@@ -19,6 +19,7 @@ export { createCronTool, type CronToolDeps } from "./cron.js";
 // File system tools (group:fs)
 export { createReadFileTool, type ReadFileToolOptions } from "./read-file.js";
 export { createWriteFileTool } from "./write-file.js";
+export { createDeleteFileTool } from "./delete-file.js";
 export { createApplyPatchTool } from "./apply-patch.js";
 
 // System action tools (wrapping src/system/actions/*)

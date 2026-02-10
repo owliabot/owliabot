@@ -60,6 +60,10 @@ tools:
     tier: none
     requireConfirmation: false
 
+  "delete_file":
+    tier: none
+    requireConfirmation: false
+
   "apply_patch":
     tier: none
     requireConfirmation: false

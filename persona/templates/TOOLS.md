@@ -1,23 +1,40 @@
-# Tool Notes
+# TOOLS.md - Local Notes
 
-## Memory Tools
-- Use memory_search to find past decisions or preferences.
-- Use memory_get to read specific lines once you know the file.
+Skills define _how_ tools work. This file is for _your_ specifics — the stuff that's unique to your setup.
 
-## Scheduling (cron tool)
-- `cron` (write): Manage scheduled jobs and wake events.
-- This is a built-in tool named `cron` (not the system `cron` daemon/binary).
-- If the user asks for "定时任务 / cron", use the `cron` tool (actions: status/list/add/update/remove/run/runs/wake).
+## What Goes Here
 
-## File Operations
-- Ask before making any write operations that affect user data.
+Things like:
 
-## Shell Commands (exec tool, if enabled)
-- `exec` runs shell commands, but only those in `system.exec.commandAllowList` from the app config.
-- Do not assume commands exist. If a user mentions `cron` as a shell command, clarify that OS cron is not available via `exec`; use the `cron` tool instead.
+- Camera names and locations
+- SSH hosts and aliases
+- Preferred voices for TTS
+- Speaker/room names
+- Device nicknames
+- Anything environment-specific
 
-## Wallet Tools (if enabled)
-- wallet_balance: Query ETH and ERC-20 token balances on supported chains
-- wallet_transfer: Execute transfers (requires confirmation)
-- Always confirm addresses and amounts before transfers
-- Default chain: Base (8453)
+## Examples
+
+```markdown
+### Cameras
+
+- living-room → Main area, 180° wide angle
+- front-door → Entrance, motion-triggered
+
+### SSH
+
+- home-server → 192.168.1.100, user: admin
+
+### TTS
+
+- Preferred voice: "Nova" (warm, slightly British)
+- Default speaker: Kitchen HomePod
+```
+
+## Why Separate?
+
+Skills are shared. Your setup is yours. Keeping them apart means you can update skills without losing your notes, and share skills without leaking your infrastructure.
+
+---
+
+Add whatever helps you do your job. This is your cheat sheet.
