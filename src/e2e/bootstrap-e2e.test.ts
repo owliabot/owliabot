@@ -79,7 +79,7 @@ describe.sequential("E2E: persona/bootstrap", () => {
       });
 
       const bootstrapTemplate = await readFile(join(TEMPLATES_DIR, "BOOTSTRAP.md"), "utf-8");
-      const expectedSnippet = "You just woke up in a new workspace.";
+      const expectedSnippet = "You just woke up.";
 
       const workspaceWithBootstrap = await loadWorkspace(dir);
       const promptWithBootstrap = buildSystemPrompt({
