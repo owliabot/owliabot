@@ -863,19 +863,19 @@ async function handleMessage(
         effectiveBody;
     }
 
-	    // Sender label injection so the LLM can attribute authors.
-	    const groupTitle = (ctx.groupName ?? "Unknown").trim() || "Unknown";
-	    const sender =
-	      ctx.senderUsername && ctx.senderUsername.trim().length > 0
-	        ? `${ctx.senderName} (@${ctx.senderUsername})`
-	        : ctx.senderName;
-	    const groupLabel =
-	      ctx.channel === "telegram"
-	        ? "Telegram group"
-	        : ctx.channel === "discord"
-	          ? "Discord guild"
-	          : "Group";
-	    effectiveBody = `[${groupLabel} "${groupTitle}" | ${sender}]\n${effectiveBody}`;
+    // Sender label injection so the LLM can attribute authors.
+    const groupTitle = (ctx.groupName ?? "Unknown").trim() || "Unknown";
+    const sender =
+      ctx.senderUsername && ctx.senderUsername.trim().length > 0
+        ? `${ctx.senderName} (@${ctx.senderUsername})`
+        : ctx.senderName;
+    const groupLabel =
+      ctx.channel === "telegram"
+        ? "Telegram group"
+        : ctx.channel === "discord"
+          ? "Discord guild"
+          : "Group";
+    effectiveBody = `[${groupLabel} "${groupTitle}" | ${sender}]\n${effectiveBody}`;
 
     // Inject recent context only when the bot is explicitly invoked.
     if (ctx.mentioned) {

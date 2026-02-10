@@ -188,7 +188,7 @@ heartbeat:
 #     connectTimeout: 10000
 #   securityOverrides:
 #     playwright__browser_navigate:
-#       level: write
+#       level: read
 #     playwright__browser_screenshot:
 #       level: read
 
