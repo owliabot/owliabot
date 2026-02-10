@@ -932,41 +932,6 @@ async function configureWallet(
   };
 }
 
-async function configureWriteToolsSecurity(
-  rl: ReturnType<typeof createInterface>,
-  config: AppConfig,
-  userAllowLists: UserAllowLists,
-): Promise<string[] | null> {
-  const allUserIds = [...userAllowLists.discord, ...userAllowLists.telegram];
-  if (allUserIds.length === 0) return null;
-
-  header("File editing");
-  info("I can also let these users edit files (useful for quick fixes).");
-  info(`Allowed so far: ${allUserIds.join(", ")}`);
-
-  const writeAllowListAns = await ask(
-    rl,
-    "Any extra user IDs to add? (comma-separated; press Enter to keep it as-is): ",
-  );
-  const additionalIds = writeAllowListAns.split(",").map((s) => s.trim()).filter(Boolean);
-  const writeToolAllowList = [...new Set([...allUserIds, ...additionalIds])];
-  if (writeToolAllowList.length === 0) return null;
-
-  config.tools = {
-    ...(config.tools ?? {}),
-    allowWrite: true,
-  };
-  config.security = {
-    writeGateEnabled: false,
-    writeToolAllowList,
-    writeToolConfirmation: false,
-  };
-
-  success("Okay — file editing is enabled for these users.");
-  success(`Allowed users: ${writeToolAllowList.join(", ")}`);
-  return writeToolAllowList;
-}
-
 async function buildAppConfigFromPrompts(
   rl: ReturnType<typeof createInterface>,
   dockerMode: boolean,
@@ -1009,7 +974,21 @@ async function buildAppConfigFromPrompts(
   }
 
   await configureWallet(rl, secrets, config);
-  const writeToolAllowList = await configureWriteToolsSecurity(rl, config, userAllowLists);
+
+  // Auto-derive writeToolAllowList from channel allowlists (no interactive prompt).
+  const allUserIds = [...new Set([...userAllowLists.discord, ...userAllowLists.telegram])];
+  const writeToolAllowList = allUserIds.length > 0 ? allUserIds : null;
+  if (writeToolAllowList) {
+    config.tools = {
+      ...(config.tools ?? {}),
+      allowWrite: true,
+    };
+    config.security = {
+      writeGateEnabled: false,
+      writeToolAllowList,
+      writeToolConfirmation: false,
+    };
+  }
 
   return { config, workspacePath, writeToolAllowList };
 }
