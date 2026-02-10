@@ -618,25 +618,28 @@ const wallet = program.command("wallet").description("Manage wallet integration 
 
 /**
  * Read gateway HTTP url and token from app.yaml config.
- * Falls back to schema defaults (127.0.0.1:8787) when gateway.http is not configured.
+ * Throws if gateway.http is not configured.
  */
 async function loadGatewayInfo(configOverride?: string): Promise<{ gatewayUrl: string; gatewayToken: string | undefined }> {
   const configPath = configOverride ?? process.env.OWLIABOT_CONFIG_PATH ?? defaultConfigPath();
   const config = await loadConfig(configPath);
   const http = config.gateway?.http;
-  let host = http?.host ?? "127.0.0.1";
+  if (!http) {
+    throw new Error("gateway.http is not configured in config; cannot determine gateway URL");
+  }
+  let host = http.host ?? "127.0.0.1";
   // Normalize wildcard bind addresses to localhost for client requests
   if (host === "0.0.0.0") {
     host = "127.0.0.1";
   } else if (host === "::") {
     host = "::1";
   }
-  const port = http?.port ?? 8787;
+  const port = http.port ?? 8787;
   // Bracket IPv6 literals in URLs (e.g. ::1 → [::1])
   const urlHost = host.includes(":") ? `[${host}]` : host;
   return {
     gatewayUrl: `http://${urlHost}:${port}`,
-    gatewayToken: http?.token,
+    gatewayToken: http.token,
   };
 }
 
@@ -648,7 +651,7 @@ wallet
   .option("--base-url <url>", "Clawlet daemon base URL", "http://127.0.0.1:9100")
   .option("--token <token>", "Clawlet auth token (or set CLAWLET_TOKEN env)")
   .option("--chain-id <id>", "Default chain ID", "8453")
-  .option("--scope <scope>", "Token scope: read, trade, or read,trade", "read,trade")
+  .option("--scope <scope>", "Token scope: read, trade, or read,trade", "read")
   .action(async (options) => {
     try {
       const info = await loadGatewayInfo(options.config);
