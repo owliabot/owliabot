@@ -108,6 +108,9 @@ export const playwrightSecurityOverrides: Record<string, MCPSecurityOverride> = 
   // File operations - write level with confirmation
   "playwright__browser_upload": { level: "write", confirmRequired: true },
   "playwright__browser_download": { level: "write" },
+
+  // Browser installation - write level (installs browser binaries)
+  "playwright__browser_install": { level: "write" },
 };
 
 // ============================================================================
