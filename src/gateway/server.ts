@@ -16,28 +16,13 @@ import { createSessionStore, type SessionKey } from "../agent/session-store.js";
 import { createSessionTranscriptStore } from "../agent/session-transcript.js";
 import { callWithFailover, type LLMProvider } from "../agent/runner.js";
 import { loadOAuthCredentials, type SupportedOAuthProvider } from "../auth/oauth.js";
-
-const OAUTH_PROVIDERS = new Set<string>(["openai-codex"]);
-
-/** Check if any configured provider has usable credentials (secrets, env, or OAuth file). */
-async function hasAnyValidProvider(providers: readonly { id: string; apiKey?: string }[]): Promise<boolean> {
-  if (providers.some((p) => p.apiKey && p.apiKey !== "oauth" && p.apiKey !== "env" && p.apiKey !== "secrets")) {
-    return true;
-  }
-  for (const p of providers) {
-    if (p.apiKey === "oauth" && OAUTH_PROVIDERS.has(p.id)) {
-      const creds = await loadOAuthCredentials(p.id as SupportedOAuthProvider);
-      if (creds) return true;
-    }
-  }
-  return false;
-}
 import { buildSystemPrompt } from "../agent/system-prompt.js";
 import type { MsgContext } from "../channels/interface.js";
 import { passesUserAllowlist, shouldHandleMessage } from "./activation.js";
 import { tryHandleCommand, tryHandleStatusCommand } from "./commands.js";
 import { GroupHistoryBuffer } from "./group-history.js";
 import { GroupRateLimiter } from "./group-rate-limit.js";
+import { resolveEffectiveProviders } from "../models/override.js";
 import { ToolRegistry } from "../agent/tools/registry.js";
 import { executeToolCalls } from "../agent/tools/executor.js";
 import {
@@ -72,6 +57,22 @@ import {
   resolvePathLike,
   resolveOwliabotHome,
 } from "../utils/paths.js";
+
+const OAUTH_PROVIDERS = new Set<string>(["openai-codex"]);
+
+/** Check if any configured provider has usable credentials (secrets, env, or OAuth file). */
+async function hasAnyValidProvider(providers: readonly { id: string; apiKey?: string }[]): Promise<boolean> {
+  if (providers.some((p) => p.apiKey && p.apiKey !== "oauth" && p.apiKey !== "env" && p.apiKey !== "secrets")) {
+    return true;
+  }
+  for (const p of providers) {
+    if (p.apiKey === "oauth" && OAUTH_PROVIDERS.has(p.id)) {
+      const creds = await loadOAuthCredentials(p.id as SupportedOAuthProvider);
+      if (creds) return true;
+    }
+  }
+  return false;
+}
 
 /**
  * Resolve bundled skills directory (like OpenClaw's approach)
@@ -651,8 +652,11 @@ async function handleMessage(
     sessionStore,
     transcripts,
     channels,
+    providers: config.providers,
     resetTriggers: config.session?.resetTriggers,
-    defaultModelLabel: config.providers?.[0]?.model,
+    defaultModelLabel: config.providers?.[0]
+      ? `${config.providers[0].id}/${config.providers[0].model}`
+      : undefined,
     workspacePath: config.workspace,
     // Use configured summaryModel, or fall back to default provider's model (OpenClaw strategy)
     summaryModel: config.session?.summaryModel
@@ -728,6 +732,13 @@ async function handleMessage(
     displayName: ctx.senderName,
   });
 
+  const resolved = resolveEffectiveProviders(config.providers, entry.primaryModelRefOverride);
+  if (resolved.error) {
+    log.warn(`Ignoring invalid primaryModelRefOverride: ${entry.primaryModelRefOverride}`, resolved.error);
+  }
+  const effectiveProviders = resolved.providers;
+  const activeModelLabel = resolved.modelLabel;
+
   // Append user message to transcript
   const userMessage: Message = {
     role: "user",
@@ -745,7 +756,7 @@ async function handleMessage(
     channel: ctx.channel,
     chatType: ctx.chatType,
     timezone: config.timezone,
-    model: config.providers[0].model,
+    model: activeModelLabel,
     skills: skillsResult ?? undefined,
   });
 
@@ -781,7 +792,7 @@ async function handleMessage(
       log.debug(`Agentic loop iteration ${iteration}`);
 
       // Call LLM with tools
-      const providers: LLMProvider[] = config.providers;
+      const providers: LLMProvider[] = effectiveProviders;
       const response = await callWithFailover(providers, conversationMessages, {
         tools: tools.getAll(),
       });

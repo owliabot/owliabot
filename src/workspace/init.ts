@@ -1,10 +1,7 @@
-import { access, mkdir, readFile, writeFile, readdir, cp } from "node:fs/promises";
+import { access, mkdir, readFile, writeFile, cp } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { createLogger } from "../utils/logger.js";
-
-const log = createLogger("workspace.init");
 
 const BASE_TEMPLATE_FILES = [
   "AGENTS.md",
@@ -79,10 +76,6 @@ export async function ensureWorkspaceInitialized(
   const result = await copyBundledSkills(workspacePath);
   const copiedSkills = result.copied;
   const skillsDir = result.skillsDir;
-
-  log.info(
-    `Workspace init: ${workspacePath} (brandNew=${brandNew}, created=${createdFiles.length}, copiedSkills=${copiedSkills})`
-  );
 
   return {
     workspacePath,
@@ -172,24 +165,24 @@ async function copyBundledSkills(workspacePath: string): Promise<{
 
   // Skip if skills directory already exists
   if (await pathExists(targetSkillsDir)) {
-    log.debug(`Skills directory already exists: ${targetSkillsDir}`);
     return { copied: false, skillsDir: targetSkillsDir };
   }
 
   // Find bundled skills
   const bundledSkillsDir = resolveBundledSkillsDir();
   if (!bundledSkillsDir) {
-    log.warn("Bundled skills directory not found, skipping skills copy");
     return { copied: false };
   }
 
   try {
     // Copy the entire skills directory
     await cp(bundledSkillsDir, targetSkillsDir, { recursive: true });
-    log.info(`Copied bundled skills to: ${targetSkillsDir}`);
     return { copied: true, skillsDir: targetSkillsDir };
   } catch (err) {
-    log.error(`Failed to copy skills: ${err instanceof Error ? err.message : String(err)}`);
+    const message = err instanceof Error ? err.message : String(err);
+    console.warn(
+      `[workspace] Failed to copy bundled skills (${bundledSkillsDir}) to workspace (${targetSkillsDir}): ${message}`
+    );
     return { copied: false };
   }
 }

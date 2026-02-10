@@ -17,7 +17,6 @@ import { randomBytes } from "node:crypto";
 import { chmodSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { parse as yamlParse, stringify as yamlStringify } from "yaml";
-import { createLogger } from "../utils/logger.js";
 import type { AppConfig, ProviderConfig, MemorySearchConfig, SystemCapabilityConfig, LLMProviderId } from "./types.js";
 import { saveAppConfig, DEFAULT_APP_CONFIG_PATH, IS_DEV_MODE } from "./storage.js";
 import { startOAuthFlow } from "../auth/oauth.js";
@@ -40,8 +39,6 @@ import {
   type ExistingConfig,
 } from "./shared.js";
 
-const log = createLogger("onboard");
-
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers
 // ─────────────────────────────────────────────────────────────────────────────
@@ -61,7 +58,7 @@ function detectTimezone(): string {
 
 function injectTimezoneComment(yaml: string): string {
   const comment =
-    "# Timezone is auto-detected during onboarding. Edit this value to override.";
+    "# Timezone was auto-detected during setup. Edit this value to override.";
   return yaml.replace(
     /^(timezone:\s*.*)$/m,
     `${comment}\n$1`,
@@ -170,33 +167,32 @@ async function maybeConfigureAnthropic(
   state.useAnthropic = true;
   console.log("");
 
-  header("Anthropic Authentication");
-  info("Supports two authentication methods:");
+  header("Connect Claude (Anthropic)");
+  info("Quick question: how do you want to authenticate?");
   info("");
-  info("  • Setup-token (Claude Pro/Max subscription)");
-  info("    Run `claude setup-token` to generate one");
-  info("    Format: sk-ant-oat01-...");
+  info("  • Claude subscription (Pro/Max): use a setup-token");
+  info("    Generate one with: `claude setup-token`");
+  info("    It looks like: sk-ant-oat01-...");
   info("");
-  info("  • API Key (pay-as-you-go)");
-  info("    Get from console.anthropic.com");
-  info("    Format: sk-ant-api03-...");
+  info("  • Pay-as-you-go: use an API key from console.anthropic.com");
+  info("    It looks like: sk-ant-api03-...");
   console.log("");
 
-  const tokenAns = await ask(rl, "Paste setup-token or API key (leave empty for env var): ");
+  const tokenAns = await ask(rl, "Paste your setup-token / API key (or press Enter to use an env var): ", true);
   if (tokenAns) {
     if (isSetupToken(tokenAns)) {
       const err = validateAnthropicSetupToken(tokenAns);
-      if (err) warn(`Setup-token validation warning: ${err}`);
+      if (err) warn(`Quick check: ${err}`);
       state.secrets.anthropic = { token: tokenAns };
-      success("Setup-token saved (Claude Pro/Max)");
+      success("Got it. I'll use that setup-token.");
     } else {
       state.secrets.anthropic = { apiKey: tokenAns };
-      success("API key saved");
+      success("Got it. I'll use that API key.");
     }
   }
 
   const defaultModel = DEFAULT_MODELS.anthropic;
-  const model = (await ask(rl, `Model [${defaultModel}]: `)) || defaultModel;
+  const model = (await ask(rl, `Which model should I use? [${defaultModel}]: `)) || defaultModel;
   const apiKeyValue = state.secrets.anthropic ? "secrets" : "env";
 
   state.providers.push({
@@ -215,15 +211,15 @@ async function maybeConfigureOpenAI(
   if (!(aiChoice === 1 || aiChoice === 4)) return;
 
   console.log("");
-  info("OpenAI API keys: https://platform.openai.com/api-keys");
-  const apiKey = await ask(rl, "OpenAI API key (leave empty for env var): ");
+  info("Need an OpenAI API key? Create one here: https://platform.openai.com/api-keys");
+  const apiKey = await ask(rl, "Paste your OpenAI API key (or press Enter to use an env var): ", true);
   if (apiKey) {
     state.secrets.openai = { apiKey };
-    success("OpenAI API key saved");
+    success("Got it. I'll use that OpenAI API key.");
   }
 
   const defaultModel = DEFAULT_MODELS.openai;
-  const model = (await ask(rl, `Model [${defaultModel}]: `)) || defaultModel;
+  const model = (await ask(rl, `Which model should I use? [${defaultModel}]: `)) || defaultModel;
   state.providers.push({
     id: "openai",
     model,
@@ -242,24 +238,24 @@ async function maybeConfigureOpenAICodex(
 
   state.useOpenaiCodex = true;
   console.log("");
-  info("OpenAI Codex uses your ChatGPT Plus/Pro subscription via OAuth.");
+  info("If you have ChatGPT Plus/Pro, you can connect via OAuth (no API key needed).");
 
-  const runOAuth = await askYN(rl, "Start OAuth flow now?", false);
+  const runOAuth = await askYN(rl, "Want to connect it now?", false);
   if (runOAuth) {
-    info("Starting OpenAI Codex OAuth flow...");
+    info("Starting the sign-in flow...");
     // Pause onboard readline so OAuth's own readline doesn't fight for stdin
     rl.pause();
     try {
       await startOAuthFlow("openai-codex", { headless: dockerMode });
-      success("OAuth completed");
+      success("You're connected.");
     } finally {
       rl.resume();
     }
   } else {
     if (dockerMode) {
-      info("Run after container starts: docker exec -it owliabot owliabot auth setup openai-codex");
+      info("After the container is running, run: docker exec -it owliabot owliabot auth setup openai-codex");
     } else {
-      info("Run `owliabot auth setup openai-codex` later to authenticate.");
+      info("You can connect later with: `owliabot auth setup openai-codex`");
     }
   }
 
@@ -279,19 +275,20 @@ async function maybeConfigureOpenAICompatible(
   if (!(aiChoice === 3 || aiChoice === 4)) return;
 
   console.log("");
-  info("OpenAI-compatible supports any server with the OpenAI v1 API:");
+  info("Using a local or self-hosted model?");
+  info("Give me the base URL for its OpenAI-compatible /v1 endpoint. Examples:");
   info("  - Ollama:    http://localhost:11434/v1");
   info("  - vLLM:      http://localhost:8000/v1");
   info("  - LM Studio: http://localhost:1234/v1");
   info("  - LocalAI:   http://localhost:8080/v1");
   console.log("");
 
-  const baseUrl = await ask(rl, "API base URL: ");
+  const baseUrl = await ask(rl, "Base URL (ends with /v1): ");
   if (!baseUrl) return;
 
   const defaultModel = DEFAULT_MODELS["openai-compatible"];
-  const model = (await ask(rl, `Model [${defaultModel}]: `)) || defaultModel;
-  const apiKey = await ask(rl, "API key (optional, leave empty if not required): ");
+  const model = (await ask(rl, `Which model should I use? [${defaultModel}]: `)) || defaultModel;
+  const apiKey = await ask(rl, "API key (optional; press Enter if not needed): ", true);
 
   state.providers.push({
     id: "openai-compatible" as LLMProviderId,
@@ -304,7 +301,7 @@ async function maybeConfigureOpenAICompatible(
   if (apiKey) {
     state.secrets["openai-compatible"] = { apiKey };
   }
-  success(`OpenAI-compatible configured: ${baseUrl}`);
+  success(`Great. I'll use ${baseUrl}`);
 }
 
 async function askProviders(
@@ -319,12 +316,12 @@ async function askProviders(
     useOpenaiCodex: false,
   };
 
-  const aiChoice = await selectOption(rl, "Choose your AI provider(s):", [
-    "Anthropic (Claude) - API Key or setup-token",
+  const aiChoice = await selectOption(rl, "Which AI should OwliaBot use?", [
+    "Claude (Anthropic) (setup-token or API key)",
     "OpenAI (API key)",
-    "OpenAI Codex (ChatGPT Plus/Pro OAuth)",
-    "OpenAI-compatible (Ollama / vLLM / LM Studio / etc.)",
-    "Multiple providers (fallback chain)",
+    "OpenAI Codex (ChatGPT Plus/Pro, OAuth)",
+    "OpenAI-compatible (self-hosted or local)",
+    "Use multiple providers (fallback chain)",
   ]);
 
   await maybeConfigureAnthropic(rl, state, aiChoice);
@@ -355,10 +352,10 @@ async function askChannels(
   rl: ReturnType<typeof createInterface>,
   secrets: SecretsConfig,
 ): Promise<ChannelResult> {
-  const chatChoice = await selectOption(rl, "Choose platform(s):", [
+  const chatChoice = await selectOption(rl, "Where should OwliaBot chat with you?", [
     "Discord",
     "Telegram",
-    "Both",
+    "Both (Discord + Telegram)",
   ]);
 
   const discordEnabled = chatChoice === 0 || chatChoice === 2;
@@ -368,31 +365,33 @@ async function askChannels(
 
   if (discordEnabled) {
     console.log("");
-    info("Discord developer portal: https://discord.com/developers/applications");
-    info("Setup guide: https://github.com/owliabot/owliabot/blob/main/docs/discord-setup.md");
-    info("Remember to enable MESSAGE CONTENT INTENT in the developer portal!");
+    info("You'll find your bot token in the Discord developer portal: https://discord.com/developers/applications");
+    info("Guide: https://github.com/owliabot/owliabot/blob/main/docs/discord-setup.md");
+    info("Quick reminder: enable MESSAGE CONTENT INTENT, otherwise I won't receive messages.");
     const token = await ask(
       rl,
-      "Discord bot token (leave empty to set later): ",
+      "Paste your Discord bot token (or press Enter to do this later): ",
+      true,
     );
     if (token) {
       secrets.discord = { token };
       discordToken = token;
-      success("Discord token set");
+      success("Got it. I'll use that Discord token.");
     }
   }
 
   if (telegramEnabled) {
     console.log("");
-    info("Telegram BotFather: https://t.me/BotFather");
+    info("Create a bot with BotFather: https://t.me/BotFather");
     const token = await ask(
       rl,
-      "Telegram bot token (leave empty to set later): ",
+      "Paste your Telegram bot token (or press Enter to do this later): ",
+      true,
     );
     if (token) {
       secrets.telegram = { token };
       telegramToken = token;
-      success("Telegram token set");
+      success("Got it. I'll use that Telegram token.");
     }
   }
 
@@ -450,7 +449,7 @@ function printOnboardingBanner(dockerMode: boolean): void {
 
   printBanner(IS_DEV_MODE ? "(dev mode)" : "");
   if (IS_DEV_MODE) {
-    info("Dev mode enabled (OWLIABOT_DEV=1). Config will be saved to ~/.owlia_dev/");
+    info("Dev mode is on (OWLIABOT_DEV=1). I'll save settings to ~/.owlia_dev/.");
   }
 }
 
@@ -459,20 +458,20 @@ function printExistingConfigSummary(
   appConfigPath: string,
   existing: DetectedConfig,
 ): void {
-  header("Existing configuration found");
-  info(`Found existing config at: ${dirname(appConfigPath)}`);
+  header("I found an existing setup");
+  info(`Settings folder: ${dirname(appConfigPath)}`);
 
   if (existing.anthropicKey) {
     const truncLen = dockerMode ? 10 : 15;
-    info(`Found Anthropic API key: ${existing.anthropicKey.slice(0, truncLen)}...`);
+    info(`Anthropic: API key is set (${existing.anthropicKey.slice(0, truncLen)}...)`);
   }
-  if (existing.anthropicToken) info("Found Anthropic setup-token");
-  if (dockerMode && existing.anthropicOAuth) info("Found Anthropic OAuth token");
-  if (existing.openaiKey) info(`Found OpenAI API key: ${existing.openaiKey.slice(0, 10)}...`);
-  if (dockerMode && existing.openaiOAuth) info("Found OpenAI OAuth token (openai-codex)");
-  if (existing.discordToken) info(`Found Discord token: ${existing.discordToken.slice(0, 20)}...`);
-  if (existing.telegramToken) info(`Found Telegram token: ${existing.telegramToken.slice(0, 10)}...`);
-  if (dockerMode && existing.gatewayToken) info(`Found Gateway token: ${existing.gatewayToken.slice(0, 10)}...`);
+  if (existing.anthropicToken) info("Anthropic: setup-token is set");
+  if (dockerMode && existing.anthropicOAuth) info("Anthropic: OAuth token is present");
+  if (existing.openaiKey) info(`OpenAI: API key is set (${existing.openaiKey.slice(0, 10)}...)`);
+  if (dockerMode && existing.openaiOAuth) info("OpenAI Codex: OAuth token is present");
+  if (existing.discordToken) info(`Discord: token is set (${existing.discordToken.slice(0, 20)}...)`);
+  if (existing.telegramToken) info(`Telegram: token is set (${existing.telegramToken.slice(0, 10)}...)`);
+  if (dockerMode && existing.gatewayToken) info(`Gateway: token is set (${existing.gatewayToken.slice(0, 10)}...)`);
 }
 
 async function promptReuseExistingConfig(
@@ -481,9 +480,9 @@ async function promptReuseExistingConfig(
 ): Promise<boolean> {
   if (!existing) return false;
 
-  const reuse = await askYN(rl, "Do you want to reuse existing configuration?", true);
-  if (reuse) success("Will reuse existing configuration");
-  else info("Will configure new credentials");
+  const reuse = await askYN(rl, "Want to keep using these settings?", true);
+  if (reuse) success("Great. I'll keep your existing settings.");
+  else info("Okay. We'll set things up fresh.");
   return reuse;
 }
 
@@ -506,7 +505,7 @@ function reuseProvidersFromExisting(existing: DetectedConfig): ProviderResult {
       apiKey,
       priority: priority++,
     } as ProviderConfig);
-    success("Reusing Anthropic configuration");
+    success("Using your existing Anthropic setup.");
   }
 
   // OpenAI
@@ -518,7 +517,7 @@ function reuseProvidersFromExisting(existing: DetectedConfig): ProviderResult {
       apiKey: "secrets",
       priority: priority++,
     } as ProviderConfig);
-    success("Reusing OpenAI configuration");
+    success("Using your existing OpenAI setup.");
   }
 
   // OpenAI Codex (OAuth)
@@ -530,7 +529,7 @@ function reuseProvidersFromExisting(existing: DetectedConfig): ProviderResult {
       apiKey: "oauth",
       priority: priority++,
     } as ProviderConfig);
-    success("Reusing OpenAI Codex (OAuth) configuration");
+    success("Using your existing OpenAI Codex sign-in.");
   }
 
   return { providers, secrets, useAnthropic, useOpenaiCodex };
@@ -542,7 +541,7 @@ async function getProvidersSetup(
   existing: DetectedConfig | null,
   reuseExisting: boolean,
 ): Promise<ProviderResult> {
-  header("AI provider setup");
+  header("AI");
 
   if (reuseExisting && existing) {
     const reused = reuseProvidersFromExisting(existing);
@@ -552,7 +551,7 @@ async function getProvidersSetup(
   const result = await askProviders(rl, dockerMode);
   if (result.providers.length > 0) return result;
 
-  warn("No provider configured. Add one later in the config file.");
+  warn("No AI provider yet. You can add one later in app.yaml.");
   return {
     providers: [{
       id: "anthropic",
@@ -579,7 +578,7 @@ async function getChannelsSetup(
   existing: DetectedConfig | null,
   reuseExisting: boolean,
 ): Promise<ChannelsSetup> {
-  header("Chat platforms");
+  header("Chat");
 
   if (reuseExisting && (existing?.discordToken || existing?.telegramToken)) {
     let discordEnabled = false;
@@ -587,7 +586,7 @@ async function getChannelsSetup(
     let discordToken = "";
     let telegramToken = "";
 
-    success("Reusing existing chat platform configuration:");
+    success("Using your existing chat setup:");
     if (existing?.discordToken) {
       discordEnabled = true;
       discordToken = existing.discordToken;
@@ -602,14 +601,14 @@ async function getChannelsSetup(
     }
 
     if (!discordToken && !telegramToken) {
-      warn("No chat platform token configured. Add one later in the config file.");
+      warn("No chat token yet. You can add it later.");
     }
     return { discordEnabled, telegramEnabled, discordToken, telegramToken };
   }
 
   const ch = await askChannels(rl, secrets);
   if (!ch.discordToken && !ch.telegramToken) {
-    warn("No chat platform token configured. Add one later in the config file.");
+    warn("No chat token yet. You can add it later.");
   }
   return ch;
 }
@@ -637,8 +636,8 @@ async function promptDockerComposeSetup(
   gatewayToken: string,
 ): Promise<DockerComposeSetup> {
   header("Docker");
-  info("Choose a host port to expose Gateway HTTP (container listens on 8787).");
-  const gatewayPort = await ask(rl, "Host port to expose the gateway [8787]: ") || "8787";
+  info("Which port should I use on your machine for Gateway HTTP? (The container listens on 8787)");
+  const gatewayPort = await ask(rl, "Host port [8787]: ") || "8787";
   return { gatewayToken, gatewayPort };
 }
 
@@ -713,15 +712,15 @@ async function configureDiscordConfig(
   config: AppConfig,
   userAllowLists: UserAllowLists,
 ): Promise<void> {
-  header("Discord configuration");
-  info("Ensure your bot has these permissions: View Channels, Send Messages, Send Messages in Threads, Read Message History");
-  info("See: https://github.com/owliabot/owliabot/blob/main/docs/discord-setup.md");
+  header("Discord");
+  info("Quick checklist: View Channels, Send Messages, Send Messages in Threads, Read Message History");
+  info("Guide: https://github.com/owliabot/owliabot/blob/main/docs/discord-setup.md");
   console.log("");
 
-  const channelIds = await ask(rl, "Channel allowlist (comma-separated channel IDs, leave empty for all): ");
+  const channelIds = await ask(rl, "Which channels should I respond in? (comma-separated channel IDs; press Enter for all): ");
   const channelAllowList = channelIds.split(",").map((s) => s.trim()).filter(Boolean);
 
-  const memberIds = await ask(rl, "Member allowlist - user IDs allowed to interact (comma-separated): ");
+  const memberIds = await ask(rl, "Who can talk to me? (comma-separated Discord user IDs; press Enter to skip): ");
   const memberAllowList = memberIds.split(",").map((s) => s.trim()).filter(Boolean);
   userAllowLists.discord = memberAllowList;
 
@@ -732,7 +731,7 @@ async function configureDiscordConfig(
   };
 
   if (memberAllowList.length > 0) {
-    success(`Discord member allowlist: ${memberAllowList.join(", ")}`);
+    success(`I'll only respond to these Discord user IDs: ${memberAllowList.join(", ")}`);
   }
 }
 
@@ -741,9 +740,9 @@ async function configureTelegramConfig(
   config: AppConfig,
   userAllowLists: UserAllowLists,
 ): Promise<void> {
-  header("Telegram configuration");
+  header("Telegram");
 
-  const telegramUserIds = await ask(rl, "User allowlist - user IDs allowed to interact (comma-separated): ");
+  const telegramUserIds = await ask(rl, "Who can talk to me? (comma-separated Telegram user IDs; press Enter to skip): ");
   const allowList = telegramUserIds.split(",").map((s) => s.trim()).filter(Boolean);
   userAllowLists.telegram = allowList;
 
@@ -752,7 +751,7 @@ async function configureTelegramConfig(
   };
 
   if (allowList.length > 0) {
-    success(`Telegram user allowlist: ${allowList.join(", ")}`);
+    success(`I'll only respond to these Telegram user IDs: ${allowList.join(", ")}`);
   }
 }
 
@@ -783,13 +782,13 @@ async function configureWriteToolsSecurity(
   const allUserIds = [...userAllowLists.discord, ...userAllowLists.telegram];
   if (allUserIds.length === 0) return null;
 
-  header("Write tools security");
-  info("Users in the write-tool allowlist can use file write/edit tools.");
-  info(`Auto-included from channel allowlists: ${allUserIds.join(", ")}`);
+  header("File write tools");
+  info("I can let your allowlisted users edit files via tools (write/edit/apply_patch).");
+  info(`Currently allowlisted: ${allUserIds.join(", ")}`);
 
   const writeAllowListAns = await ask(
     rl,
-    "Additional user IDs to allow (comma-separated, leave empty to use only channel users): ",
+    "Any extra user IDs to add? (comma-separated; press Enter to keep it as-is): ",
   );
   const additionalIds = writeAllowListAns.split(",").map((s) => s.trim()).filter(Boolean);
   const writeToolAllowList = [...new Set([...allUserIds, ...additionalIds])];
@@ -805,10 +804,8 @@ async function configureWriteToolsSecurity(
     writeToolConfirmation: false,
   };
 
-  success("Filesystem write tools enabled (write_file/edit_file/apply_patch)");
-  success(`Write-tool allowlist: ${writeToolAllowList.join(", ")}`);
-  success("Write-gate globally disabled");
-  success("Write-tool confirmation disabled (allowlisted users can write directly)");
+  success("File write/edit tools enabled for allowlisted users.");
+  success(`Allowed users: ${writeToolAllowList.join(", ")}`);
   return writeToolAllowList;
 }
 
@@ -852,13 +849,13 @@ async function writeDockerConfigLocalStyle(
 ): Promise<void> {
   const dockerAppConfigPath = join(paths.configDir, "app.yaml");
   await saveAppConfigWithComments(config, dockerAppConfigPath);
-  success(`Saved config to: ${dockerAppConfigPath}`);
+  success(`Saved settings to: ${dockerAppConfigPath}`);
 
   const hasSecrets = Object.keys(secrets).length > 0;
   if (!hasSecrets) return;
 
   await saveSecrets(dockerAppConfigPath, secrets);
-  success(`Saved secrets to: ${join(paths.configDir, "secrets.yaml")}`);
+  success(`Saved sensitive values to: ${join(paths.configDir, "secrets.yaml")}`);
 }
 
 async function writeDevConfig(
@@ -867,13 +864,13 @@ async function writeDevConfig(
   appConfigPath: string,
 ): Promise<void> {
   await saveAppConfigWithComments(config, appConfigPath);
-  success(`Saved config to: ${appConfigPath}`);
+  success(`Saved settings to: ${appConfigPath}`);
 
   const hasSecrets = Object.keys(secrets).length > 0;
   if (!hasSecrets) return;
 
   await saveSecrets(appConfigPath, secrets);
-  success(`Saved secrets to: ${dirname(appConfigPath)}/secrets.yaml`);
+  success(`Saved sensitive values to: ${dirname(appConfigPath)}/secrets.yaml`);
 }
 
 function buildDockerComposeYaml(
@@ -953,8 +950,8 @@ function printDockerNextSteps(
 ): void {
   const envFlags = envLines.map((v) => `  -e ${v} \\`).join("\n");
 
-  header("Docker commands");
-  console.log("Docker run command:");
+  header("Docker");
+  console.log("If you prefer `docker run`, here's the command:");
   console.log(`
 docker run -d \\
   --name owliabot \\
@@ -967,39 +964,39 @@ ${envFlags}
   start -c /home/owliabot/.owliabot/app.yaml
 `);
 
-  console.log("To start:");
+  console.log("If you're using Docker Compose:");
   console.log("  docker compose up -d     # Docker Compose v2");
   console.log("  docker-compose up -d     # Docker Compose v1");
 
-  header("Done");
+  header("You're ready");
 
-  console.log("Files created:");
-  console.log("  - ~/.owliabot/auth/          (OAuth tokens)");
-  console.log("  - ~/.owliabot/app.yaml       (app config)");
-  console.log("  - ~/.owliabot/secrets.yaml   (sensitive)");
+  console.log("I created these files:");
+  console.log("  - ~/.owliabot/auth/          (saved sign-in tokens)");
+  console.log("  - ~/.owliabot/app.yaml       (settings)");
+  console.log("  - ~/.owliabot/secrets.yaml   (private values)");
   console.log("  - ~/.owliabot/workspace/     (workspace, skills, bootstrap)");
-  console.log(`  - ${join(paths.outputDir, "docker-compose.yml")}       (Docker Compose)`);
+  console.log(`  - ${join(paths.outputDir, "docker-compose.yml")}       (Docker Compose file)`);
   console.log("");
 
   const needsOAuth = useOpenaiCodex;
-  console.log("Next steps:");
+  console.log("Next:");
   console.log("  1. Start the container:");
   console.log("     docker compose up -d");
   console.log("");
   if (needsOAuth) {
-    console.log("  2. Set up OAuth authentication (run after container is started):");
+    console.log("  2. Finish sign-in (run after the container is started):");
     if (useOpenaiCodex) {
       console.log("     docker exec -it owliabot owliabot auth setup openai-codex");
     }
     console.log("");
-    console.log("  3. Check logs:");
+    console.log("  3. Watch the container output:");
   } else {
-    console.log("  2. Check logs:");
+    console.log("  2. Watch the container output:");
   }
   console.log("     docker compose logs -f");
   console.log("");
 
-  console.log("Gateway HTTP:");
+  console.log("Gateway endpoint:");
   console.log(`  - URL:   http://localhost:${gatewayPort}`);
   console.log(`  - Token: ${gatewayToken.slice(0, 8)}...`);
   console.log("");
@@ -1012,10 +1009,10 @@ async function initDevWorkspace(
   const workspaceInit = await ensureWorkspaceInitialized({ workspacePath: workspace });
   maybeUpdateWorkspacePolicyAllowedUsers(workspace, writeToolAllowList);
   if (workspaceInit.wroteBootstrap) {
-    success("Created BOOTSTRAP.md for first-run setup");
+    success("Created BOOTSTRAP.md to guide your first run.");
   }
   if (workspaceInit.copiedSkills && workspaceInit.skillsDir) {
-    success(`Copied bundled skills to: ${workspaceInit.skillsDir}`);
+    success(`Copied built-in skills to: ${workspaceInit.skillsDir}`);
   }
 }
 
@@ -1064,27 +1061,27 @@ function printDevNextStepsText(
   secrets: SecretsConfig,
   providers: ProviderConfig[],
 ): void {
-  header("Done!");
-  console.log("Next steps:");
+  header("Next steps");
+  console.log("You're almost there:");
 
   if (discordEnabled && !secrets.discord?.token) {
-    console.log("  • Set Discord token: owliabot token set discord");
+    console.log("  • Add your Discord token later: owliabot token set discord");
   }
   if (telegramEnabled && !secrets.telegram?.token) {
-    console.log("  • Set Telegram token: owliabot token set telegram");
+    console.log("  • Add your Telegram token later: owliabot token set telegram");
   }
   if (providers.some((p) => p.apiKey === "env")) {
-    console.log("  • Set API key env var (ANTHROPIC_API_KEY or OPENAI_API_KEY)");
+    console.log("  • If you're using env vars, set ANTHROPIC_API_KEY / OPENAI_API_KEY");
   }
   if (providers.some((p) => p.apiKey === "oauth" && p.id === "openai-codex")) {
-    console.log("  • Complete OAuth: owliabot auth setup openai-codex");
+    console.log("  • Finish sign-in: owliabot auth setup openai-codex");
   }
 
   if (secrets.gateway?.token) {
-    console.log(`  • Gateway HTTP: http://localhost:8787 (token: ${secrets.gateway.token.slice(0, 8)}...)`);
+    console.log(`  • Gateway endpoint: http://localhost:8787 (token: ${secrets.gateway.token.slice(0, 8)}...)`);
   }
 
-  console.log("  • Start the bot: owliabot start");
+  console.log("  • Start OwliaBot: owliabot start");
   console.log("");
 }
 
@@ -1127,9 +1124,8 @@ function maybeUpdateWorkspacePolicyAllowedUsers(
 
     doc.defaults = defaults;
     writeFileSync(policyPath, yamlStringify(doc, { indent: 2 }), "utf-8");
-    log.info(`Updated policy allowedUsers in ${policyPath}`);
   } catch (err) {
-    warn(`Failed to update policy.yml allowedUsers: ${(err as Error).message}`);
+    warn(`I couldn't update policy.yml automatically: ${(err as Error).message}`);
   }
 }
 
@@ -1200,7 +1196,7 @@ export async function runOnboarding(options: OnboardOptions = {}): Promise<void>
     const resolvedWriteToolAllowList = deriveWriteToolAllowListFromConfig(config) ?? writeToolAllowList;
     config.timezone = tz;
 
-    header(dockerMode ? "Writing config" : "Saving configuration");
+    header("Saving your settings");
     if (dockerMode) {
       if (!dockerPaths || !dockerCompose) throw new Error("Internal error: missing docker paths/docker setup");
 
@@ -1223,7 +1219,7 @@ export async function runOnboarding(options: OnboardOptions = {}): Promise<void>
         composePath,
         buildDockerComposeYaml(dockerPaths.dockerConfigPath, dockerEnv, dockerCompose.gatewayPort, defaultImage),
       );
-      success(`Wrote ${composePath}`);
+      success(`Created ${composePath}`);
 
       printDockerNextSteps(
         dockerPaths,
