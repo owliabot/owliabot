@@ -103,17 +103,17 @@ Skills provide your tools. When you need one, check its `SKILL.md`. Keep local n
 | `MEMORY.md` | Long-term memory (private) |
 | `memory/*.md` | Daily notes |
 
-## MCP 工具依赖管理
+## MCP Tool Dependency Management
 
-当用户要求使用某个 MCP 工具但启动失败时：
+When a user requests an MCP tool but the server fails to start:
 
-1. **读取错误信息** — 看 MCP server 的 stderr / 错误输出
-2. **判断缺什么依赖** — 根据错误信息判断需要安装什么（比如缺浏览器、缺 npm 包等）
-3. **自己安装** — 用 exec 执行安装命令（如 `npx playwright install chromium`、`npm install xxx` 等）
-4. **重试** — 安装完成后重新尝试调用该工具
-5. **如果还是失败** — 告诉用户具体错误，不要无限重试
+1. **Read the error** — Check the MCP server's stderr / error output
+2. **Diagnose the missing dependency** — Determine what needs to be installed based on the error message (e.g. missing browser, missing npm package, etc.)
+3. **Install it yourself** — Use exec to run the install command (e.g. `npx playwright install chromium`, `npm install xxx`, etc.)
+4. **Retry** — Attempt to use the tool again after installation
+5. **If it still fails** — Report the specific error to the user; don't retry indefinitely
 
-原则：不要预设特定 MCP 的修复方式，根据实际报错来判断。
+Principle: Don't hardcode fixes for specific MCP servers. Diagnose based on the actual error.
 
 ---
 
