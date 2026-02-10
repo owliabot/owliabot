@@ -9,6 +9,7 @@ import { configSchema, type Config } from "./schema.js";
 import { createLogger } from "../utils/logger.js";
 import { ZodError } from "zod";
 import { ensureOwliabotHomeEnv } from "../utils/paths.js";
+import { expandEnvVarsDeep } from "./expand-env.js";
 
 const log = createLogger("config");
 
@@ -118,7 +119,7 @@ export async function loadConfig(path: string): Promise<Config> {
 
   // Expand environment variables on user-provided values (before schema defaults apply).
   // Note: schema defaults may also contain ${VARS}; we expand again after parse.
-  const expanded = expandEnvVars(raw) as any;
+  const expanded = expandEnvVarsDeep(raw, process.env) as any;
 
   // Backward-compat: map deprecated discord.requireMentionInGuild -> group.activation
   // If group.activation is explicitly set, it wins.
@@ -141,7 +142,7 @@ export async function loadConfig(path: string): Promise<Config> {
   // Expand env vars again to cover schema defaults (e.g. ${OWLIABOT_HOME}/...).
   // Re-parse to keep Zod guarantees.
   try {
-    config = configSchema.parse(expandEnvVars(config));
+    config = configSchema.parse(expandEnvVarsDeep(config, process.env));
   } catch (err) {
     if (err instanceof ZodError) {
       throw new Error(formatZodError(err));
@@ -154,23 +155,6 @@ export async function loadConfig(path: string): Promise<Config> {
 
   log.info("Config loaded successfully");
   return config;
-}
-
-function expandEnvVars(obj: unknown): unknown {
-  if (typeof obj === "string") {
-    return obj.replace(/\$\{(\w+)\}/g, (_, key) => process.env[key] ?? "");
-  }
-  if (Array.isArray(obj)) {
-    return obj.map(expandEnvVars);
-  }
-  if (obj && typeof obj === "object") {
-    const result: Record<string, unknown> = {};
-    for (const [key, value] of Object.entries(obj)) {
-      result[key] = expandEnvVars(value);
-    }
-    return result;
-  }
-  return obj;
 }
 
 function formatZodError(error: ZodError): string {

@@ -27,6 +27,7 @@ import { parseModelRef } from "./models/ref.js";
 import { updateAppConfigYamlPrimaryModel, updateYamlFileAtomic } from "./models/config-file.js";
 import { parse as parseYaml } from "yaml";
 import { readFile } from "node:fs/promises";
+import { diagnoseDoctor } from "./doctor/index.js";
 
 const log = logger;
 
@@ -161,9 +162,16 @@ program
     process.env.OWLIABOT_CONFIG_PATH ?? defaultConfigPath()
   )
   .option("--no-interactive", "Disable interactive prompts (exit non-zero on errors)")
+  .option("--json", "Print diagnosis report as JSON and exit (non-interactive)")
   .action(async (options) => {
     try {
       ensureOwliabotHomeEnv();
+      if (options.json) {
+        const report = await diagnoseDoctor({ configPath: options.config });
+        // Print raw JSON for CI/automation usage.
+        console.log(JSON.stringify(report, null, 2));
+        process.exit(report.ok ? 0 : 1);
+      }
       const interactive = Boolean(
         options.interactive && process.stdin.isTTY && process.stdout.isTTY,
       );

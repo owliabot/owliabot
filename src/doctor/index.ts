@@ -4,6 +4,7 @@ import { parse, stringify } from "yaml";
 import { ZodError } from "zod";
 
 import { configSchema } from "../config/schema.js";
+import { expandEnvVarsDeep } from "../config/expand-env.js";
 import type { SecretsConfig } from "../onboarding/secrets.js";
 import { loadSecrets, saveSecrets } from "../onboarding/secrets.js";
 
@@ -53,19 +54,12 @@ async function writeAtomic(filePath: string, content: string): Promise<void> {
   const tmp = `${filePath}.${process.pid}.${Math.random().toString(16).slice(2)}.tmp`;
   await fs.promises.writeFile(tmp, content, "utf-8");
   await fs.promises.rename(tmp, filePath);
-}
-
-function expandEnvVarsDeep(obj: unknown, env: Record<string, string | undefined>): unknown {
-  if (typeof obj === "string") {
-    return obj.replace(/\$\{(\w+)\}/g, (_, key) => env[key] ?? "");
+  // Best-effort permissions hardening (config may contain sensitive values in some setups).
+  try {
+    await fs.promises.chmod(filePath, 0o600);
+  } catch {
+    // ignore
   }
-  if (Array.isArray(obj)) return obj.map((v) => expandEnvVarsDeep(v, env));
-  if (obj && typeof obj === "object") {
-    const out: Record<string, unknown> = {};
-    for (const [k, v] of Object.entries(obj)) out[k] = expandEnvVarsDeep(v, env);
-    return out;
-  }
-  return obj;
 }
 
 function formatZodError(error: ZodError): string {
@@ -104,8 +98,10 @@ function looksLikeAnthropicSetupToken(token: string): boolean {
 
 function looksLikeAnthropicApiKey(key: string): boolean {
   const k = key.trim();
-  // Best-effort: Anthropic API keys start with sk-ant-api...
-  return /^sk-ant-api[0-9]{0,2}-[A-Za-z0-9_-]{10,}$/.test(k) || /^sk-ant-api-[A-Za-z0-9_-]{10,}$/.test(k);
+  // Best-effort: allow any sk-ant-* key (Anthropic has multiple prefixes in the wild).
+  // setup-token is handled separately.
+  if (!k.startsWith("sk-ant-")) return false;
+  return /^sk-ant-[A-Za-z0-9_-]{10,}$/.test(k);
 }
 
 function getMinimalConfigTemplate(): string {
@@ -243,6 +239,14 @@ export async function diagnoseDoctor(opts: DiagnoseDoctorOptions): Promise<Docto
     if (token) {
       const source: DoctorIssueSource =
         tokenFromConfig != null ? "config" : tokenFromSecrets != null ? "secrets" : "env";
+      if (tokenFromConfig != null) {
+        issues.push({
+          id: "security.telegram.token_in_config",
+          severity: "warn",
+          message: "Telegram token is stored in app.yaml; consider moving it to secrets.yaml.",
+          source: "config",
+        });
+      }
       if (!looksLikeTelegramToken(token)) {
         issues.push({
           id: "credential.telegram.token.invalid_format",
@@ -269,6 +273,14 @@ export async function diagnoseDoctor(opts: DiagnoseDoctorOptions): Promise<Docto
     if (token) {
       const source: DoctorIssueSource =
         tokenFromConfig != null ? "config" : tokenFromSecrets != null ? "secrets" : "env";
+      if (tokenFromConfig != null) {
+        issues.push({
+          id: "security.discord.token_in_config",
+          severity: "warn",
+          message: "Discord token is stored in app.yaml; consider moving it to secrets.yaml.",
+          source: "config",
+        });
+      }
       if (!looksLikeDiscordToken(token)) {
         issues.push({
           id: "credential.discord.token.invalid_format",
@@ -319,6 +331,14 @@ export async function diagnoseDoctor(opts: DiagnoseDoctorOptions): Promise<Docto
           source,
         });
       }
+      if (source === "config" && key) {
+        issues.push({
+          id: "security.openai.apiKey_in_config",
+          severity: "warn",
+          message: "OpenAI API key is stored in app.yaml; consider switching provider.apiKey to 'secrets' and storing it in secrets.yaml.",
+          source: "config",
+        });
+      }
     }
 
     if (id === "anthropic") {
@@ -360,6 +380,14 @@ export async function diagnoseDoctor(opts: DiagnoseDoctorOptions): Promise<Docto
       }
 
       if (value) {
+        if (source === "config") {
+          issues.push({
+            id: "security.anthropic.key_in_config",
+            severity: "warn",
+            message: "Anthropic credential is stored in app.yaml; consider switching provider.apiKey to 'secrets' and storing it in secrets.yaml.",
+            source: "config",
+          });
+        }
         if (kind === "token" && !looksLikeAnthropicSetupToken(value)) {
           issues.push({
             id: "credential.anthropic.token.invalid_format",
@@ -477,5 +505,51 @@ export async function deleteProviderSecret(opts: {
         delete (secrets as any)[opts.provider];
       }
     }
+  });
+}
+
+function updateProviderInConfig(raw: any, providerId: string, updater: (p: any) => void): void {
+  if (!raw || typeof raw !== "object") return;
+  if (!Array.isArray(raw.providers)) return;
+  const p = raw.providers.find((x: any) => x && typeof x === "object" && x.id === providerId);
+  if (!p) return;
+  updater(p);
+}
+
+export async function setProviderApiKeyInConfig(opts: {
+  configPath: string;
+  providerId: string;
+  apiKey: string;
+}): Promise<void> {
+  const configPath = path.resolve(opts.configPath);
+  await updateConfigYaml(configPath, (raw) => {
+    updateProviderInConfig(raw, opts.providerId, (p) => {
+      p.apiKey = opts.apiKey;
+    });
+  });
+}
+
+export async function setProviderApiKeyModeInConfig(opts: {
+  configPath: string;
+  providerId: string;
+  mode: "secrets" | "env" | "oauth";
+}): Promise<void> {
+  const configPath = path.resolve(opts.configPath);
+  await updateConfigYaml(configPath, (raw) => {
+    updateProviderInConfig(raw, opts.providerId, (p) => {
+      p.apiKey = opts.mode;
+    });
+  });
+}
+
+export async function deleteProviderApiKeyInConfig(opts: {
+  configPath: string;
+  providerId: string;
+}): Promise<void> {
+  const configPath = path.resolve(opts.configPath);
+  await updateConfigYaml(configPath, (raw) => {
+    updateProviderInConfig(raw, opts.providerId, (p) => {
+      delete p.apiKey;
+    });
   });
 }

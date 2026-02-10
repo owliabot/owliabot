@@ -18,8 +18,13 @@ import {
   deleteChannelToken,
   setProviderSecret,
   deleteProviderSecret,
+  setProviderApiKeyInConfig,
+  setProviderApiKeyModeInConfig,
+  deleteProviderApiKeyInConfig,
   type DoctorIssue,
 } from "./index.js";
+
+type FixOutcome = "fixed" | "deleted" | "skipped" | "not_applicable";
 
 export interface DoctorIO {
   interactive: boolean;
@@ -87,13 +92,13 @@ async function fixConfigIssues(opts: {
   configPath: string;
   io: DoctorIO;
   issues: DoctorIssue[];
-}): Promise<boolean> {
+}): Promise<FixOutcome> {
   const { io, issues } = opts;
   const hasConfigError = issues.some((i) => i.severity === "error" && i.id.startsWith("config."));
-  if (!hasConfigError) return false;
+  if (!hasConfigError) return "not_applicable";
 
   const ok = io.askYN ? await io.askYN("Config looks broken. Backup and reset it now?", true) : false;
-  if (!ok) return true; // handled (user chose not to fix)
+  if (!ok) return "skipped";
 
   const { backupPath } = await resetConfigFile({ configPath: opts.configPath, backup: true });
   if (backupPath) {
@@ -102,24 +107,24 @@ async function fixConfigIssues(opts: {
     io.info?.("No existing config to back up.");
   }
   io.success?.("Config reset to a minimal template.");
-  return true;
+  return "fixed";
 }
 
 async function fixCredentialIssue(opts: {
   configPath: string;
   io: DoctorIO;
   issue: DoctorIssue;
-}): Promise<boolean> {
+}): Promise<FixOutcome> {
   const { io, issue } = opts;
-  if (!issue.id.startsWith("credential.")) return false;
-  if (!io.selectOption) return false;
+  if (!issue.id.startsWith("credential.")) return "not_applicable";
+  if (!io.selectOption) return "not_applicable";
 
   const action = await io.selectOption(
     `Fix ${issue.id}?`,
     ["Set a new value", "Delete stored value", "Skip for now"],
   );
 
-  if (action === 2) return true;
+  if (action === 2) return "skipped";
 
   if (action === 0 && !io.askSecret) {
     throw new Error("Interactive secret input is not available");
@@ -141,31 +146,107 @@ async function fixCredentialIssue(opts: {
     case "credential.telegram.token.invalid_format": {
       if (action === 0) await setNew((v) => setChannelToken({ configPath: opts.configPath, channel: "telegram", token: v }));
       if (action === 1) await del(() => deleteChannelToken({ configPath: opts.configPath, channel: "telegram" }));
-      return true;
+      return action === 1 ? "deleted" : "fixed";
     }
     case "credential.discord.token.invalid_format": {
       if (action === 0) await setNew((v) => setChannelToken({ configPath: opts.configPath, channel: "discord", token: v }));
       if (action === 1) await del(() => deleteChannelToken({ configPath: opts.configPath, channel: "discord" }));
-      return true;
+      return action === 1 ? "deleted" : "fixed";
     }
     case "credential.openai.apiKey.invalid_format": {
-      if (action === 0) await setNew((v) => setProviderSecret({ configPath: opts.configPath, provider: "openai", field: "apiKey", value: v }));
-      if (action === 1) await del(() => deleteProviderSecret({ configPath: opts.configPath, provider: "openai", field: "apiKey" }));
-      return true;
+      const source = issue.source ?? "secrets";
+      if (action === 0) {
+        await setNew(async (v) => {
+          if (source === "config") {
+            await setProviderApiKeyInConfig({ configPath: opts.configPath, providerId: "openai", apiKey: v });
+            return;
+          }
+          if (source === "env") {
+            // Can't write env vars, so switch provider to secrets and persist there.
+            await setProviderApiKeyModeInConfig({ configPath: opts.configPath, providerId: "openai", mode: "secrets" });
+          }
+          await setProviderSecret({ configPath: opts.configPath, provider: "openai", field: "apiKey", value: v });
+        });
+        return "fixed";
+      }
+      if (action === 1) {
+        await del(async () => {
+          if (source === "config") {
+            await deleteProviderApiKeyInConfig({ configPath: opts.configPath, providerId: "openai" });
+            return;
+          }
+          if (source === "env") {
+            await setProviderApiKeyModeInConfig({ configPath: opts.configPath, providerId: "openai", mode: "secrets" });
+          }
+          await deleteProviderSecret({ configPath: opts.configPath, provider: "openai", field: "apiKey" });
+        });
+        return "deleted";
+      }
+      return "not_applicable";
     }
     case "credential.anthropic.token.invalid_format": {
-      if (action === 0) await setNew((v) => setProviderSecret({ configPath: opts.configPath, provider: "anthropic", field: "token", value: v }));
-      if (action === 1) await del(() => deleteProviderSecret({ configPath: opts.configPath, provider: "anthropic", field: "token" }));
-      return true;
+      const source = issue.source ?? "secrets";
+      if (action === 0) {
+        await setNew(async (v) => {
+          if (source === "config") {
+            await setProviderApiKeyInConfig({ configPath: opts.configPath, providerId: "anthropic", apiKey: v });
+            return;
+          }
+          if (source === "env") {
+            await setProviderApiKeyModeInConfig({ configPath: opts.configPath, providerId: "anthropic", mode: "secrets" });
+          }
+          await setProviderSecret({ configPath: opts.configPath, provider: "anthropic", field: "token", value: v });
+        });
+        return "fixed";
+      }
+      if (action === 1) {
+        await del(async () => {
+          if (source === "config") {
+            await deleteProviderApiKeyInConfig({ configPath: opts.configPath, providerId: "anthropic" });
+            return;
+          }
+          if (source === "env") {
+            await setProviderApiKeyModeInConfig({ configPath: opts.configPath, providerId: "anthropic", mode: "secrets" });
+          }
+          await deleteProviderSecret({ configPath: opts.configPath, provider: "anthropic", field: "token" });
+        });
+        return "deleted";
+      }
+      return "not_applicable";
     }
     case "credential.anthropic.apiKey.invalid_format": {
-      if (action === 0) await setNew((v) => setProviderSecret({ configPath: opts.configPath, provider: "anthropic", field: "apiKey", value: v }));
-      if (action === 1) await del(() => deleteProviderSecret({ configPath: opts.configPath, provider: "anthropic", field: "apiKey" }));
-      return true;
+      const source = issue.source ?? "secrets";
+      if (action === 0) {
+        await setNew(async (v) => {
+          if (source === "config") {
+            await setProviderApiKeyInConfig({ configPath: opts.configPath, providerId: "anthropic", apiKey: v });
+            return;
+          }
+          if (source === "env") {
+            await setProviderApiKeyModeInConfig({ configPath: opts.configPath, providerId: "anthropic", mode: "secrets" });
+          }
+          await setProviderSecret({ configPath: opts.configPath, provider: "anthropic", field: "apiKey", value: v });
+        });
+        return "fixed";
+      }
+      if (action === 1) {
+        await del(async () => {
+          if (source === "config") {
+            await deleteProviderApiKeyInConfig({ configPath: opts.configPath, providerId: "anthropic" });
+            return;
+          }
+          if (source === "env") {
+            await setProviderApiKeyModeInConfig({ configPath: opts.configPath, providerId: "anthropic", mode: "secrets" });
+          }
+          await deleteProviderSecret({ configPath: opts.configPath, provider: "anthropic", field: "apiKey" });
+        });
+        return "deleted";
+      }
+      return "not_applicable";
     }
     default:
       io.warn?.("No automatic fix available for this issue; please edit your config/secrets manually.");
-      return true;
+      return "skipped";
   }
 }
 
@@ -194,16 +275,22 @@ export async function runDoctorCli(opts: {
     }
 
     // 1) Config errors: offer backup + reset
-    if (await fixConfigIssues({ configPath: opts.configPath, io, issues: report.issues })) {
-      // Re-run diagnosis after attempted fix
-      continue;
+    const configOutcome = await fixConfigIssues({ configPath: opts.configPath, io, issues: report.issues });
+    if (configOutcome === "fixed") continue;
+    if (configOutcome === "skipped") {
+      io.error?.("Unresolved config issues remain.");
+      return 1;
     }
 
     // 2) Credential format errors: offer set/delete
     const cred = report.issues.find((i) => i.severity === "error" && i.id.startsWith("credential."));
     if (cred) {
-      await fixCredentialIssue({ configPath: opts.configPath, io, issue: cred });
-      continue;
+      const outcome = await fixCredentialIssue({ configPath: opts.configPath, io, issue: cred });
+      if (outcome === "fixed" || outcome === "deleted") continue;
+      if (outcome === "skipped") {
+        io.error?.("Unresolved credential issues remain.");
+        return 1;
+      }
     }
 
     // 3) Unknown errors: no auto-fix
@@ -214,4 +301,3 @@ export async function runDoctorCli(opts: {
   io.error?.("Doctor exceeded max fix attempts.");
   return 1;
 }
-
