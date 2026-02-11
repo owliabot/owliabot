@@ -59,23 +59,27 @@ export function truncateToolResult(
 
 // ── Dynamic limits ─────────────────────────────────────────
 
+/** Upper bound for single tool result (400KB) */
+export const MAX_TOOL_RESULT_UPPER_BOUND = 400_000;
+
 /**
  * Calculate maximum characters for a single tool result.
  * Similar to OpenClaw's approach: single tool result should not exceed
- * 30% of available context window.
+ * 30% of context window, capped at 400KB.
+ * 
+ * Formula: min(contextWindow * 0.3 * 4, 400000)
  * 
  * @param contextWindow - Total context window size in tokens
- * @param reserveTokens - Tokens reserved for output
+ * @param _reserveTokens - Unused (kept for backward compatibility)
  * @returns Maximum characters for a tool result
  */
 export function calculateMaxToolResultChars(
   contextWindow: number,
-  reserveTokens: number = DEFAULT_RESERVE_TOKENS,
+  _reserveTokens?: number,
 ): number {
-  const availableTokens = contextWindow - reserveTokens;
-  const maxTokensPerResult = Math.floor(availableTokens * 0.3);
-  // Convert tokens to chars (conservative estimate)
-  return maxTokensPerResult * DEFAULT_CHARS_PER_TOKEN;
+  // 30% of context window, assuming ~4 chars per token (more generous for tool results)
+  const dynamicLimit = Math.floor(contextWindow * 0.3 * 4);
+  return Math.min(dynamicLimit, MAX_TOOL_RESULT_UPPER_BOUND);
 }
 
 // ── L2: Token estimation ───────────────────────────────────
@@ -144,8 +148,9 @@ function truncateMessageToolResults(
  * Drops oldest non-system messages first. Always keeps system messages
  * and at least one non-system message.
  * 
- * Critical: Maintains tool-call/tool-result pairing. If a tool_result is kept,
- * its corresponding assistant message with the tool_call must also be kept.
+ * Critical: Maintains tool-call/tool-result pairing. Assistant messages with
+ * tool_calls and their corresponding tool_result messages are treated as
+ * atomic groups — they are dropped or kept together.
  */
 export function guardContext(
   messages: Message[],
@@ -178,6 +183,16 @@ export function guardContext(
   const systemTokens = estimateContextTokens(systemMsgs);
   const remaining = budget - systemTokens;
 
+  // Build atomic groups: assistant+toolCalls paired with subsequent toolResults
+  // Group structure: { startIdx, endIdx, tokens }
+  interface MsgGroup {
+    startIdx: number;
+    endIdx: number; // exclusive
+    tokens: number;
+  }
+  
+  const groups: MsgGroup[] = [];
+  
   // Build a map of toolCallId -> assistant message index
   const toolCallIdToAssistantIndex = new Map<string, number>();
   for (let i = 0; i < chatMsgs.length; i++) {
@@ -189,84 +204,108 @@ export function guardContext(
     }
   }
 
-  // Walk backwards from newest, accumulating tokens
-  let startIndex = chatMsgs.length;
-  let accumulated = 0;
-  const requiredIndices = new Set<number>(); // Indices that must be included for pairing
-
-  for (let i = chatMsgs.length - 1; i >= 0; i--) {
+  // Build a map of message index -> group start index (for tool result messages)
+  const msgToGroupStart = new Map<number, number>();
+  for (let i = 0; i < chatMsgs.length; i++) {
     const msg = chatMsgs[i];
-    const msgTokens = estimateContextTokens([msg]);
-    
-    // Check if this message references tool calls we need to preserve
     if (msg.toolResults) {
       for (const tr of msg.toolResults) {
-        if (!tr.toolCallId) continue; // Skip tool results without callId
+        if (!tr.toolCallId) continue;
         const assistantIndex = toolCallIdToAssistantIndex.get(tr.toolCallId);
         if (assistantIndex !== undefined && assistantIndex < i) {
-          // Mark the assistant message as required
-          requiredIndices.add(assistantIndex);
+          // This toolResult message belongs to the group starting at assistantIndex
+          const existingGroupStart = msgToGroupStart.get(i);
+          if (existingGroupStart === undefined || assistantIndex < existingGroupStart) {
+            msgToGroupStart.set(i, assistantIndex);
+          }
         }
       }
     }
+  }
 
-    if (accumulated + msgTokens > remaining && startIndex < chatMsgs.length) {
-      // Already have at least one message, stop here
+  // Now build groups: iterate through messages, grouping assistant+toolResults
+  let i = 0;
+  while (i < chatMsgs.length) {
+    const msg = chatMsgs[i];
+    
+    // Check if this is an assistant message with toolCalls
+    if (msg.role === "assistant" && msg.toolCalls && msg.toolCalls.length > 0) {
+      const groupStart = i;
+      const toolCallIds = new Set(msg.toolCalls.map((tc) => tc.id));
+      
+      // Find all subsequent messages that are toolResults for these toolCalls
+      let groupEnd = i + 1;
+      while (groupEnd < chatMsgs.length) {
+        const nextMsg = chatMsgs[groupEnd];
+        if (nextMsg.toolResults) {
+          const hasRelevantResult = nextMsg.toolResults.some(
+            (tr) => tr.toolCallId && toolCallIds.has(tr.toolCallId)
+          );
+          if (hasRelevantResult) {
+            groupEnd++;
+            continue;
+          }
+        }
+        break;
+      }
+      
+      const groupMsgs = chatMsgs.slice(groupStart, groupEnd);
+      groups.push({
+        startIdx: groupStart,
+        endIdx: groupEnd,
+        tokens: estimateContextTokens(groupMsgs),
+      });
+      i = groupEnd;
+    } else {
+      // Standalone message (user message or assistant without toolCalls)
+      groups.push({
+        startIdx: i,
+        endIdx: i + 1,
+        tokens: estimateContextTokens([msg]),
+      });
+      i++;
+    }
+  }
+
+  // Walk backwards from newest groups, accumulating tokens
+  let startGroupIdx = groups.length;
+  let accumulated = 0;
+
+  for (let g = groups.length - 1; g >= 0; g--) {
+    const group = groups[g];
+    
+    if (accumulated + group.tokens > remaining && startGroupIdx < groups.length) {
+      // Already have at least one group, stop here
       break;
     }
-    accumulated += msgTokens;
-    startIndex = i;
+    accumulated += group.tokens;
+    startGroupIdx = g;
   }
 
-  // Include required assistant messages that might be before startIndex
-  for (const reqIdx of requiredIndices) {
-    if (reqIdx < startIndex) {
-      // Need to include messages from reqIdx
-      const additionalTokens = estimateContextTokens(chatMsgs.slice(reqIdx, startIndex));
-      accumulated += additionalTokens;
-      startIndex = reqIdx;
+  // Collect kept messages from selected groups
+  const keptGroups = groups.slice(startGroupIdx);
+  const keptMessages: Message[] = [];
+  for (const group of keptGroups) {
+    for (let idx = group.startIdx; idx < group.endIdx; idx++) {
+      keptMessages.push(chatMsgs[idx]);
     }
   }
 
-  // Final pass: remove any orphaned tool_results whose assistant was dropped
-  const keptMessages = chatMsgs.slice(startIndex);
-  const keptToolCallIds = new Set<string>();
-  
-  // Collect all tool call IDs from kept assistant messages
-  for (const msg of keptMessages) {
-    if (msg.role === "assistant" && msg.toolCalls) {
-      for (const tc of msg.toolCalls) {
-        keptToolCallIds.add(tc.id);
-      }
-    }
+  // Count dropped messages
+  const droppedGroups = groups.slice(0, startGroupIdx);
+  let droppedCount = 0;
+  for (const group of droppedGroups) {
+    droppedCount += group.endIdx - group.startIdx;
   }
 
-  // Filter out orphaned tool results
-  const filteredMessages = keptMessages.map((msg) => {
-    if (msg.toolResults) {
-      const validResults = msg.toolResults.filter((tr) =>
-        tr.toolCallId && keptToolCallIds.has(tr.toolCallId)
-      );
-      if (validResults.length !== msg.toolResults.length) {
-        log.debug(
-          `Removed ${msg.toolResults.length - validResults.length} orphaned tool results`
-        );
-        return { ...msg, toolResults: validResults.length > 0 ? validResults : undefined };
-      }
-    }
-    return msg;
-  });
-
-  const dropped = chatMsgs.length - keptMessages.length;
-
-  if (dropped > 0) {
+  if (droppedCount > 0) {
     log.warn(
-      `Context guard: dropped ${dropped} old messages to fit context window (${options.contextWindow} tokens)`,
+      `Context guard: dropped ${droppedCount} old messages to fit context window (${options.contextWindow} tokens)`,
     );
   }
 
   return {
-    messages: [...systemMsgs, ...filteredMessages],
-    dropped,
+    messages: [...systemMsgs, ...keptMessages],
+    dropped: droppedCount,
   };
 }
