@@ -11,6 +11,10 @@ export interface DetectedConfig extends ExistingConfig {
   openaiCompatKey?: string;
   hasOAuthAnthro?: boolean;
   hasOAuthCodex?: boolean;
+  oauthCodexExpires?: number;
+  anthropicTokenValid?: boolean;
+  telegramAllowList?: string[];
+  telegramGroups?: NonNullable<NonNullable<AppConfig["telegram"]>["groups"]>;
 }
 
 export interface OnboardOptions {
@@ -44,20 +48,15 @@ export interface ChannelResult {
   telegramEnabled: boolean;
   discordToken: string;
   telegramToken: string;
+  reuseTelegramConfig?: boolean;
+  telegramAllowList?: string[];
+  telegramGroups?: NonNullable<NonNullable<AppConfig["telegram"]>["groups"]>;
 }
 
 /** @deprecated Use ChannelResult instead */
 export type ChannelsSetup = ChannelResult;
 
-export interface DockerPaths {
-  /** Host directory where we write app.yaml + secrets.yaml */
-  configDir: string;
-  /** Original configDir option (may be a container path like /app/config) */
-  containerConfigDir: string;
-  dockerConfigPath: string;
-  shellConfigPath: string;
-  outputDir: string;
-}
+// DockerPaths is defined in docker.ts and re-exported from index.ts
 
 export interface DockerGatewaySetup {
   gatewayToken: string;

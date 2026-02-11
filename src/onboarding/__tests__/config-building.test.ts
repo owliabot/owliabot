@@ -49,19 +49,19 @@ describe("config-building step", () => {
 
   describe("buildDefaultMemorySearchConfig", () => {
     it("returns correct defaults", () => {
-      const config = buildDefaultMemorySearchConfig();
+      const config = buildDefaultMemorySearchConfig("/test/workspace");
       expect(config.enabled).toBe(true);
       expect(config.provider).toBe("sqlite");
       expect(config.fallback).toBe("naive");
-      expect(config.store.path).toBe("{workspace}/memory/{agentId}.sqlite");
+      expect(config.store.path).toBe("/test/workspace/memory/{agentId}.sqlite");
       expect(config.sources).toEqual(["files"]);
       expect(config.indexing.autoIndex).toBe(true);
       expect(config.indexing.minIntervalMs).toBe(300000);
     });
 
-    it("uses workspace placeholder in path", () => {
-      const config = buildDefaultMemorySearchConfig();
-      expect(config.store.path).toBe("{workspace}/memory/{agentId}.sqlite");
+    it("uses workspace in path", () => {
+      const config = buildDefaultMemorySearchConfig("/my/ws");
+      expect(config.store.path).toBe("/my/ws/memory/{agentId}.sqlite");
     });
   });
 

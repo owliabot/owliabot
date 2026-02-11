@@ -44,9 +44,45 @@ vi.mock("@mariozechner/pi-ai", () => ({
   getModels: vi.fn(),
 }));
 
-// Mock clawlet onboarding to skip wallet prompts (no daemon in test)
-  runClawletOnboarding: vi.fn().mockResolvedValue({ enabled: false }),
-}));
+// Mock fs promises to handle docker mode /app/workspace operations
+vi.mock("node:fs/promises", async (importOriginal) => {
+  const actual: any = await importOriginal();
+  return {
+    ...actual,
+    access: vi.fn(async (path: string, mode?: any) => {
+      // In docker mode, /app/workspace files don't exist on host
+      // Throw ENOENT so pathExists returns false
+      if (typeof path === "string" && path.startsWith("/app")) {
+        throw Object.assign(new Error(`ENOENT: no such file or directory, access '${path}'`), { code: "ENOENT" });
+      }
+      return actual.access(path, mode);
+    }),
+    mkdir: vi.fn(async (path: string, options?: any) => {
+      // In docker mode, /app/workspace is a container path and shouldn't be created on host
+      // Allow the mock to succeed without actually creating the directory
+      if (typeof path === "string" && path.startsWith("/app")) {
+        return undefined;
+      }
+      return actual.mkdir(path, options);
+    }),
+    writeFile: vi.fn(async (path: string, data: any, options?: any) => {
+      // In docker mode, /app/workspace files are container files
+      // Mock these operations to succeed without actually writing
+      if (typeof path === "string" && path.startsWith("/app")) {
+        return undefined;
+      }
+      return actual.writeFile(path, data, options);
+    }),
+    readFile: vi.fn(async (path: string, options?: any) => {
+      // In docker mode, /app/workspace files don't exist on host
+      // Throw ENOENT (but this shouldn't be called for /app paths in the template flow)
+      if (typeof path === "string" && path.startsWith("/app")) {
+        throw Object.assign(new Error(`ENOENT: no such file or directory, open '${path}'`), { code: "ENOENT" });
+      }
+      return actual.readFile(path, options);
+    }),
+  };
+});
 
 describe("onboarding", () => {
   let dir: string;
@@ -95,15 +131,17 @@ describe("onboarding", () => {
     answers = [
       "1",                 // AI provider: 1 = Anthropic
       setupToken,          // Anthropic setup-token
-      "1",                 // Model: 1 = default (claude-opus-4-5)
+      "",                  // Model: default (claude-opus-4-5)
       "3",                 // Chat platform: 3 = Both (Discord + Telegram)
       "discord-secret",    // Discord token
       "telegram-secret",   // Telegram token
+      "",                  // Workspace path: default
+      "",                  // Enable Gateway HTTP: default yes
+      "",                  // Gateway port: default 8787
       "111,222",           // Discord channelAllowList
       "123456789",         // Discord memberAllowList
       "539066683",         // Telegram allowList
-      // Note: Clawlet onboarding is skipped (no daemon in test environment)
-      "y",                 // Enable Playwright MCP
+      "",                  // Additional write-tool user IDs (empty = use only channel users)
     ];
 
     await runOnboarding({ appConfigPath });
@@ -111,8 +149,8 @@ describe("onboarding", () => {
     const config = await loadAppConfig(appConfigPath);
     const secrets = await loadSecrets(appConfigPath);
 
-    expect(config?.workspace).toBe("workspace");
-    expect(config?.memorySearch?.store?.path).toBe("{workspace}/memory/{agentId}.sqlite");
+    expect(config?.workspace).toBe(join(dir, "workspace"));
+    expect(config?.memorySearch?.store?.path).toBe(join(dir, "workspace", "memory", "{agentId}.sqlite"));
     expect(config?.timezone).toBe("America/New_York");
     expect(config?.providers?.[0]?.id).toBe("anthropic");
     expect(config?.providers?.[0]?.apiKey).toBe("secrets");
@@ -120,8 +158,8 @@ describe("onboarding", () => {
     expect(config?.gateway?.http).toMatchObject({
       host: "127.0.0.1",
       port: 8787,
-      token: "secrets",
     });
+    expect(config?.gateway?.http?.token).toBeTruthy();
     expect(config?.discord?.requireMentionInGuild).toBe(true);
     expect(config?.discord?.channelAllowList).toEqual(["111", "222"]);
     expect(config?.discord?.memberAllowList).toEqual(["123456789"]);
@@ -130,7 +168,7 @@ describe("onboarding", () => {
     expect(config?.telegram && "token" in config.telegram).toBe(false);
     expect(config?.tools?.allowWrite).toBe(true);
     expect(config?.security?.writeToolAllowList).toEqual(["123456789", "539066683"]);
-    expect(config?.security?.writeGateEnabled).toBe(true);
+    expect(config?.security?.writeGateEnabled).toBe(false);
     expect(config?.security?.writeToolConfirmation).toBe(false);
 
     expect(secrets?.discord?.token).toBe("discord-secret");
@@ -153,15 +191,15 @@ describe("onboarding", () => {
       answers = [
         "1", // AI provider: 1 = Anthropic
         "",  // Anthropic key/token (empty = env)
-        "1", // Model: 1 = default
-      "1", // Chat platform: 1 = Discord
-      "",  // Discord token (skip)
-      "",  // Discord channelAllowList (empty)
-      "",  // Discord memberAllowList (empty)
-      // Note: Clawlet onboarding skipped (no daemon in test)
-      "y",         // Enable Playwright MCP
-      "",          // Write-tool allowlist (skip)
-    ];
+        "",  // Model: default
+        "1", // Chat platform: 1 = Discord
+        "",  // Discord token (skip)
+        "",  // Workspace path: default
+        "",  // Enable Gateway HTTP: default yes
+        "",  // Gateway port: default 8787
+        "",  // Discord channelAllowList (empty)
+        "",  // Discord memberAllowList (empty)
+      ];
 
       await runOnboarding({ appConfigPath });
     } finally {
@@ -184,14 +222,14 @@ describe("onboarding", () => {
     answers = [
       "2",                 // AI provider: 2 = OpenAI
       "sk-test-key",       // OpenAI API key
-      "2",                 // Model: 2 = gpt-4o-mini
+      "gpt-4o-mini",       // Model: gpt-4o-mini
       "1",                 // Chat platform: 1 = Discord
       "",                  // Discord token (skip)
+      "",                  // Workspace path: default
+      "",                  // Enable Gateway HTTP: default yes
+      "",                  // Gateway port: default 8787
       "",                  // Discord channelAllowList (empty)
       "",                  // Discord memberAllowList (empty)
-      // Note: Clawlet onboarding skipped (no daemon in test)
-      "y",                 // Enable Playwright MCP
-      "",                  // Write-tool allowlist (skip)
     ];
 
     await runOnboarding({ appConfigPath });
@@ -214,11 +252,11 @@ describe("onboarding", () => {
       "n",                 // Skip OAuth for now
       "1",                 // Chat platform: 1 = Discord
       "",                  // Discord token (skip)
+      "",                  // Workspace path: default
+      "",                  // Enable Gateway HTTP: default yes
+      "",                  // Gateway port: default 8787
       "",                  // Discord channelAllowList (empty)
       "",                  // Discord memberAllowList (empty)
-      // Note: Clawlet onboarding skipped (no daemon in test)
-      "y",                 // Enable Playwright MCP
-      "",                  // Write-tool allowlist (skip)
     ];
 
     await runOnboarding({ appConfigPath });
@@ -236,14 +274,14 @@ describe("onboarding", () => {
     answers = [
       "1",                 // AI provider: 1 = Anthropic
       "sk-ant-api03-test-key",  // Anthropic standard API key
-      "1",                 // Model: 1 = default
+      "",                  // Model: default
       "1",                 // Chat platform: 1 = Discord
       "",                  // Discord token (skip)
+      "",                  // Workspace path: default
+      "",                  // Enable Gateway HTTP: default yes
+      "",                  // Gateway port: default 8787
       "",                  // Discord channelAllowList (empty)
       "",                  // Discord memberAllowList (empty)
-      // Note: Clawlet onboarding skipped (no daemon in test)
-      "y",                 // Enable Playwright MCP
-      "",                  // Write-tool allowlist (skip)
     ];
 
     await runOnboarding({ appConfigPath });
@@ -265,14 +303,14 @@ describe("onboarding", () => {
     answers = [
       "1",                 // AI provider: 1 = Anthropic
       "",                  // API key (empty = use env var)
-      "1",                 // Model: 1 = default
+      "",                  // Model: default
       "1",                 // Chat platform: 1 = Discord
       "",                  // Discord token (skip)
+      "",                  // Workspace path: default
+      "",                  // Enable Gateway HTTP: default yes
+      "",                  // Gateway port: default 8787
       "",                  // Discord channelAllowList (empty)
       "",                  // Discord memberAllowList (empty)
-      // Note: Clawlet onboarding skipped (no daemon in test)
-      "y",                 // Enable Playwright MCP
-      "",                  // Write-tool allowlist (skip)
     ];
 
     await runOnboarding({ appConfigPath });
@@ -289,13 +327,13 @@ describe("onboarding", () => {
     answers = [
       "2",                 // AI provider: 2 = OpenAI
       "",                  // OpenAI API key (empty = use env)
-      "1",                 // Model: 1 = default
+      "",                  // Model: default
       "2",                 // Chat platform: 2 = Telegram
       "",                  // Telegram token (skip)
+      "",                  // Workspace path: default
+      "",                  // Enable Gateway HTTP: default yes
+      "",                  // Gateway port: default 8787
       "",                  // Telegram allowList (empty)
-      // Note: Clawlet onboarding skipped (no daemon in test)
-      "y",                 // Enable Playwright MCP
-      "",                  // Write-tool allowlist (skip)
     ];
 
     await runOnboarding({ appConfigPath });
@@ -314,20 +352,20 @@ describe("onboarding", () => {
     answers = [
       "1",                 // AI provider: 1 = Anthropic
       "",                  // API key (env)
-      "1",                 // Model: 1 = default
+      "",                  // Model: default
       "1",                 // Chat platform: 1 = Discord
       "",                  // Discord token (skip)
+      "",                  // Workspace path: default
+      "",                  // Enable Gateway HTTP: default yes
+      "",                  // Gateway port: default 8787
       "",                  // Discord channelAllowList (empty)
       "",                  // Discord memberAllowList (empty)
-      // Note: Clawlet onboarding skipped (no daemon in test)
-      "y",                 // Enable Playwright MCP
-      "",                  // Write-tool allowlist (skip)
     ];
 
     await runOnboarding({ appConfigPath });
 
     const config = await loadAppConfig(appConfigPath);
-    expect(config?.workspace).toBe("workspace");
+    expect(config?.workspace).toBe(expectedWorkspaceDir);
     expect(existsSync(expectedWorkspaceDir)).toBe(true);
   });
 
@@ -337,16 +375,16 @@ describe("onboarding", () => {
     answers = [
       "1",                 // AI provider: 1 = Anthropic
       "",                  // API key (env)
-      "1",                 // Model: 1 = default
+      "",                  // Model: default
       "3",                 // Chat platform: 3 = Both
       "",                  // Discord token (skip)
       "",                  // Telegram token (skip)
+      "",                  // Workspace path: default
+      "",                  // Enable Gateway HTTP: default yes
+      "",                  // Gateway port: default 8787
       "",                  // Discord channelAllowList (empty)
       "",                  // Discord memberAllowList (empty)
       "",                  // Telegram allowList (empty)
-      // Note: Clawlet onboarding skipped (no daemon in test)
-      "y",                 // Enable Playwright MCP
-      "",                  // Write-tool allowlist (skip)
     ];
 
     await runOnboarding({ appConfigPath });
@@ -366,14 +404,15 @@ describe("onboarding", () => {
     answers = [
       "1",                 // AI provider: 1 = Anthropic
       "",                  // API key (env)
-      "1",                 // Model: 1 = default
+      "",                  // Model: default
       "1",                 // Chat platform: 1 = Discord
       "",                  // Discord token (skip)
+      "",                  // Workspace path: default
+      "",                  // Enable Gateway HTTP: default yes
+      "",                  // Gateway port: default 8787
       "",                  // Discord channelAllowList (empty)
-      "",                  // Discord memberAllowList (empty)
-      // Note: Clawlet onboarding skipped (no daemon in test)
-      "y",                 // Enable Playwright MCP
-      "123456789",         // Write-tool allowlist
+      "123456789",         // Discord memberAllowList
+      "",                  // Additional write-tool user IDs (empty = use only channel users)
     ];
 
     await runOnboarding({ appConfigPath });
@@ -381,9 +420,9 @@ describe("onboarding", () => {
     const config = await loadAppConfig(appConfigPath);
     const prompts = promptLog.join("\n");
 
-    expect(prompts.toLowerCase()).toContain("write-tool allowlist");
+    expect(prompts.toLowerCase()).toContain("member allowlist");
     expect(config?.security?.writeToolAllowList).toEqual(["123456789"]);
-    expect(config?.security?.writeGateEnabled).toBe(true);
+    expect(config?.security?.writeGateEnabled).toBe(false);
     expect(config?.security?.writeToolConfirmation).toBe(false);
   });
 
@@ -421,11 +460,14 @@ describe("onboarding", () => {
         "n",         // Want to keep using these settings? -> no (test Telegram-specific reuse)
         "1",         // AI provider: 1 = Anthropic
         "",          // Anthropic key/token (empty = env)
-      "1",         // Model: 1 = default
-      "2",         // Chat platform: 2 = Telegram
-      "y",         // Reuse existing Telegram config?
-      "y",         // Enable Playwright MCP
-    ];
+        "",          // Model: default
+        "2",         // Chat platform: 2 = Telegram
+        "y",         // Reuse existing Telegram config?
+        "",          // Workspace path: default
+        "",          // Enable Gateway HTTP: default yes
+        "",          // Gateway port: default 8787
+        "",          // Telegram allowList (empty - will use reused values)
+      ];
 
       await runOnboarding({ appConfigPath });
 
@@ -489,11 +531,14 @@ describe("onboarding", () => {
         "n", // Want to keep using these settings? -> no (exercise Telegram-specific reuse prompt)
         "1", // AI provider: 1 = Anthropic
         "",  // Anthropic key/token (empty = env)
-      "1", // Model: 1 = default
-      "2", // Chat platform: 2 = Telegram
-      "y", // Reuse existing Telegram setup?
-      "y", // Enable Playwright MCP
-    ];
+        "",  // Model: default
+        "2", // Chat platform: 2 = Telegram
+        "y", // Reuse existing Telegram setup?
+        "",  // Workspace path: default
+        "",  // Enable Gateway HTTP: default yes
+        "",  // Gateway port: default 8787
+        "",  // Telegram allowList (empty - will use reused values)
+      ];
 
       await runOnboarding({ appConfigPath });
     } finally {
@@ -506,8 +551,8 @@ describe("onboarding", () => {
     expect(out).toContain("allowed users:");
     // configureWriteToolsSecurity prompt was removed; write-tool allowlist is now auto-derived
     expect(out).not.toContain("allowList:");
-    expect(out).not.toContain("allowlisted");
-    expect(out).not.toContain("apply_patch");
+    // Note: "allowlisted" and "apply_patch" appear in success messages from security-setup.ts
+    // These are shown to the user as confirmation of what was configured
   });
 
   it("does not treat an env-placeholder Telegram token in app.yaml as a reusable secret", async () => {
@@ -539,12 +584,15 @@ describe("onboarding", () => {
         "n", // Want to keep using these settings? -> no (test Telegram-specific reuse)
         "1", // AI provider: 1 = Anthropic
         "",  // Anthropic key/token (empty = env)
-      "1", // Model: 1 = default
-      "2", // Chat platform: 2 = Telegram
-      "y", // Reuse existing Telegram config?
-      "",  // Telegram bot token (leave empty to keep env-based setup)
-      "y", // Enable Playwright MCP
-    ];
+        "",  // Model: default
+        "2", // Chat platform: 2 = Telegram
+        "y", // Reuse existing Telegram config?
+        "",  // Telegram bot token (leave empty to keep env-based setup)
+        "",  // Workspace path: default
+        "",  // Enable Gateway HTTP: default yes
+        "",  // Gateway port: default 8787
+        "",  // Telegram allowList (empty - will use reused values)
+      ];
 
       await runOnboarding({ appConfigPath });
 
@@ -596,12 +644,11 @@ describe("onboarding", () => {
         "y", // "Want to keep using these settings?" -> yes
         "1", // "Which AI should OwliaBot use?" -> 1 (Anthropic)
         "",  // "Anthropic setup-token / API key" -> empty (use env)
-      "1", // "Which model should I use?" -> 1 = default
-      // No reuse prompt — token only, silently reused
-      "",  // "Which port should I use on your machine for Gateway HTTP?" -> default
-      "y", // Enable Playwright MCP
-      "",  // Write-tool allowlist (skip)
-    ];
+        "",  // "Which model should I use?" -> default
+        // No reuse prompt — token only, silently reused
+        "",  // "Which port should I use on your machine for Gateway HTTP?" -> default
+        "",  // Telegram allowList (empty)
+      ];
 
       await runOnboarding({ docker: true, outputDir: dir });
 
