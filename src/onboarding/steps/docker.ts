@@ -199,34 +199,61 @@ export function printDockerNextSteps(
   useOpenaiCodex: boolean,
   secrets: SecretsConfig,
 ): void {
-  const W = 51; // inner width
   const C = COLORS;
-  const border = (ch: string) => `${C.CYAN}${ch}${C.NC}`;
-  const line = (content: string, raw: number) => {
-    const pad = W - raw - 2;
-    return `${border("│")}  ${content}${" ".repeat(Math.max(0, pad))}${border("│")}`;
+
+  // Strip ANSI escape codes to get visible character count
+  const stripAnsi = (s: string) => s.replace(/\x1b\[[0-9;]*m/g, "");
+  // Visible width: emoji generally occupy 2 columns in terminals
+  const visWidth = (s: string) => {
+    const plain = stripAnsi(s);
+    let w = 0;
+    for (const ch of plain) {
+      // Emoji and wide CJK chars take 2 columns; basic check via code point
+      const cp = ch.codePointAt(0)!;
+      w += cp > 0x1f600 || (cp >= 0x2600 && cp <= 0x27bf) || (cp >= 0x1f300 && cp <= 0x1faff) ? 2 : 1;
+    }
+    return w;
   };
-  const top    = `${C.CYAN}┌${"─".repeat(W)}┐${C.NC}`;
-  const mid    = `${C.CYAN}├${"─".repeat(W)}┤${C.NC}`;
-  const bot    = `${C.CYAN}└${"─".repeat(W)}┘${C.NC}`;
-  const empty  = line("", 0);
+
   const composePath = join(paths.outputDir, "docker-compose.yml");
   const tokenShort = gatewayToken.slice(0, 8) + "...";
 
+  // Build content lines first, then compute box width
+  const rows: string[] = [
+    "📁 Config     ~/.owliabot/app.yaml",
+    "🔐 Secrets    ~/.owliabot/secrets.yaml",
+    "🔑 Auth       ~/.owliabot/auth/",
+    "📂 Workspace  ~/.owliabot/workspace/",
+    `🐳 Compose    ${composePath}`,
+    "",
+    `${C.CYAN}🌐 Gateway${C.NC}`,
+    `   URL:   ${C.GREEN}http://localhost:${gatewayPort}${C.NC}`,
+    `   Token: ${C.YELLOW}${tokenShort}${C.NC}`,
+  ];
+  const titleRow = `${C.GREEN}✅  Setup Complete${C.NC}`;
+
+  // Box inner width = max visible width of any row + 4 (2 padding each side)
+  const maxVis = Math.max(visWidth(titleRow), ...rows.map(visWidth));
+  const W = maxVis + 4;
+
+  const border = (ch: string) => `${C.CYAN}${ch}${C.NC}`;
+  const line = (content: string) => {
+    const pad = W - visWidth(content) - 2;
+    return `${border("│")}  ${content}${" ".repeat(Math.max(0, pad))}${border("│")}`;
+  };
+  const top   = `${C.CYAN}┌${"─".repeat(W)}┐${C.NC}`;
+  const mid   = `${C.CYAN}├${"─".repeat(W)}┤${C.NC}`;
+  const bot   = `${C.CYAN}└${"─".repeat(W)}┘${C.NC}`;
+  const empty = line("");
+
   console.log("");
   console.log(top);
-  console.log(line(`${C.GREEN}✅  Setup Complete${C.NC}`, 18));
+  console.log(line(titleRow));
   console.log(mid);
   console.log(empty);
-  console.log(line("📁 Config     ~/.owliabot/app.yaml", 34));
-  console.log(line("🔐 Secrets    ~/.owliabot/secrets.yaml", 38));
-  console.log(line("🔑 Auth       ~/.owliabot/auth/", 30));
-  console.log(line("📂 Workspace  ~/.owliabot/workspace/", 35));
-  console.log(line(`🐳 Compose    ${composePath}`, 14 + composePath.length));
-  console.log(empty);
-  console.log(line(`${C.CYAN}🌐 Gateway${C.NC}`, 10));
-  console.log(line(`   URL:   ${C.GREEN}http://localhost:${gatewayPort}${C.NC}`, 27 + gatewayPort.length));
-  console.log(line(`   Token: ${C.YELLOW}${tokenShort}${C.NC}`, 10 + tokenShort.length));
+  for (const row of rows) {
+    console.log(row === "" ? empty : line(row));
+  }
   console.log(empty);
   console.log(bot);
   console.log("");
