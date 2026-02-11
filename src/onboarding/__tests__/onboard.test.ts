@@ -45,7 +45,6 @@ vi.mock("@mariozechner/pi-ai", () => ({
 }));
 
 // Mock clawlet onboarding to skip wallet prompts (no daemon in test)
-vi.mock("../clawlet-onboard.js", () => ({
   runClawletOnboarding: vi.fn().mockResolvedValue({ enabled: false }),
 }));
 

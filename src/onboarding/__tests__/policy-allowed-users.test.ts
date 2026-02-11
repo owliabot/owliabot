@@ -6,7 +6,6 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 vi.mock("node:readline", () => ({ createInterface: vi.fn() }));
 vi.mock("../../auth/oauth.js", () => ({ startOAuthFlow: vi.fn() }));
-vi.mock("../clawlet-onboard.js", () => ({ runClawletOnboarding: vi.fn().mockResolvedValue({ enabled: false }) }));
 
 const mockExistsSync = vi.fn(() => true);
 const mockReadFileSync = vi.fn(() => "defaults:\n  allowedUsers:\n    - existing\n");

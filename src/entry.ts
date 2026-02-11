@@ -825,7 +825,7 @@ wallet
       // If token not provided, prompt interactively
       if (!token) {
         const { createInterface } = await import("node:readline");
-        const { detectClawlet, isValidClawletToken } = await import("./onboarding/clawlet-onboard.js");
+        const { detectClawlet, isValidClawletToken } = await import("./wallet/detect.js");
 
         const rl = createInterface({ input: process.stdin, output: process.stdout });
         const ask = (q: string): Promise<string> =>

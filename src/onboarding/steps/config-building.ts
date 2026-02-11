@@ -11,7 +11,6 @@ import { getGatewayConfig } from "./gateway-setup.js";
 import { configureDiscordConfig } from "./configure-discord.js";
 import { configureTelegramConfig } from "./configure-telegram.js";
 import { configureWriteToolsSecurity } from "./security-setup.js";
-import { configureWallet } from "./configure-wallet.js";
 import type { UserAllowLists } from "./types.js";
 
 export function buildDefaultMemorySearchConfig(workspace: string): MemorySearchConfig {
@@ -83,7 +82,6 @@ export async function buildAppConfigFromPrompts(
   if (discordEnabled) await configureDiscordConfig(rl, config, userAllowLists);
   if (telegramEnabled) await configureTelegramConfig(rl, config, userAllowLists);
 
-  await configureWallet(rl, secrets, config);
   const writeToolAllowList = await configureWriteToolsSecurity(rl, config, userAllowLists);
 
   return { config, workspace, writeToolAllowList };

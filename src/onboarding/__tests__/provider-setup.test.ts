@@ -37,7 +37,6 @@ vi.mock("../../auth/oauth.js", () => ({
   startOAuthFlow: vi.fn().mockResolvedValue({ access: "test", refresh: "r", expires: Date.now() + 3600000 }),
 }));
 
-vi.mock("../clawlet-onboard.js", () => ({
   runClawletOnboarding: vi.fn().mockResolvedValue({ enabled: false }),
 }));
 

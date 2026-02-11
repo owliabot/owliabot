@@ -23,7 +23,6 @@ vi.mock("node:readline", () => ({
 }));
 
 vi.mock("../../auth/oauth.js", () => ({ startOAuthFlow: vi.fn() }));
-vi.mock("../clawlet-onboard.js", () => ({ runClawletOnboarding: vi.fn().mockResolvedValue({ enabled: false }) }));
 
 // Override ask to never use secret mode (stdin.on("data") hangs in tests)
 vi.mock("../shared.js", async (importOriginal) => {

@@ -24,7 +24,6 @@ vi.mock("node:readline", () => ({
 }));
 
 vi.mock("../../auth/oauth.js", () => ({ startOAuthFlow: vi.fn() }));
-vi.mock("../clawlet-onboard.js", () => ({ runClawletOnboarding: vi.fn().mockResolvedValue({ enabled: false }) }));
 
 import { createInterface } from "node:readline";
 import {
