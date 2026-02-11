@@ -111,7 +111,7 @@ export async function askChannels(
  * Configure Discord-specific settings.
  */
 export async function configureDiscordConfig(
-  rl: RL,
+  _rl: RL,
   config: AppConfig,
   userAllowLists: UserAllowLists,
 ): Promise<void> {
@@ -120,22 +120,13 @@ export async function configureDiscordConfig(
   info("Guide: https://github.com/owliabot/owliabot/blob/main/docs/discord-setup.md");
   console.log("");
 
-  const channelIds = await ask(rl, "Which channels should I respond in? (comma-separated channel IDs; press Enter for all): ");
-  const channelAllowList = channelIds.split(",").map((s) => s.trim()).filter(Boolean);
-
-  const memberIds = await ask(rl, "Who can talk to me? (comma-separated Discord user IDs; press Enter to skip): ");
-  const memberAllowList = memberIds.split(",").map((s) => s.trim()).filter(Boolean);
-  userAllowLists.discord = memberAllowList;
+  // Default: allow all channels and all members
+  userAllowLists.discord = [];
 
   config.discord = {
     requireMentionInGuild: true,
-    channelAllowList,
-    ...(memberAllowList.length > 0 && { memberAllowList }),
+    channelAllowList: [],
   };
-
-  if (memberAllowList.length > 0) {
-    success(`I'll only respond to these Discord user IDs: ${memberAllowList.join(", ")}`);
-  }
 }
 
 /**

@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { mkdirSync, writeFileSync, readdirSync, lstatSync, chmodSync } from "node:fs";
 import type { AppConfig } from "../types.js";
 import type { SecretsConfig } from "../secrets.js";
-import { ask, header, info, success } from "../shared.js";
+import { header, info, success, COLORS } from "../shared.js";
 import type { createInterface } from "node:readline";
 
 type RL = ReturnType<typeof createInterface>;
@@ -51,13 +51,12 @@ export function initDockerPaths(outputDir?: string): DockerPaths {
  * Prompt for Docker Compose-specific settings.
  */
 export async function promptDockerComposeSetup(
-  rl: RL,
+  _rl: RL,
   gatewayToken: string,
 ): Promise<DockerComposeSetup> {
   header("Docker");
-  info("Which port should I use on your machine for Gateway HTTP? (The container listens on 8787)");
-  const gatewayPort = await ask(rl, "Host port [8787]: ") || "8787";
-  return { gatewayToken, gatewayPort };
+  info("Using default Gateway port: 8787");
+  return { gatewayToken, gatewayPort: "8787" };
 }
 
 /**
@@ -200,18 +199,35 @@ export function printDockerNextSteps(
   useOpenaiCodex: boolean,
   secrets: SecretsConfig,
 ): void {
-  header("You're ready");
+  const W = 51; // inner width
+  const C = COLORS;
+  const border = (ch: string) => `${C.CYAN}${ch}${C.NC}`;
+  const line = (content: string, raw: number) => {
+    const pad = W - raw - 2;
+    return `${border("│")}  ${content}${" ".repeat(Math.max(0, pad))}${border("│")}`;
+  };
+  const top    = `${C.CYAN}┌${"─".repeat(W)}┐${C.NC}`;
+  const mid    = `${C.CYAN}├${"─".repeat(W)}┤${C.NC}`;
+  const bot    = `${C.CYAN}└${"─".repeat(W)}┘${C.NC}`;
+  const empty  = line("", 0);
+  const composePath = join(paths.outputDir, "docker-compose.yml");
+  const tokenShort = gatewayToken.slice(0, 8) + "...";
 
-  console.log("Here's what I saved:");
-  console.log("  - ~/.owliabot/auth/          (saved sign-in tokens)");
-  console.log("  - ~/.owliabot/app.yaml       (settings)");
-  console.log("  - ~/.owliabot/secrets.yaml   (private values)");
-  console.log("  - ~/.owliabot/workspace/     (workspace, skills, bootstrap)");
-  console.log(`  - ${join(paths.outputDir, "docker-compose.yml")}       (Docker Compose file)`);
   console.log("");
-
-  console.log("Gateway endpoint:");
-  console.log(`  - URL:   http://localhost:${gatewayPort}`);
-  console.log(`  - Token: ${gatewayToken.slice(0, 8)}...`);
+  console.log(top);
+  console.log(line(`${C.GREEN}✅  Setup Complete${C.NC}`, 18));
+  console.log(mid);
+  console.log(empty);
+  console.log(line("📁 Config     ~/.owliabot/app.yaml", 34));
+  console.log(line("🔐 Secrets    ~/.owliabot/secrets.yaml", 38));
+  console.log(line("🔑 Auth       ~/.owliabot/auth/", 30));
+  console.log(line("📂 Workspace  ~/.owliabot/workspace/", 35));
+  console.log(line(`🐳 Compose    ${composePath}`, 14 + composePath.length));
+  console.log(empty);
+  console.log(line(`${C.CYAN}🌐 Gateway${C.NC}`, 10));
+  console.log(line(`   URL:   ${C.GREEN}http://localhost:${gatewayPort}${C.NC}`, 27 + gatewayPort.length));
+  console.log(line(`   Token: ${C.YELLOW}${tokenShort}${C.NC}`, 10 + tokenShort.length));
+  console.log(empty);
+  console.log(bot);
   console.log("");
 }

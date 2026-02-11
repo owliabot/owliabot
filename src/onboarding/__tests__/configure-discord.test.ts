@@ -5,17 +5,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { createInterface } from "node:readline";
 
-let answers: string[] = [];
-let promptLog: string[] = [];
-
 vi.mock("node:readline", () => ({
   createInterface: () => ({
-    question: (q: string, cb: (ans: string) => void) => {
-      promptLog.push(q);
-      const next = answers.shift();
-      if (next === undefined) throw new Error(`Ran out of answers at: "${q}"`);
-      cb(next);
-    },
+    question: vi.fn(),
     close: vi.fn(),
     once: vi.fn(),
     removeListener: vi.fn(),
@@ -40,8 +32,6 @@ describe("configureDiscordConfig step", () => {
 
   beforeEach(() => {
     consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
-    answers = [];
-    promptLog = [];
     rl = createInterface({ input: process.stdin, output: process.stdout });
   });
 
@@ -50,41 +40,21 @@ describe("configureDiscordConfig step", () => {
     vi.restoreAllMocks();
   });
 
-  it("configures discord with channel and member allowlists", async () => {
-    answers = ["chan1,chan2", "user1,user2"];
+  it("sets requireMentionInGuild to true with empty allowlists", async () => {
     const config: any = {};
     const userAllowLists: any = { discord: [], telegram: [] };
     await configureDiscordConfig(rl, config, userAllowLists);
     expect(config.discord).toBeDefined();
-    expect(config.discord.channelAllowList).toEqual(["chan1", "chan2"]);
-    expect(config.discord.memberAllowList).toEqual(["user1", "user2"]);
-    expect(userAllowLists.discord).toEqual(["user1", "user2"]);
-  });
-
-  it("sets requireMentionInGuild to true", async () => {
-    answers = ["", ""];
-    const config: any = {};
-    const userAllowLists: any = { discord: [], telegram: [] };
-    await configureDiscordConfig(rl, config, userAllowLists);
     expect(config.discord.requireMentionInGuild).toBe(true);
-  });
-
-  it("handles empty allowlists", async () => {
-    answers = ["", ""];
-    const config: any = {};
-    const userAllowLists: any = { discord: [], telegram: [] };
-    await configureDiscordConfig(rl, config, userAllowLists);
-    expect(config.discord).toBeDefined();
     expect(config.discord.channelAllowList).toEqual([]);
     expect(config.discord.memberAllowList).toBeUndefined();
+    expect(userAllowLists.discord).toEqual([]);
   });
 
-  it("trims whitespace from IDs", async () => {
-    answers = [" chan1 , chan2 ", " user1 "];
+  it("does not prompt the user", async () => {
     const config: any = {};
     const userAllowLists: any = { discord: [], telegram: [] };
     await configureDiscordConfig(rl, config, userAllowLists);
-    expect(config.discord.channelAllowList).toEqual(["chan1", "chan2"]);
-    expect(userAllowLists.discord).toEqual(["user1"]);
+    expect(rl.question).not.toHaveBeenCalled();
   });
 });
