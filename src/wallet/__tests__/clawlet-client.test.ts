@@ -15,11 +15,17 @@ import {
 } from "../clawlet-client.js";
 
 // Mock isInsideDocker
+vi.mock("../resolve-host.js", () => ({
+  canResolveHost: vi.fn(() => false),
+}));
+
 vi.mock("../../logs/docker.js", () => ({
   isInsideDocker: vi.fn(() => false),
 }));
 
 import { isInsideDocker } from "../../logs/docker.js";
+import { canResolveHost } from "../resolve-host.js";
+const mockedCanResolveHost = vi.mocked(canResolveHost);
 
 // Mock global fetch
 const mockFetch = vi.fn();
@@ -641,18 +647,25 @@ describe("ClawletClient", () => {
       expect(resolveClawletBaseUrl()).toBe(DEFAULT_BASE_URL);
     });
 
-    it("should return default URL when not in Docker and default config", () => {
+    it("should respect explicitly provided default URL (no override)", () => {
       expect(resolveClawletBaseUrl(DEFAULT_BASE_URL)).toBe(DEFAULT_BASE_URL);
     });
 
-    it("should return docker host URL when inside Docker", () => {
+    it("should return docker host URL when inside Docker and host resolves", () => {
       mockedIsInsideDocker.mockReturnValue(true);
+      mockedCanResolveHost.mockReturnValue(true);
       expect(resolveClawletBaseUrl()).toBe("http://host.docker.internal:9100");
     });
 
-    it("should return docker host URL when inside Docker with default config", () => {
+    it("should fallback to bridge URL when inside Docker and host does not resolve", () => {
       mockedIsInsideDocker.mockReturnValue(true);
-      expect(resolveClawletBaseUrl(DEFAULT_BASE_URL)).toBe("http://host.docker.internal:9100");
+      mockedCanResolveHost.mockReturnValue(false);
+      expect(resolveClawletBaseUrl()).toBe("http://172.17.0.1:9100");
+    });
+
+    it("should respect explicitly provided default URL inside Docker (no override)", () => {
+      mockedIsInsideDocker.mockReturnValue(true);
+      expect(resolveClawletBaseUrl(DEFAULT_BASE_URL)).toBe(DEFAULT_BASE_URL);
     });
 
     it("should respect custom URL even inside Docker", () => {
