@@ -42,21 +42,22 @@ curl -sSL https://raw.githubusercontent.com/owliabot/owliabot/main/install.sh | 
 ```
 
 This runs an interactive wizard that:
-- Checks Docker is installed and running
-- Configures AI providers (Anthropic/OpenAI/local LLMs)
-- Sets up Discord/Telegram integration
-- Generates `docker-compose.yml`
-
-Then start with:
-
-```bash
-docker-compose up -d
-```
+1. Checks Docker is installed and running
+2. Pulls the latest OwliaBot image
+3. Runs the interactive onboard configuration
+4. Generates `docker-compose.yml`
+5. Automatically starts the container
 
 If the container fails to start or channels/providers are misconfigured, run:
 
 ```bash
 docker exec -it owliabot owliabot doctor
+```
+
+To restart manually:
+
+```bash
+docker-compose up -d
 ```
 
 See [Docker Installation Guide](docs/docker-install.md) for details.
@@ -198,11 +199,11 @@ OwliaBot integrates with [Clawlet](https://github.com/owliabot/clawlet), a secur
 1. **Install Clawlet**:
 
 ```bash
-# Quick install (user mode)
-curl -fsSL https://raw.githubusercontent.com/owliabot/clawlet/main/scripts/install.sh | bash
-
-# Or production install with key isolation (creates dedicated system user)
+# Recommended: isolated install with key isolation (creates dedicated system user)
 curl -fsSL https://raw.githubusercontent.com/owliabot/clawlet/main/scripts/install.sh | sudo bash -s -- --isolated
+
+# Or quick install (dev mode) — runs under your own user
+curl -fsSL https://raw.githubusercontent.com/owliabot/clawlet/main/scripts/install.sh | bash
 ```
 
 2. **Initialize wallet and create auth token**:

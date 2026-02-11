@@ -11,8 +11,9 @@ curl -sSL https://raw.githubusercontent.com/owliabot/owliabot/main/install.sh | 
 This will:
 1. Check Docker is installed and running
 2. Pull the latest OwliaBot image
-3. Run the interactive configuration wizard
-4. Generate `docker-compose.yml` for easy management
+3. Run the interactive onboard configuration wizard
+4. Generate `docker-compose.yml`
+5. Automatically start the container
 
 ## Manual Docker Setup
 
