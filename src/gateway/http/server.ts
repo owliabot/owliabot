@@ -597,8 +597,8 @@ export async function startGatewayHttp(opts: GatewayHttpOptions): Promise<Gatewa
 
       // ── Determine tool scope ──────────────────────────────────────────────
       // Respect the requested scope from the caller.
-      // Default to read-only for safety if scope is not explicitly provided.
-      const requestedScope = scope ?? "read";
+      // Default to trade scope — the token is assumed to have trade capability.
+      const requestedScope = scope ?? "trade";
       const scopes = requestedScope.split(",").map((s: string) => s.trim());
       const enableTrade = scopes.includes("trade");
 
