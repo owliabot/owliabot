@@ -44,7 +44,7 @@ import { createWebSearchTool, type WebSearchToolDeps } from "./web-search.js";
 
 // Wallet tools (require wallet config) - use wallet.ts which has fail-closed + dynamic address lookup
 import { createWalletBalanceTool, createWalletTransferTool, createWalletSendTxTool } from "./wallet.js";
-import type { ClawletClientConfig } from "../../../wallet/index.js";
+import { getClawletClient, type ClawletClientConfig, type ChainInfo } from "../../../wallet/index.js";
 
 const log = createLogger("builtin-tools");
 
@@ -133,9 +133,9 @@ function getClawletToken(clawletConfig?: WalletFactoryConfig["clawlet"]): string
  * @param opts - Options containing workspace path, stores, and config
  * @returns Array of tool definitions
  */
-export function createBuiltinTools(
+export async function createBuiltinTools(
   opts: BuiltinToolsOptions,
-): ToolDefinition[] {
+): Promise<ToolDefinition[]> {
   const {
     workspace,
     sessionStore,
@@ -220,20 +220,43 @@ export function createBuiltinTools(
     };
     const defaultChainId = walletConfig.clawlet.defaultChainId ?? 8453;
 
-    log.info(`Wallet tools enabled (chain: ${defaultChainId}, url: ${clawletClientConfig.baseUrl ?? "default"})`);
+    // Fetch supported chains from Clawlet daemon (best-effort with timeout
+    // so a slow/unreachable daemon doesn't block startup).
+    const CHAINS_TIMEOUT_MS = 3_000;
+    let supportedChains: ChainInfo[] | undefined;
+    try {
+      const client = getClawletClient(clawletClientConfig);
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      supportedChains = await Promise.race([
+        client.chains(),
+        new Promise<undefined>((_, reject) => {
+          timer = setTimeout(() => reject(new Error("chains() timed out")), CHAINS_TIMEOUT_MS);
+        }),
+      ]).finally(() => {
+        if (timer) clearTimeout(timer);
+      });
+      log.info(`Wallet tools enabled (chains: ${supportedChains!.map(c => c.chain_id).join(",")}, url: ${clawletClientConfig.baseUrl ?? "default"})`);
+    } catch (err) {
+      supportedChains = undefined;
+      log.warn("Failed to fetch supported chains from Clawlet, using generic fallback", err);
+      log.info(`Wallet tools enabled (chains: dynamic, url: ${clawletClientConfig.baseUrl ?? "default"})`);
+    }
 
     builtins.push(
       createWalletBalanceTool({
         clawletConfig: clawletClientConfig,
         defaultChainId,
+        supportedChains,
       }),
       createWalletTransferTool({
         clawletConfig: clawletClientConfig,
         defaultChainId,
+        supportedChains,
       }),
       createWalletSendTxTool({
         clawletConfig: clawletClientConfig,
         defaultChainId,
+        supportedChains,
       }),
     );
   }

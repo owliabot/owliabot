@@ -845,7 +845,32 @@ wallet
           const baseUrlAns = await ask(`Clawlet base URL [${baseUrl}]: `);
           if (baseUrlAns) baseUrl = baseUrlAns;
 
-          const tokenAns = await ask("Paste Clawlet token: ");
+          const tokenAns = await new Promise<string>((resolve) => {
+            process.stdout.write("Paste Clawlet token: ");
+            const stdin = process.stdin;
+            const wasRaw = stdin.isRaw;
+            if (typeof stdin.setRawMode === "function") stdin.setRawMode(true);
+            let buf = "";
+            const onData = (ch: Buffer) => {
+              const c = ch.toString();
+              if (c === "\n" || c === "\r") {
+                stdin.removeListener("data", onData);
+                if (typeof stdin.setRawMode === "function") stdin.setRawMode(wasRaw ?? false);
+                process.stdout.write("\n");
+                resolve(buf.trim());
+              } else if (c === "\x7f" || c === "\b") {
+                buf = buf.slice(0, -1);
+              } else if (c === "\x03") {
+                // Ctrl+C
+                stdin.removeListener("data", onData);
+                if (typeof stdin.setRawMode === "function") stdin.setRawMode(wasRaw ?? false);
+                resolve("");
+              } else {
+                buf += c;
+              }
+            };
+            stdin.on("data", onData);
+          });
           if (!isValidClawletToken(tokenAns)) {
             throw new Error("Invalid token format (should start with 'clwt_')");
           }

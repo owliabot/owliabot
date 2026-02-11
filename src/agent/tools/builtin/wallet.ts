@@ -19,6 +19,7 @@ import {
   type TransferRequest,
   type SendRawRequest,
   type ClawletClientConfig,
+  type ChainInfo,
 } from "../../../wallet/index.js";
 import { createLogger } from "../../../utils/logger.js";
 
@@ -37,6 +38,17 @@ export interface WalletToolsConfig {
   defaultChainId?: number;
   /** Whether wallet tools are enabled (check config.wallet.clawlet.enabled) */
   enabled?: boolean;
+  /** Supported chains fetched from Clawlet daemon */
+  supportedChains?: ChainInfo[];
+}
+
+/**
+ * Format supported chains for tool descriptions.
+ * Falls back to a generic message when chains are not available.
+ */
+export function formatChainList(chains?: ChainInfo[]): string {
+  if (!chains?.length) return "(query wallet service for current supported chains)";
+  return chains.map(c => `- ${c.chain_id}: ${c.name}${c.testnet ? " (testnet)" : ""}`).join("\n");
 }
 
 // ============================================================================
@@ -126,11 +138,7 @@ PARAMETERS:
 - chain_id: Chain ID (default: ${defaultChainId})
 
 SUPPORTED CHAINS:
-- 1: Ethereum Mainnet
-- 11155111: Ethereum Sepolia (testnet)
-- 8453: Base
-- 10: Optimism
-- 42161: Arbitrum One
+${formatChainList(config.supportedChains)}
 
 EXAMPLE:
 { "chain_id": 8453 }  // Uses wallet's own address
@@ -237,6 +245,9 @@ PARAMETERS:
   - Token symbol (e.g. "USDC") if configured
   - Contract address (0x-prefixed)
 - chain_id: Chain ID (default: ${defaultChainId})
+
+SUPPORTED CHAINS:
+${formatChainList(config.supportedChains)}
 
 POLICY LIMITS:
 - Daily transfer limits may apply
@@ -383,10 +394,12 @@ const WalletSendTxParamsSchema = z.object({
     .describe("Recipient address (required)"),
   value: z
     .string()
+    .regex(/^(0x[a-fA-F0-9]+|\d+)$/, "Must be a decimal string or 0x-prefixed hex")
     .optional()
     .describe("Value in wei (hex or decimal string)"),
   data: z
     .string()
+    .regex(/^0x([a-fA-F0-9]{2})*$/, "Must be 0x-prefixed even-length hex string")
     .optional()
     .describe("Calldata (0x-prefixed hex)"),
   chain_id: z
@@ -429,6 +442,9 @@ PARAMETERS:
 - data: Calldata hex string (optional)
 - chain_id: Chain ID (default: ${defaultChainId})
 - gas_limit: Gas limit (optional, estimated if omitted)
+
+SUPPORTED CHAINS:
+${formatChainList(config.supportedChains)}
 
 EXAMPLE:
 { "to": "0xContract...", "data": "0xa9059cbb...", "chain_id": 8453 }

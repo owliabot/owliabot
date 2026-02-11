@@ -18,6 +18,7 @@ export {
   type SendRawRequest,
   type SendRawResponse,
   type HealthResponse,
+  type ChainInfo,
   type AddressResponse,
   type AuthGrantRequest,
   type AuthGrantResponse,

@@ -11,13 +11,17 @@ import {
   ClawletError,
   type TransferRequest,
   type ClawletClientConfig,
+  type ChainInfo,
 } from "../../../wallet/index.js";
+import { formatChainList } from "./wallet.js";
 
 export interface WalletTransferToolDeps {
   /** Clawlet client configuration */
   clawletConfig?: ClawletClientConfig;
   /** Default chain ID if not specified */
   defaultChainId?: number;
+  /** Supported chains fetched from Clawlet daemon */
+  supportedChains?: ChainInfo[];
 }
 
 /**
@@ -41,6 +45,9 @@ PARAMETERS:
   - Token symbol (e.g. "USDC") if configured
   - Contract address (0x-prefixed)
 - chain_id: Chain ID (optional, default: ${defaultChainId})
+
+SUPPORTED CHAINS:
+${formatChainList(deps.supportedChains)}
 
 POLICY LIMITS:
 - Daily transfer limits may apply

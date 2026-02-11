@@ -191,7 +191,7 @@ export async function startGateway(
 
   // Create tool registry and register builtin tools via factory
   const tools = new ToolRegistry();
-  for (const tool of createBuiltinTools({
+  for (const tool of await createBuiltinTools({
     workspace: config.workspace,
     sessionStore,
     transcripts,

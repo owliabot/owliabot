@@ -60,11 +60,11 @@ export interface ToolsInitConfig {
  * });
  * ```
  */
-export function initializeTools(config: ToolsInitConfig): ToolRegistry {
+export async function initializeTools(config: ToolsInitConfig): Promise<ToolRegistry> {
   const tools = new ToolRegistry();
-  
+
   // Register builtin tools via factory
-  const builtinTools = createBuiltinTools({
+  const builtinTools = await createBuiltinTools({
     workspace: config.workspace,
     sessionStore: config.sessionStore,
     transcripts: config.transcripts,

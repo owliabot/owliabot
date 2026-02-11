@@ -566,12 +566,25 @@ export async function startGatewayHttp(opts: GatewayHttpOptions): Promise<Gatewa
         });
         return;
       }
+      const validScopes = ["read", "trade", "read,trade"];
+      if (scope !== undefined && !validScopes.includes(scope)) {
+        sendJson(res, 400, {
+          ok: false,
+          error: { code: "ERR_INVALID_REQUEST", message: `scope must be one of: ${validScopes.join(", ")}` },
+        });
+        return;
+      }
 
       const resolvedChainId = defaultChainId ?? 8453;
       const clawletConfig = {
         baseUrl,
         authToken: token,
-        requestTimeout: typeof body?.requestTimeout === "number" ? body.requestTimeout : 30_000,
+        requestTimeout:
+          typeof body?.requestTimeout === "number" &&
+          Number.isFinite(body.requestTimeout) &&
+          body.requestTimeout > 0
+            ? body.requestTimeout
+            : 30_000,
       };
 
       // ── Connectivity test: address + balance ──────────────────────────────
@@ -607,17 +620,19 @@ export async function startGatewayHttp(opts: GatewayHttpOptions): Promise<Gatewa
       const enableTrade = scopes.includes("trade");
 
       // ── Register tools ────────────────────────────────────────────────────
-      // Always unregister both first to handle reconnect with different scope
+      // Always unregister all wallet tools first to handle reconnect with different scope
       tools.unregister("wallet_balance");
       tools.unregister("wallet_transfer");
+      tools.unregister("wallet_send_tx");
 
-      const { createWalletBalanceTool, createWalletTransferTool } = await import("../../agent/tools/builtin/wallet.js");
+      const { createWalletBalanceTool, createWalletTransferTool, createWalletSendTxTool } = await import("../../agent/tools/builtin/wallet.js");
       const { filterToolsByPolicy } = await import("../../agent/tools/policy.js");
 
       const toolConfig = { clawletConfig, defaultChainId: resolvedChainId };
       let walletTools = [createWalletBalanceTool(toolConfig)];
       if (enableTrade) {
         walletTools.push(createWalletTransferTool(toolConfig));
+        walletTools.push(createWalletSendTxTool(toolConfig));
       }
 
       // Apply tool policy filtering before registration
@@ -651,7 +666,7 @@ export async function startGatewayHttp(opts: GatewayHttpOptions): Promise<Gatewa
       }
 
       const removed: string[] = [];
-      for (const name of ["wallet_balance", "wallet_transfer"]) {
+      for (const name of ["wallet_balance", "wallet_transfer", "wallet_send_tx"]) {
         if (tools.unregister(name)) {
           removed.push(name);
         }
