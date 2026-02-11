@@ -420,6 +420,19 @@ export const mcpGatewayConfigSchema = z
 
 export type MCPGatewayConfig = z.infer<typeof mcpGatewayConfigSchema>;
 
+export const contextGuardSchema = z
+  .object({
+    enabled: z.boolean().default(true),
+    maxToolResultChars: z.number().positive().default(50_000),
+    reserveTokens: z.number().positive().default(8_192),
+    truncateHeadChars: z.number().positive().default(2_000),
+    truncateTailChars: z.number().positive().default(2_000),
+    contextWindowOverride: z.number().positive().optional(),
+  })
+  .optional();
+
+export type ContextGuardConfig = z.infer<typeof contextGuardSchema>;
+
 export const configSchema = z.object({
   // AI providers
   providers: z.array(providerSchema).min(1),
@@ -488,6 +501,9 @@ export const configSchema = z.object({
 
   // MCP (Model Context Protocol) servers
   mcp: mcpGatewayConfigSchema,
+
+  // Context window guard
+  contextGuard: contextGuardSchema,
 });
 
 export type Config = z.infer<typeof configSchema>;

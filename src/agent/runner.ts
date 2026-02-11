@@ -27,6 +27,12 @@ import {
   type OpenAICompatibleConfig,
 } from "./openai-compatible.js";
 import { resolveModel, type ModelConfig } from "./models.js";
+import {
+  guardContext,
+  truncateToolResult,
+  DEFAULT_TOOL_RESULT_MAX_CHARS,
+  DEFAULT_RESERVE_TOKENS,
+} from "./context-guard.js";
 import { isCliProvider, parseCliModelString, type ConfigWithCliBackends } from "./cli/cli-provider.js";
 import { runCliAgent, type CliAgentResult } from "./cli/cli-runner.js";
 import {
@@ -155,6 +161,11 @@ function toContext(
       if (m.toolResults && m.toolResults.length > 0) {
         // Convert to proper ToolResultMessage format
         for (const tr of m.toolResults) {
+          const rawText = tr.success
+            ? JSON.stringify(tr.data, null, 2)
+            : `Error: ${tr.error}`;
+          // L1 safety net: truncate oversized tool results
+          const resultText = truncateToolResult(rawText, DEFAULT_TOOL_RESULT_MAX_CHARS);
           const toolResultMsg: ToolResultMessage = {
             role: "toolResult",
             toolCallId: tr.toolCallId ?? "",
@@ -162,9 +173,7 @@ function toContext(
             content: [
               {
                 type: "text",
-                text: tr.success
-                  ? JSON.stringify(tr.data, null, 2)
-                  : `Error: ${tr.error}`,
+                text: resultText,
               },
             ],
             isError: !tr.success,
@@ -302,7 +311,19 @@ export async function runLLM(
   // Standard pi-ai path
   const model = resolveModel(modelConfig);
   const apiKey = await resolveApiKey(model.provider, modelConfig.apiKey);
-  const context = toContext(messages, options?.tools, model);
+
+  // L2: Context window guard — prune history if needed
+  const contextWindow = (model as typeof model & { contextWindow?: number }).contextWindow ?? 200_000;
+  const { messages: guardedMessages, dropped } = guardContext(messages, {
+    contextWindow,
+    reserveTokens: options?.maxTokens ?? 4096,
+    maxToolResultChars: DEFAULT_TOOL_RESULT_MAX_CHARS,
+  });
+  if (dropped > 0) {
+    log.warn(`Context guard: dropped ${dropped} old messages to fit context window (${contextWindow} tokens)`);
+  }
+
+  const context = toContext(guardedMessages, options?.tools, model);
 
   log.info(`Calling ${model.provider}/${model.id}`);
 
