@@ -57,6 +57,27 @@ export function truncateToolResult(
   return `${head}\n\n... [${omitted} characters truncated] ...\n\n${tail}`;
 }
 
+// ── Dynamic limits ─────────────────────────────────────────
+
+/**
+ * Calculate maximum characters for a single tool result.
+ * Similar to OpenClaw's approach: single tool result should not exceed
+ * 30% of available context window.
+ * 
+ * @param contextWindow - Total context window size in tokens
+ * @param reserveTokens - Tokens reserved for output
+ * @returns Maximum characters for a tool result
+ */
+export function calculateMaxToolResultChars(
+  contextWindow: number,
+  reserveTokens: number = DEFAULT_RESERVE_TOKENS,
+): number {
+  const availableTokens = contextWindow - reserveTokens;
+  const maxTokensPerResult = Math.floor(availableTokens * 0.3);
+  // Convert tokens to chars (conservative estimate)
+  return maxTokensPerResult * DEFAULT_CHARS_PER_TOKEN;
+}
+
 // ── L2: Token estimation ───────────────────────────────────
 
 /**
@@ -130,14 +151,18 @@ export function guardContext(
   messages: Message[],
   options: GuardOptions,
 ): { messages: Message[]; dropped: number } {
-  const budget =
-    options.contextWindow - (options.reserveTokens ?? DEFAULT_RESERVE_TOKENS);
+  const reserveTokens = options.reserveTokens ?? DEFAULT_RESERVE_TOKENS;
+  const budget = options.contextWindow - reserveTokens;
+
+  // Calculate dynamic max tool result size if not explicitly provided
+  const maxToolResultChars = options.maxToolResultChars ?? 
+    calculateMaxToolResultChars(options.contextWindow, reserveTokens);
 
   // L1: truncate tool results in all messages
   const truncated = messages.map((m) =>
     truncateMessageToolResults(
       m,
-      options.maxToolResultChars,
+      maxToolResultChars,
       options.truncateHeadChars,
       options.truncateTailChars,
     ),

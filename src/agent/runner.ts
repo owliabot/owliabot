@@ -285,16 +285,33 @@ function fromAssistantMessage(msg: AssistantMessage): LLMResponse {
 }
 
 /**
+ * Check if an error is a context window overflow error
+ */
+function isContextOverflowError(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  const msg = error.message.toLowerCase();
+  return (
+    msg.includes("context") ||
+    msg.includes("too long") ||
+    msg.includes("maximum context") ||
+    msg.includes("prompt is too long") ||
+    msg.includes("context_length_exceeded")
+  );
+}
+
+/**
  * Call LLM with a specific model configuration
  * Supports both pi-ai providers and openai-compatible endpoints
  * Important fix #4: Handle all stopReasons
  * Important fix #6: Pass reasoning option
+ * Enhancement: Auto-retry on context overflow with more aggressive pruning
  */
 export async function runLLM(
   modelConfig: ModelConfig,
   messages: Message[],
   options?: RunnerOptions,
-  provider?: LLMProvider
+  provider?: LLMProvider,
+  _retryCount: number = 0,
 ): Promise<LLMResponse> {
   // Check if this is an openai-compatible provider
   if (provider && isOpenAICompatible(provider.id)) {
@@ -323,43 +340,61 @@ export async function runLLM(
   // L2: Context window guard — prune history if needed
   const guardConfig = options?.contextGuard;
   const contextWindow = guardConfig?.contextWindowOverride ?? getContextWindow(modelConfig);
+  
+  // Apply more aggressive limits on retry
+  const retryMultiplier = _retryCount === 0 ? 1.0 : _retryCount === 1 ? 0.5 : 0.25;
+  const effectiveMaxToolResultChars = guardConfig?.maxToolResultChars 
+    ? Math.floor(guardConfig.maxToolResultChars * retryMultiplier)
+    : undefined;
+  
   const { messages: guardedMessages, dropped } = guardContext(messages, {
     contextWindow,
     reserveTokens: guardConfig?.reserveTokens ?? options?.maxTokens ?? DEFAULT_RESERVE_TOKENS,
-    maxToolResultChars: guardConfig?.maxToolResultChars ?? DEFAULT_TOOL_RESULT_MAX_CHARS,
+    maxToolResultChars: effectiveMaxToolResultChars,
     truncateHeadChars: guardConfig?.truncateHeadChars,
     truncateTailChars: guardConfig?.truncateTailChars,
   });
 
   const context = toContext(guardedMessages, options?.tools, model);
 
-  log.info(`Calling ${model.provider}/${model.id}`);
+  log.info(`Calling ${model.provider}/${model.id}${_retryCount > 0 ? ` (retry ${_retryCount})` : ""}`);
 
-  const response = await completeSimple(model, context, {
-    apiKey,
-    maxTokens: options?.maxTokens ?? 4096,
-    temperature: options?.temperature,
-    reasoning: options?.reasoning,
-  } as Parameters<typeof completeSimple>[2]);
+  try {
+    const response = await completeSimple(model, context, {
+      apiKey,
+      maxTokens: options?.maxTokens ?? 4096,
+      temperature: options?.temperature,
+      reasoning: options?.reasoning,
+    } as Parameters<typeof completeSimple>[2]);
 
-  // Handle different stop reasons
-  switch (response.stopReason) {
-    case "stop":
-    case "toolUse":
-      // Normal completion
-      break;
-    case "length":
-      log.warn("Response truncated due to max tokens limit");
-      break;
-    case "aborted":
-      throw new Error("Request was aborted");
-    case "error":
-      throw new Error(response.errorMessage ?? "LLM error");
-    default:
-      log.warn(`Unknown stop reason: ${response.stopReason}`);
+    // Handle different stop reasons
+    switch (response.stopReason) {
+      case "stop":
+      case "toolUse":
+        // Normal completion
+        break;
+      case "length":
+        log.warn("Response truncated due to max tokens limit");
+        break;
+      case "aborted":
+        throw new Error("Request was aborted");
+      case "error":
+        throw new Error(response.errorMessage ?? "LLM error");
+      default:
+        log.warn(`Unknown stop reason: ${response.stopReason}`);
+    }
+
+    return fromAssistantMessage(response);
+  } catch (error) {
+    // Retry on context overflow (max 2 retries)
+    if (isContextOverflowError(error) && _retryCount < 2) {
+      log.warn(
+        `Context overflow detected, retrying with more aggressive pruning (attempt ${_retryCount + 1}/2)`
+      );
+      return runLLM(modelConfig, messages, options, provider, _retryCount + 1);
+    }
+    throw error;
   }
-
-  return fromAssistantMessage(response);
 }
 
 /**
