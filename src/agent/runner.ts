@@ -148,6 +148,13 @@ async function resolveApiKey(provider: string, configApiKey?: string): Promise<s
   );
 }
 
+/** Options for toContext L1 safety net truncation */
+interface ToContextOptions {
+  maxToolResultChars?: number;
+  truncateHeadChars?: number;
+  truncateTailChars?: number;
+}
+
 /**
  * Convert internal messages to pi-ai context
  * Critical fix #1: Properly handle tool results
@@ -156,7 +163,8 @@ async function resolveApiKey(provider: string, configApiKey?: string): Promise<s
 function toContext(
   messages: Message[],
   tools?: ToolDefinition[],
-  currentModel?: Model<Api>
+  currentModel?: Model<Api>,
+  truncateOptions?: ToContextOptions,
 ): Context {
   const systemMessage = messages.find((m) => m.role === "system");
   const chatMessages = messages.filter((m) => m.role !== "system");
@@ -173,7 +181,12 @@ function toContext(
             ? JSON.stringify(tr.data, null, 2)
             : `Error: ${tr.error}`;
           // L1 safety net: truncate oversized tool results
-          const resultText = truncateToolResult(rawText, DEFAULT_TOOL_RESULT_MAX_CHARS);
+          const resultText = truncateToolResult(
+            rawText,
+            truncateOptions?.maxToolResultChars ?? DEFAULT_TOOL_RESULT_MAX_CHARS,
+            truncateOptions?.truncateHeadChars,
+            truncateOptions?.truncateTailChars,
+          );
           const toolResultMsg: ToolResultMessage = {
             role: "toolResult",
             toolCallId: tr.toolCallId ?? "",
@@ -355,7 +368,11 @@ export async function runLLM(
     truncateTailChars: guardConfig?.truncateTailChars,
   });
 
-  const context = toContext(guardedMessages, options?.tools, model);
+  const context = toContext(guardedMessages, options?.tools, model, {
+    maxToolResultChars: effectiveMaxToolResultChars,
+    truncateHeadChars: guardConfig?.truncateHeadChars,
+    truncateTailChars: guardConfig?.truncateTailChars,
+  });
 
   log.info(`Calling ${model.provider}/${model.id}${_retryCount > 0 ? ` (retry ${_retryCount})` : ""}`);
 
