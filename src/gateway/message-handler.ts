@@ -23,6 +23,7 @@ import { tryHandleCommand, tryHandleStatusCommand } from "./commands.js";
 import { buildSystemPrompt } from "../agent/system-prompt.js";
 import { runAgenticLoop, createConversation } from "./agentic-loop.js";
 import { resolveEffectiveProviders } from "../models/override.js";
+import type { SessionSteeringManager } from "./session-steering.js";
 
 const log = createLogger("gateway:message-handler");
 
@@ -39,6 +40,8 @@ export interface MessageHandlerDeps {
   writeGateChannels: Map<string, WriteGateChannel>;
   skillsResult: SkillsInitResult | null;
   infraStore: InfraStore | null;
+  /** Session steering manager for mid-run message injection (optional) */
+  steeringManager?: SessionSteeringManager;
 }
 
 /**
@@ -253,6 +256,7 @@ export async function handleMessage(
     writeGateChannels,
     skillsResult,
     infraStore,
+    steeringManager,
   } = deps;
 
   // Check if message should be handled (activation rules)
@@ -264,6 +268,15 @@ export async function handleMessage(
   const sessionKey = resolveSessionKey({ ctx, config });
   const now = Date.now();
   const infraConfig = config.infra;
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Steering: if a loop is already active for this session, queue the message
+  // ─────────────────────────────────────────────────────────────────────────
+  if (steeringManager?.isActive(sessionKey)) {
+    log.info(`Session ${sessionKey} active, queuing as steering message`);
+    steeringManager.pushSteering(sessionKey, ctx.body, ctx.timestamp);
+    return;
+  }
 
   // ─────────────────────────────────────────────────────────────────────────
   // Infrastructure: Idempotency Check
@@ -379,29 +392,42 @@ export async function handleMessage(
     const conversationMessages = createConversation(systemPrompt, history);
     
     const loopConfig = config.agents?.loop ?? { maxIterations: 50, timeoutSeconds: 600 };
-    const loopResult = await runAgenticLoop(
-      conversationMessages,
-      {
-        sessionKey,
-        agentId,
-        sessionId: entry.sessionId,
-        userId: ctx.from,
-        channelId: ctx.channel,
-        chatTargetId: ctx.chatType === "direct" ? ctx.from : (ctx.groupId ?? ctx.from),
-        workspacePath: config.workspace,
-        memorySearchConfig: config.memorySearch,
-        securityConfig: config.security,
-      },
-      {
-        providers: effectiveProviders,
-        tools,
-        writeGateChannel: writeGateChannels.get(ctx.channel),
-        transcripts,
-        maxIterations: loopConfig.maxIterations,
-        timeoutMs: loopConfig.timeoutSeconds * 1000,
-        cliBackends: config.agents?.defaults?.cliBackends,
-      },
-    );
+
+    steeringManager?.setActive(sessionKey);
+    let loopResult;
+    try {
+      loopResult = await runAgenticLoop(
+        conversationMessages,
+        {
+          sessionKey,
+          agentId,
+          sessionId: entry.sessionId,
+          userId: ctx.from,
+          channelId: ctx.channel,
+          chatTargetId: ctx.chatType === "direct" ? ctx.from : (ctx.groupId ?? ctx.from),
+          workspacePath: config.workspace,
+          memorySearchConfig: config.memorySearch,
+          securityConfig: config.security,
+        },
+        {
+          providers: effectiveProviders,
+          tools,
+          writeGateChannel: writeGateChannels.get(ctx.channel),
+          transcripts,
+          maxIterations: loopConfig.maxIterations,
+          timeoutMs: loopConfig.timeoutSeconds * 1000,
+          cliBackends: config.agents?.defaults?.cliBackends,
+          getSteeringMessages: steeringManager
+            ? async () => steeringManager.drainSteering(sessionKey)
+            : undefined,
+          getFollowUpMessages: steeringManager
+            ? async () => steeringManager.drainFollowUp(sessionKey)
+            : undefined,
+        },
+      );
+    } finally {
+      steeringManager?.setInactive(sessionKey);
+    }
 
     const finalContent = loopResult.content;
     

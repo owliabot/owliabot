@@ -76,6 +76,10 @@ export interface AgenticLoopConfig {
   signal?: AbortSignal;
   /** CLI backends config for CLI provider support */
   cliBackends?: ConfigWithCliBackends;
+  /** Callback to get steering messages (injected mid-run) */
+  getSteeringMessages?: () => Promise<AgentMessage[]>;
+  /** Callback to get follow-up messages (processed after agent finishes) */
+  getFollowUpMessages?: () => Promise<AgentMessage[]>;
 }
 
 /**
@@ -248,6 +252,8 @@ export async function runAgenticLoop(
         }
         return messages;
       },
+      getSteeringMessages: config.getSteeringMessages,
+      getFollowUpMessages: config.getFollowUpMessages,
     };
 
     // Run agent loop

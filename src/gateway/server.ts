@@ -14,7 +14,7 @@ import type { Message } from "../agent/session.js";
 import { resolveAgentId, resolveSessionKey } from "../agent/session-key.js";
 import { createSessionStore, type SessionKey } from "../agent/session-store.js";
 import { createSessionTranscriptStore } from "../agent/session-transcript.js";
-import { callWithFailover, type LLMProvider } from "../agent/runner.js";
+import type { LLMProvider } from "../agent/runner.js";
 import { loadOAuthCredentials, type SupportedOAuthProvider } from "../auth/oauth.js";
 import { buildSystemPrompt } from "../agent/system-prompt.js";
 import type { MsgContext } from "../channels/interface.js";
@@ -24,7 +24,7 @@ import { GroupHistoryBuffer } from "./group-history.js";
 import { GroupRateLimiter } from "./group-rate-limit.js";
 import { resolveEffectiveProviders } from "../models/override.js";
 import { ToolRegistry } from "../agent/tools/registry.js";
-import { executeToolCalls } from "../agent/tools/executor.js";
+import { createSessionSteeringManager } from "./session-steering.js";
 import { runAgenticLoop, createConversation } from "./agentic-loop.js";
 import {
   createBuiltinTools,
@@ -38,7 +38,6 @@ import {
   createWriteGateChannelAdapter,
 } from "../security/write-gate-adapter.js";
 import type { WriteGateChannel } from "../security/write-gate.js";
-import type { ToolResult } from "../agent/tools/interface.js";
 import { createCronService } from "../cron/legacy-service.js";
 import { executeHeartbeat } from "../cron/heartbeat.js";
 import { createCronIntegration } from "./cron-integration.js";
@@ -180,6 +179,9 @@ export async function startGateway(
     infraStore = createInfraStore({ sqlitePath: infraDbPath });
     log.info(`Infrastructure store initialized: ${infraDbPath}`);
   }
+
+  // Session steering manager for mid-run message injection
+  const steeringManager = createSessionSteeringManager();
 
   const sessionStore = createSessionStore({
     sessionsDir,
@@ -374,6 +376,7 @@ export async function startGateway(
         groupHistory,
         groupRateLimiter,
         infraStore,
+        steeringManager,
       );
     });
 
@@ -411,6 +414,7 @@ export async function startGateway(
         groupHistory,
         groupRateLimiter,
         infraStore,
+        steeringManager,
       );
     });
 
@@ -535,72 +539,34 @@ export async function startGateway(
   runBootOnce({
     workspacePath: config.workspace,
     executePrompt: async (prompt) => {
-      const bootMessages: Message[] = [
-        { role: "system", content: "You are a helpful assistant performing a startup boot check.", timestamp: Date.now() },
-        { role: "user", content: prompt, timestamp: Date.now() },
-      ];
-      const providers: LLMProvider[] = config.providers;
       const bootSessionKey = "boot:startup" as SessionKey;
       const bootAgentId = resolveAgentId({ config });
 
-      // Agentic loop with tool support (so BOOT.md can send messages etc.)
-      const MAX_BOOT_ITERATIONS = 3;
-      let iteration = 0;
-      let finalContent = "";
+      const conversationMessages = createConversation(
+        "You are a helpful assistant performing a startup boot check.",
+        [{ role: "user", content: prompt, timestamp: Date.now() }],
+      );
 
-      while (iteration < MAX_BOOT_ITERATIONS) {
-        iteration++;
-        const response = await callWithFailover(providers, bootMessages, {
-          tools: tools.getAll(),
-        });
-
-        if (!response.toolCalls || response.toolCalls.length === 0) {
-          finalContent = response.content;
-          break;
-        }
-
-        log.info(`boot: tool calls in iteration ${iteration}: ${response.toolCalls.map(c => c.name).join(", ")}`);
-
-        const toolResults = await executeToolCalls(response.toolCalls, {
-          registry: tools,
-          context: {
-            sessionKey: bootSessionKey,
-            agentId: bootAgentId,
-            config: {
-              channel: "boot",
-              target: "boot",
-            },
-          },
+      const result = await runAgenticLoop(
+        conversationMessages,
+        {
+          sessionKey: bootSessionKey,
+          agentId: bootAgentId,
+          sessionId: "boot",
+          userId: "boot",
+          channelId: "boot",
+          chatTargetId: "boot",
           workspacePath: config.workspace,
-        });
+        },
+        {
+          providers: config.providers,
+          tools,
+          transcripts,
+          maxIterations: 3,
+        },
+      );
 
-        // Add assistant + tool results to conversation
-        const assistantMsg: Message = {
-          role: "assistant",
-          content: response.content || "",
-          toolCalls: response.toolCalls,
-          timestamp: Date.now(),
-        };
-        bootMessages.push(assistantMsg);
-
-        // Add tool results as user message (matching main handler pattern)
-        const bootToolResults = response.toolCalls.map((call) => {
-          const result = toolResults.get(call.id);
-          return {
-            ...(result ?? { success: false, error: "Missing tool result" }),
-            toolCallId: call.id,
-            toolName: call.name,
-          } as ToolResult;
-        });
-        bootMessages.push({
-          role: "user",
-          content: "",
-          timestamp: Date.now(),
-          toolResults: bootToolResults,
-        });
-      }
-
-      return finalContent;
+      return result.content;
     },
   }).then((result) => {
     if (result.status === "ran") {
@@ -665,6 +631,7 @@ async function handleMessage(
   groupHistory: GroupHistoryBuffer,
   groupRateLimiter: GroupRateLimiter,
   infraStore: InfraStore | null,
+  steeringManager?: ReturnType<typeof createSessionSteeringManager>,
 ): Promise<void> {
   const agentId = resolveAgentId({ config });
   const sessionKey = resolveSessionKey({ ctx, config });
@@ -716,6 +683,13 @@ async function handleMessage(
         messageId: ctx.messageId,
       });
     }
+    return;
+  }
+
+  // Steering: if a loop is already active for this session, queue and return early
+  if (steeringManager?.isActive(sessionKey)) {
+    log.info(`Session ${sessionKey} active, queuing as steering message`);
+    steeringManager.pushSteering(sessionKey, ctx.body, ctx.timestamp);
     return;
   }
 
@@ -956,33 +930,46 @@ async function handleMessage(
     return;
   }
 
-  // Agentic loop (using pi-agent-core)
+  // Agentic loop (using pi-agent-core, with steering/follow-up support)
   const conversationMessages = createConversation(systemPrompt, history);
   
   const loopConfig = config.agents?.loop ?? { maxIterations: 50, timeoutSeconds: 600 };
-  const loopResult = await runAgenticLoop(
-    conversationMessages,
-    {
-      sessionKey,
-      agentId,
-      sessionId: entry.sessionId,
-      userId: ctx.from,
-      channelId: ctx.channel,
-      chatTargetId: ctx.chatType === "direct" ? ctx.from : (ctx.groupId ?? ctx.from),
-      workspacePath: config.workspace,
-      memorySearchConfig: config.memorySearch,
-      securityConfig: config.security,
-    },
-    {
-      providers: effectiveProviders,
-      tools,
-      writeGateChannel: writeGateChannels.get(ctx.channel),
-      transcripts,
-      maxIterations: loopConfig.maxIterations,
-      timeoutMs: loopConfig.timeoutSeconds * 1000,
-      cliBackends: config.agents?.defaults?.cliBackends,
-    }
-  );
+
+  steeringManager?.setActive(sessionKey);
+  let loopResult;
+  try {
+    loopResult = await runAgenticLoop(
+      conversationMessages,
+      {
+        sessionKey,
+        agentId,
+        sessionId: entry.sessionId,
+        userId: ctx.from,
+        channelId: ctx.channel,
+        chatTargetId: ctx.chatType === "direct" ? ctx.from : (ctx.groupId ?? ctx.from),
+        workspacePath: config.workspace,
+        memorySearchConfig: config.memorySearch,
+        securityConfig: config.security,
+      },
+      {
+        providers: effectiveProviders,
+        tools,
+        writeGateChannel: writeGateChannels.get(ctx.channel),
+        transcripts,
+        maxIterations: loopConfig.maxIterations,
+        timeoutMs: loopConfig.timeoutSeconds * 1000,
+        cliBackends: config.agents?.defaults?.cliBackends,
+        getSteeringMessages: steeringManager
+          ? async () => steeringManager.drainSteering(sessionKey)
+          : undefined,
+        getFollowUpMessages: steeringManager
+          ? async () => steeringManager.drainFollowUp(sessionKey)
+          : undefined,
+      }
+    );
+  } finally {
+    steeringManager?.setInactive(sessionKey);
+  }
 
   const finalContent = loopResult.content;
   const iteration = loopResult.iterations;
