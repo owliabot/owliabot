@@ -25,6 +25,11 @@ export interface SessionEntry {
   chatType?: "direct" | "group" | "channel";
   groupId?: string;
   displayName?: string;
+  /**
+   * Session-scoped primary model override in `provider/model` form.
+   * Example: "openai/gpt-5.2-codex".
+   */
+  primaryModelRefOverride?: string;
 }
 
 export interface SessionStoreOptions {

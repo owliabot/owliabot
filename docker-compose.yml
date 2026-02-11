@@ -10,7 +10,6 @@ services:
       - "127.0.0.1:8787:8787"
     volumes:
       - ~/.owliabot:/home/owliabot/.owliabot
-      - ~/.owliabot/workspace:/app/workspace
     environment:
       - TZ=UTC
     command: ["start", "-c", "/home/owliabot/.owliabot/app.yaml"]

@@ -56,12 +56,12 @@ npx tsx src/entry.ts onboard
 
 引导流程会依次询问：
 - 启用的频道（Discord / Telegram）
-- Workspace 路径
+- 时区（自动检测，可在配置中覆盖）
 - AI 模型选择
 - 可选的 OAuth 认证
 - 频道 Token 配置
 
-配置保存至 `~/.owlia_dev/app.yaml`，敏感信息存入 `~/.owlia_dev/secrets.yaml`。
+配置保存至 `$OWLIABOT_HOME/app.yaml`（默认：`~/.owliabot/app.yaml`），敏感信息存入 `$OWLIABOT_HOME/secrets.yaml`。
 
 ### 3. 启动机器人
 
@@ -94,6 +94,7 @@ npx tsx src/entry.ts start -c config.yaml
 | 命令 | 描述 |
 |------|------|
 | `start` | 启动机器人 |
+| `doctor` | 诊断启动失败（配置/Token）并引导修复 |
 | `onboard` | 交互式设置向导 |
 | `auth setup [provider]` | 设置 OAuth（anthropic 或 openai-codex） |
 | `auth status [provider]` | 检查认证状态 |
@@ -107,7 +108,13 @@ npx tsx src/entry.ts start -c config.yaml
 # 交互式设置
 npx tsx src/entry.ts onboard
 
-# 使用默认配置启动（~/.owlia_dev/app.yaml）
+# 诊断启动问题（配置错误 / Token 格式错误）
+npx tsx src/entry.ts doctor
+
+# Docker 模式诊断（容器内执行）
+docker exec -it owliabot owliabot doctor
+
+# 使用默认配置启动（$OWLIABOT_HOME/app.yaml，默认：~/.owliabot/app.yaml）
 npx tsx src/entry.ts start
 
 # 使用自定义配置启动
@@ -135,7 +142,7 @@ OwliaBot 包含一个 HTTP 网关，用于设备配对和远程工具调用：
 gateway:
   http:
     port: 8787
-    token: ${GATEWAY_TOKEN}
+    token: ${OWLIABOT_GATEWAY_TOKEN}
     allowlist:
       - "127.0.0.1"
       - "10.0.0.0/8"

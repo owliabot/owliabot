@@ -110,7 +110,7 @@ heartbeat:
 #   http:
 #     host: 127.0.0.1
 #     port: 8787
-#     token: ${GATEWAY_TOKEN}
+#     token: ${OWLIABOT_GATEWAY_TOKEN}
 #     allowlist:
 #       - "127.0.0.1"
 #       - "10.0.0.0/8"
@@ -170,27 +170,22 @@ heartbeat:
 #     maxResults: 10
 
 # MCP (Model Context Protocol) servers - optional
-# Enables external tool servers (e.g. Playwright browser automation)
+# Automatically starts MCP servers and registers their tools at boot time
 # mcp:
-#   autoStart: true              # Start MCP servers on gateway boot (default: true)
-#   presets:                     # Named presets for common servers
-#     - playwright               # Auto-expands to headless Playwright MCP server
-#   servers:                     # Or define servers explicitly:
+#   servers:
 #     - name: playwright
 #       command: npx
-#       args: ["--yes", "@playwright/mcp@latest", "--headless"]
+#       args: ["@anthropic/mcp-server-playwright"]
 #       transport: stdio
-#     - name: my-custom-server
-#       url: http://localhost:3001/sse
-#       transport: sse
-#   defaults:
-#     timeout: 30000
-#     connectTimeout: 10000
-#   securityOverrides:
-#     playwright__browser_navigate:
-#       level: write
-#     playwright__browser_screenshot:
-#       level: read
+#     # - name: filesystem
+#     #   command: npx
+#     #   args: ["@anthropic/mcp-server-filesystem", "./workspace"]
+#     #   transport: stdio
+#   # defaults:
+#   #   timeout: 30000
+#   #   connectTimeout: 10000
+#   #   restartOnCrash: true
+#   #   maxRestarts: 3
 
 # Wallet Tools (Clawlet integration) - optional
 # Enables wallet_balance and wallet_transfer tools for on-chain operations
@@ -201,3 +196,4 @@ heartbeat:
 #     token: ${CLAWLET_TOKEN}                 # Auth token from clawlet (required when enabled)
 #     requestTimeout: 30000                   # Request timeout in ms (default: 30s)
 #     defaultChainId: 8453                    # Default chain ID (8453 = Base, 1 = Ethereum)
+#     defaultAddress: "0x742d35Cc6634C0532925a3b844Bc9e7595f5b5e2"  # Default wallet address (must be quoted)

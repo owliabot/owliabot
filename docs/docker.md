@@ -67,7 +67,7 @@ DISCORD_BOT_TOKEN=xxx
 TELEGRAM_BOT_TOKEN=xxx
 
 # Gateway HTTP Token（用于 API 认证）
-GATEWAY_TOKEN=your-secure-token
+OWLIABOT_GATEWAY_TOKEN=your-secure-token
 
 # 可选：时区设置
 TZ=Asia/Shanghai
@@ -76,31 +76,26 @@ TZ=Asia/Shanghai
 3. **运行交互式 Onboarding**
 
 ```bash
-# 创建配置目录
-mkdir -p owlia_dev workspace
+# 创建持久化目录（OAuth + 配置 + workspace）
+mkdir -p ~/.owliabot/auth ~/.owliabot/workspace
 
-# 运行 onboard 向导（交互式）
+# 运行 onboard 向导（交互式，生成 docker-compose.yml）
 docker run -it --rm \
-  -v $(pwd)/owlia_dev:/home/owliabot/.owlia_dev \
-  -v $(pwd)/workspace:/app/workspace \
+  -v ~/.owliabot:/home/owliabot/.owliabot \
+  -v $(pwd):/app/output \
   --env-file .env \
-  owliabot:latest onboard
+  owliabot:latest onboard --docker --output-dir /app/output
 ```
 
-向导会引导你配置 AI 提供商、聊天平台等，生成的配置保存在 `./owlia_dev/app.yaml`。
+向导会引导你配置 AI 提供商、聊天平台等，配置保存在 `~/.owliabot/app.yaml`，敏感信息保存在 `~/.owliabot/secrets.yaml`，并在当前目录生成 `docker-compose.yml`。
 
 4. **启动 Bot**
 
 ```bash
-# 使用 onboard 生成的配置启动
-docker run -d \
-  --name owliabot \
-  --restart unless-stopped \
-  -p 8787:8787 \
-  -v $(pwd)/owlia_dev:/home/owliabot/.owlia_dev:ro \
-  -v $(pwd)/workspace:/app/workspace \
-  --env-file .env \
-  owliabot:latest start -c /home/owliabot/.owlia_dev/app.yaml
+# 使用 onboard 生成的 docker-compose.yml 启动
+docker compose up -d
+# 或（旧版）
+# docker-compose up -d
 ```
 
 5. **查看日志**
@@ -121,14 +116,20 @@ cd owliabot
 2. **准备配置文件**
 
 ```bash
-# 创建配置目录
-mkdir -p config workspace
+# 创建持久化目录（OAuth + 配置 + workspace）
+mkdir -p ~/.owliabot/auth ~/.owliabot/workspace
+chmod 700 ~/.owliabot ~/.owliabot/auth 2>/dev/null || true
 
-# 复制示例配置
-cp config.example.yaml config/app.yaml
+# 复制示例配置到默认位置（推荐）
+cp config.example.yaml ~/.owliabot/app.yaml
+
+# 可选：创建 secrets.yaml（存放 API Key / Token，权限 600）
+touch ~/.owliabot/secrets.yaml
+chmod 600 ~/.owliabot/secrets.yaml
 
 # 编辑配置文件
-nano config/app.yaml
+nano ~/.owliabot/app.yaml
+nano ~/.owliabot/secrets.yaml
 ```
 
 3. **设置环境变量**
@@ -145,7 +146,7 @@ DISCORD_BOT_TOKEN=xxx
 TELEGRAM_BOT_TOKEN=xxx
 
 # Gateway HTTP Token（用于 API 认证）
-GATEWAY_TOKEN=your-secure-token
+OWLIABOT_GATEWAY_TOKEN=your-secure-token
 
 # 可选：时区设置
 TZ=Asia/Shanghai
@@ -177,14 +178,14 @@ docker build -t owliabot .
 docker run -d \
   --name owliabot \
   --restart unless-stopped \
-  -p 8787:8787 \
-  -v $(pwd)/config:/app/config:ro \
-  -v $(pwd)/workspace:/app/workspace \
-  -e ANTHROPIC_API_KEY=sk-ant-xxx \
-  -e DISCORD_BOT_TOKEN=xxx \
-  -e GATEWAY_TOKEN=your-secure-token \
-  owliabot
+  -p 127.0.0.1:8787:8787 \
+  -v ~/.owliabot:/home/owliabot/.owliabot \
+  -e TZ=Asia/Shanghai \
+  ghcr.io/owliabot/owliabot:latest \
+  start -c /home/owliabot/.owliabot/app.yaml
 ```
+
+如果你选择了 env-based 认证（例如 providers.apiKey = env），再额外挂上对应环境变量即可（如 `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `DISCORD_BOT_TOKEN` / `TELEGRAM_BOT_TOKEN`）。
 
 ## 配置说明
 
@@ -192,7 +193,11 @@ OwliaBot 支持两种配置方式：
 
 ### 1. 配置文件方式
 
-将配置写入 `config/app.yaml`，通过卷挂载到容器内。
+将配置写入 `~/.owliabot/app.yaml`（推荐），通过卷挂载到容器内：
+
+```bash
+-v ~/.owliabot:/home/owliabot/.owliabot
+```
 
 配置文件结构示例：
 
@@ -201,29 +206,30 @@ OwliaBot 支持两种配置方式：
 providers:
   - id: anthropic
     model: claude-sonnet-4-5
-    apiKey: ${ANTHROPIC_API_KEY}  # 引用环境变量
+    apiKey: secrets
     priority: 1
 
 # Telegram 配置
 telegram:
-  token: ${TELEGRAM_BOT_TOKEN}
+  allowList: ["123456789"]
 
 # Discord 配置
 discord:
-  token: ${DISCORD_BOT_TOKEN}
+  channelAllowList: []
+  requireMentionInGuild: true
 
 # Gateway HTTP 配置
 gateway:
   http:
     host: 0.0.0.0  # Docker 中必须绑定 0.0.0.0
     port: 8787
-    token: ${GATEWAY_TOKEN}
+    token: secrets
 
 # 工作区路径
-workspace: /app/workspace
+workspace: workspace
 ```
 
-**注意**：配置文件中可以使用 `${ENV_VAR}` 语法引用环境变量。
+敏感信息（API Key / Bot Token / Gateway Token）建议放在 `~/.owliabot/secrets.yaml`（权限 600），Docker 和 CLI 会共享同一份。
 
 ### 2. 环境变量方式
 
@@ -233,7 +239,7 @@ workspace: /app/workspace
 | `OPENAI_API_KEY` | OpenAI API 密钥 | 否* |
 | `DISCORD_BOT_TOKEN` | Discord Bot Token | 否** |
 | `TELEGRAM_BOT_TOKEN` | Telegram Bot Token | 否** |
-| `GATEWAY_TOKEN` | Gateway HTTP 认证 Token | 推荐 |
+| `OWLIABOT_GATEWAY_TOKEN` | Gateway HTTP 认证 Token | 推荐 |
 | `BRAVE_SEARCH_API_KEY` | Brave Search API 密钥 | 否 |
 | `TZ` | 时区（如 `Asia/Shanghai`） | 否 |
 
@@ -244,38 +250,29 @@ workspace: /app/workspace
 
 | 容器路径 | 说明 | 挂载模式 |
 |---------|------|---------|
-| `/app/config` | 配置文件目录（手动配置方式） | 只读 (`:ro`) |
-| `/home/owliabot/.owlia_dev` | Onboard 生成的配置 | 只读 (`:ro`) |
-| `/app/workspace` | 工作区（记忆、文件等） | 读写 |
-| `/home/owliabot/.owliabot` | OAuth 凭据等持久化数据 | 读写 |
+| `/home/owliabot/.owliabot` | Onboard 生成的配置（app.yaml / secrets.yaml / workspace / auth） | 读写 |
 
 ### 目录结构示例
 
-**手动配置方式：**
+**手动配置方式（推荐仍然使用 `~/.owliabot/` 作为配置目录）：**
 ```
-owliabot/
-├── config/
-│   └── app.yaml          # 主配置文件
-├── workspace/
-│   ├── memory/           # 记忆文件
-│   └── gateway.db        # Gateway 数据库
-├── docker-compose.yml
-├── Dockerfile
-└── .env                  # 环境变量（不要提交到 Git！）
+~/.owliabot/
+├── app.yaml          # 主配置文件（非敏感）
+├── secrets.yaml      # Token / API key（敏感，权限 600）
+├── auth/             # OAuth token
+└── workspace/        # 工作区（记忆、文件等）
 ```
 
-**Onboard 方式：**
+**Onboard 方式（推荐）：**
 ```
-owliabot/
-├── owlia_dev/
-│   ├── app.yaml          # Onboard 生成的配置
-│   └── secrets.yaml      # Token 存储（可选）
-├── workspace/
-│   ├── memory/           # 记忆文件
-│   └── gateway.db        # Gateway 数据库
-├── docker-compose.yml
-├── Dockerfile
-└── .env                  # 环境变量（不要提交到 Git！）
+~/.owliabot/
+├── app.yaml          # Onboard 生成的配置
+├── secrets.yaml      # Token / API key（敏感）
+├── auth/             # OAuth token
+└── workspace/        # 工作区（记忆、文件等）
+
+owliabot/              # 你运行 onboard 的目录
+└── docker-compose.yml  # 向导生成
 ```
 
 ## 敏感信息存放位置

@@ -19,6 +19,11 @@ import type { ChannelRegistry } from "../channels/registry.js";
 import { summarizeAndSave, type SummarizeResult } from "./session-summarizer.js";
 import type { ModelConfig } from "../agent/models.js";
 import type { InfraStore } from "../infra/index.js";
+import { listConfiguredModelCatalog } from "../models/catalog.js";
+import { parseModelRef } from "../models/ref.js";
+import { applyPrimaryModelRefOverride } from "../models/override.js";
+import { updateAppConfigFilePrimaryModel } from "../models/config-file.js";
+import { resolvePathLike, defaultConfigPath } from "../utils/paths.js";
 
 const log = createLogger("commands");
 
@@ -37,6 +42,10 @@ const HELP_TEXT = `🦉 **OwliaBot 帮助**
 **命令**
 • \`/new\` — 开始新会话
 • \`/new <model>\` — 切换模型并开始新会话 (sonnet, opus, haiku, gpt-4o)
+• \`/models [filter]\` — 列出可用模型（可选过滤）
+• \`/model <provider/model|alias>\` — 本会话切换 primary 模型
+• \`/model default <provider/model|alias>\` — 设置全局默认 primary 模型 (写入 app.yaml)
+• \`/model clear\` — 清除本会话模型覆盖
 • \`/reset\` — 重置当前会话
 • \`/help\` — 显示此帮助信息
 
@@ -69,6 +78,8 @@ export interface CommandContext {
   sessionStore: SessionStore;
   transcripts: SessionTranscriptStore;
   channels: ChannelRegistry;
+  /** Provider chain from config (used for /models and /model). */
+  providers?: Array<{ id: string; model: string; priority: number }>;
   resetTriggers?: string[];
   /** Workspace root path — needed for writing memory summaries. */
   workspacePath?: string;
@@ -115,10 +126,8 @@ export function resolveModelFromRemainder(token: string): ModelSelection | null 
 
   // Check provider/model format (e.g. "anthropic/claude-sonnet-4-5")
   if (token.includes("/")) {
-    const [provider, model] = token.split("/", 2);
-    if (provider && model) {
-      return { provider, model };
-    }
+    const parsed = parseModelRef(token);
+    if (parsed) return parsed;
   }
 
   return null;
@@ -136,6 +145,7 @@ export async function tryHandleCommand(
 ): Promise<CommandResult> {
   const {
     ctx, sessionKey, sessionStore, transcripts, channels,
+    providers,
     resetTriggers, workspacePath, summaryModel, timezone,
     authorizedSenders, defaultModelLabel,
     summarizeOnReset = true,
@@ -143,6 +153,208 @@ export async function tryHandleCommand(
 
   const body = ctx.body.trim();
   const bodyLower = body.toLowerCase();
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // Model listing / switching (/models, /model)
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  const isModels = bodyLower === "/models" || bodyLower.startsWith("/models ");
+  if (isModels) {
+    const channel = channels.get(ctx.channel);
+    if (channel) {
+      const target = ctx.chatType === "direct" ? ctx.from : ctx.groupId ?? ctx.from;
+      const filter = body.slice("/models".length).trim();
+      const entries = providers
+        ? listConfiguredModelCatalog({ providers, filter })
+        : [];
+
+      if (!providers || providers.length === 0) {
+        await channel.send(target, {
+          text: "⚠️ No providers configured. Update app.yaml `providers` first.",
+          replyToId: ctx.messageId,
+        });
+        return { handled: true };
+      }
+
+      if (entries.length === 0) {
+        await channel.send(target, {
+          text: filter
+            ? `No models found for filter: "${filter}".`
+            : "No models found (provider catalogs unavailable).",
+          replyToId: ctx.messageId,
+        });
+        return { handled: true };
+      }
+
+      const MAX = 30;
+      const lines = entries.slice(0, MAX).map((e) => {
+        const label = e.name && e.name !== e.model ? ` — ${e.name}` : "";
+        return `• \`${e.key}\`${label}`;
+      });
+      const suffix =
+        entries.length > MAX ? `\n… and ${entries.length - MAX} more. Add a filter: \`/models gpt-5\`` : "";
+
+      const title = filter ? `Available models (filter: "${filter}"):` : "Available models:";
+      await channel.send(target, {
+        text: `${title}\n${lines.join("\n")}${suffix}`,
+        replyToId: ctx.messageId,
+      });
+    }
+    return { handled: true };
+  }
+
+  const isModel = bodyLower === "/model" || bodyLower.startsWith("/model ");
+  if (isModel) {
+    const channel = channels.get(ctx.channel);
+    if (channel) {
+      const target = ctx.chatType === "direct" ? ctx.from : ctx.groupId ?? ctx.from;
+      const remainder = body.slice("/model".length).trim();
+
+      const existing = await sessionStore.get(sessionKey);
+
+      const sortedProviders = [...(providers ?? [])].toSorted((a, b) => a.priority - b.priority);
+      const defaultRef = sortedProviders[0]
+        ? `${sortedProviders[0].id}/${sortedProviders[0].model}`
+        : defaultModelLabel ?? "(unknown)";
+      const activeRef = existing?.primaryModelRefOverride?.trim() || defaultRef;
+
+      if (!remainder) {
+        await channel.send(target, {
+          text: `Current model: \`${activeRef}\`\nDefault: \`${defaultRef}\``,
+          replyToId: ctx.messageId,
+        });
+        return { handled: true };
+      }
+
+      const remainderLower = remainder.toLowerCase();
+      if (remainderLower === "default" || remainderLower.startsWith("default ")) {
+        const after = remainder.slice("default".length).trim();
+        if (!after) {
+          await channel.send(target, {
+            text: `Usage: \`/model default <provider/model|alias>\`\nTip: use \`/models\` to browse.`,
+            replyToId: ctx.messageId,
+          });
+          return { handled: true };
+        }
+
+        const token = after.split(/\s+/)[0] ?? "";
+        const resolved = resolveModelFromRemainder(token) ?? (() => {
+          // If no provider is specified and it's not an alias, treat as model id for the default provider.
+          if (!token.includes("/") && sortedProviders[0]) {
+            return { provider: sortedProviders[0].id, model: token };
+          }
+          return null;
+        })();
+
+        if (!resolved) {
+          await channel.send(target, {
+            text: `⚠️ Invalid model reference: "${token}". Use \`/models\` to see options.`,
+            replyToId: ctx.messageId,
+          });
+          return { handled: true };
+        }
+
+        const allowedProviders = new Set((providers ?? []).map((p) => p.id.toLowerCase()));
+        if (providers && providers.length > 0 && !allowedProviders.has(resolved.provider.toLowerCase())) {
+          await channel.send(target, {
+            text: `⚠️ Provider not configured: "${resolved.provider}". Configure it in app.yaml first.`,
+            replyToId: ctx.messageId,
+          });
+          return { handled: true };
+        }
+
+        const modelRef = `${resolved.provider}/${resolved.model}`;
+
+        // Persist to app.yaml (write raw YAML to avoid leaking merged secrets/env).
+        const rawConfigPath = process.env.OWLIABOT_CONFIG_PATH ?? defaultConfigPath();
+        const configPath = resolvePathLike(rawConfigPath);
+        try {
+          await updateAppConfigFilePrimaryModel(configPath, {
+            provider: resolved.provider,
+            model: resolved.model,
+          });
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          await channel.send(target, {
+            text: `⚠️ Failed to update app.yaml default model: ${message}`,
+            replyToId: ctx.messageId,
+          });
+          return { handled: true };
+        }
+
+        // Update in-memory provider chain so it takes effect immediately in this process.
+        // Note: this is an intentional in-place mutation because `providers` is passed
+        // by reference into the message pipeline.
+        if (providers && providers.length > 0) {
+          const next = applyPrimaryModelRefOverride(providers as any, {
+            provider: resolved.provider,
+            model: resolved.model,
+          });
+          providers.splice(0, providers.length, ...(next as any));
+        }
+
+        // Clear session override so the session follows the new default.
+        await sessionStore.getOrCreate(sessionKey, {
+          primaryModelRefOverride: undefined,
+        } as any);
+
+        await channel.send(target, {
+          text: `✅ Default model updated: \`${modelRef}\``,
+          replyToId: ctx.messageId,
+        });
+        return { handled: true };
+      }
+
+      if (remainder.toLowerCase() === "clear") {
+        await sessionStore.getOrCreate(sessionKey, {
+          // Setting undefined clears the field; JSON serialization will omit it.
+          primaryModelRefOverride: undefined,
+        } as any);
+        await channel.send(target, {
+          text: `✅ Model override cleared. Using default: \`${defaultRef}\``,
+          replyToId: ctx.messageId,
+        });
+        return { handled: true };
+      }
+
+      const token = remainder.split(/\s+/)[0] ?? "";
+      const resolved = resolveModelFromRemainder(token) ?? (() => {
+        // If no provider is specified and it's not an alias, treat as model id for the default provider.
+        if (!token.includes("/") && sortedProviders[0]) {
+          return { provider: sortedProviders[0].id, model: token };
+        }
+        return null;
+      })();
+
+      if (!resolved) {
+        await channel.send(target, {
+          text: `⚠️ Invalid model reference: "${token}". Use \`/models\` to see options.`,
+          replyToId: ctx.messageId,
+        });
+        return { handled: true };
+      }
+
+      const modelRef = `${resolved.provider}/${resolved.model}`;
+      const allowedProviders = new Set((providers ?? []).map((p) => p.id.toLowerCase()));
+      if (providers && providers.length > 0 && !allowedProviders.has(resolved.provider.toLowerCase())) {
+        await channel.send(target, {
+          text: `⚠️ Provider not configured: "${resolved.provider}". Configure it in app.yaml first.`,
+          replyToId: ctx.messageId,
+        });
+        return { handled: true };
+      }
+
+      await sessionStore.getOrCreate(sessionKey, {
+        primaryModelRefOverride: modelRef,
+      } as any);
+
+      await channel.send(target, {
+        text: `✅ Model set for this session: \`${modelRef}\``,
+        replyToId: ctx.messageId,
+      });
+    }
+    return { handled: true };
+  }
 
   // Check for help command first (no auth required)
   const isHelp = HELP_TRIGGERS.some((t) => bodyLower === t.toLowerCase());
@@ -203,6 +415,12 @@ export async function tryHandleCommand(
   // Rotate session (creates a new sessionId for this sessionKey)
   const oldEntry = await sessionStore.get(sessionKey);
 
+  // Carry forward session model override unless explicitly changed via "/new <model>".
+  const carriedModelRef = oldEntry?.primaryModelRefOverride?.trim() || undefined;
+  const nextModelRef = modelSelection
+    ? `${modelSelection.provider}/${modelSelection.model}`
+    : carriedModelRef;
+
   // Summarize transcript → memory before clearing (non-blocking on failure)
   let summaryResult: SummarizeResult = { summarized: false };
   if (summarizeOnReset && oldEntry?.sessionId && workspacePath) {
@@ -211,8 +429,8 @@ export async function tryHandleCommand(
       transcripts,
       workspacePath,
       summaryModel,
-      timezone,
-    });
+    timezone,
+  });
   }
 
   const newEntry = await sessionStore.rotate(sessionKey, {
@@ -220,6 +438,7 @@ export async function tryHandleCommand(
     chatType: ctx.chatType,
     groupId: ctx.groupId,
     displayName: ctx.senderName,
+    primaryModelRefOverride: nextModelRef,
   });
 
   // Clear old transcript (after summary is saved)
@@ -236,9 +455,7 @@ export async function tryHandleCommand(
       ctx.chatType === "direct" ? ctx.from : ctx.groupId ?? ctx.from;
 
     // Build model label for greeting
-    const activeModelLabel = modelSelection
-      ? `${modelSelection.provider}/${modelSelection.model}`
-      : defaultModelLabel;
+    const activeModelLabel = nextModelRef ?? defaultModelLabel;
 
     const modelInfo = activeModelLabel
       ? modelSelection && defaultModelLabel && activeModelLabel !== defaultModelLabel

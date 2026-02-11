@@ -16,28 +16,13 @@ import { createSessionStore, type SessionKey } from "../agent/session-store.js";
 import { createSessionTranscriptStore } from "../agent/session-transcript.js";
 import { callWithFailover, type LLMProvider } from "../agent/runner.js";
 import { loadOAuthCredentials, type SupportedOAuthProvider } from "../auth/oauth.js";
-
-const OAUTH_PROVIDERS = new Set<string>(["openai-codex"]);
-
-/** Check if any configured provider has usable credentials (secrets, env, or OAuth file). */
-async function hasAnyValidProvider(providers: readonly { id: string; apiKey?: string }[]): Promise<boolean> {
-  if (providers.some((p) => p.apiKey && p.apiKey !== "oauth" && p.apiKey !== "env" && p.apiKey !== "secrets")) {
-    return true;
-  }
-  for (const p of providers) {
-    if (p.apiKey === "oauth" && OAUTH_PROVIDERS.has(p.id)) {
-      const creds = await loadOAuthCredentials(p.id as SupportedOAuthProvider);
-      if (creds) return true;
-    }
-  }
-  return false;
-}
 import { buildSystemPrompt } from "../agent/system-prompt.js";
 import type { MsgContext } from "../channels/interface.js";
 import { passesUserAllowlist, shouldHandleMessage } from "./activation.js";
 import { tryHandleCommand, tryHandleStatusCommand } from "./commands.js";
 import { GroupHistoryBuffer } from "./group-history.js";
 import { GroupRateLimiter } from "./group-rate-limit.js";
+import { resolveEffectiveProviders } from "../models/override.js";
 import { ToolRegistry } from "../agent/tools/registry.js";
 import { executeToolCalls } from "../agent/tools/executor.js";
 import {
@@ -68,6 +53,7 @@ import { join, dirname, resolve } from "node:path";
 import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { existsSync, mkdirSync } from "node:fs";
+import { createMCPTools, type CreateMCPToolsResult } from "../mcp/index.js";
 import {
   defaultGatewayDir,
   defaultUserSkillsDir,
@@ -75,6 +61,22 @@ import {
   resolvePathLike,
   resolveOwliabotHome,
 } from "../utils/paths.js";
+
+const OAUTH_PROVIDERS = new Set<string>(["openai-codex"]);
+
+/** Check if any configured provider has usable credentials (secrets, env, or OAuth file). */
+async function hasAnyValidProvider(providers: readonly { id: string; apiKey?: string }[]): Promise<boolean> {
+  if (providers.some((p) => p.apiKey && p.apiKey !== "oauth" && p.apiKey !== "env" && p.apiKey !== "secrets")) {
+    return true;
+  }
+  for (const p of providers) {
+    if (p.apiKey === "oauth" && OAUTH_PROVIDERS.has(p.id)) {
+      const creds = await loadOAuthCredentials(p.id as SupportedOAuthProvider);
+      if (creds) return true;
+    }
+  }
+  return false;
+}
 
 /**
  * Resolve bundled skills directory (like OpenClaw's approach)
@@ -476,6 +478,27 @@ export async function startGateway(
   // Register cron tool
   tools.register(createCronTool({ cronService: cronIntegration.cronService }));
 
+  // Initialize MCP servers and register their tools
+  let mcpResult: CreateMCPToolsResult | null = null;
+  if (config.mcp) {
+    try {
+      mcpResult = await createMCPTools(config.mcp);
+      for (const tool of mcpResult.tools) {
+        tools.register(tool);
+      }
+      if (mcpResult.failed.length > 0) {
+        for (const f of mcpResult.failed) {
+          log.warn(`MCP server "${f.name}" failed to connect: ${f.error}`);
+        }
+      }
+      log.info(
+        `MCP: ${mcpResult.tools.length} tools loaded from ${mcpResult.clients.size} server(s)`,
+      );
+    } catch (err) {
+      log.error(`MCP initialization failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
   // Start Gateway HTTP if enabled
   // Phase 2 Unification: HTTP API as a Channel Adapter, requiring shared resources
   let stopHttp: (() => Promise<void>) | undefined;
@@ -605,6 +628,9 @@ export async function startGateway(
     if (infraStore) {
       infraStore.cleanup(Date.now());
       infraStore.close();
+    }
+    if (mcpResult) {
+      await mcpResult.close();
     }
     if (stopHttp) {
       await stopHttp();
@@ -799,8 +825,11 @@ async function handleMessage(
     sessionStore,
     transcripts,
     channels,
+    providers: config.providers,
     resetTriggers: config.session?.resetTriggers,
-    defaultModelLabel: config.providers?.[0]?.model,
+    defaultModelLabel: config.providers?.[0]
+      ? `${config.providers[0].id}/${config.providers[0].model}`
+      : undefined,
     workspacePath: config.workspace,
     // Use configured summaryModel, or fall back to default provider's model (OpenClaw strategy)
     summaryModel: config.session?.summaryModel
@@ -876,6 +905,13 @@ async function handleMessage(
     displayName: ctx.senderName,
   });
 
+  const resolved = resolveEffectiveProviders(config.providers, entry.primaryModelRefOverride);
+  if (resolved.error) {
+    log.warn(`Ignoring invalid primaryModelRefOverride: ${entry.primaryModelRefOverride}`, resolved.error);
+  }
+  const effectiveProviders = resolved.providers;
+  const activeModelLabel = resolved.modelLabel;
+
   // Append user message to transcript
   const userMessage: Message = {
     role: "user",
@@ -893,7 +929,7 @@ async function handleMessage(
     channel: ctx.channel,
     chatType: ctx.chatType,
     timezone: config.timezone,
-    model: config.providers[0].model,
+    model: activeModelLabel,
     skills: skillsResult ?? undefined,
   });
 
@@ -929,7 +965,7 @@ async function handleMessage(
       log.debug(`Agentic loop iteration ${iteration}`);
 
       // Call LLM with tools
-      const providers: LLMProvider[] = config.providers;
+      const providers: LLMProvider[] = effectiveProviders;
       const response = await callWithFailover(providers, conversationMessages, {
         tools: tools.getAll(),
       });

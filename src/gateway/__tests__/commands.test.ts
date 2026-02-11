@@ -5,6 +5,10 @@ import type { MsgContext } from "../../channels/interface.js";
 import type { SessionStore, SessionEntry } from "../../agent/session-store.js";
 import type { SessionTranscriptStore } from "../../agent/session-transcript.js";
 import type { ChannelRegistry } from "../../channels/registry.js";
+import { mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { parse } from "yaml";
 
 // Mock the session-summarizer module
 vi.mock("../session-summarizer.js", () => ({
@@ -44,6 +48,15 @@ function createMockSessionStore(): SessionStore & {
           sessionId: "old-session-id",
           updatedAt: Date.now(),
           ...meta,
+        };
+      }
+      // Mirror real SessionStore behavior: merge meta updates without changing sessionId.
+      if (meta && store[key]) {
+        store[key] = {
+          ...store[key],
+          ...meta,
+          updatedAt: Date.now(),
+          sessionId: store[key].sessionId,
         };
       }
       return store[key];
@@ -156,6 +169,13 @@ describe("resolveModelFromRemainder", () => {
     });
   });
 
+  it("should resolve provider/model where model contains additional slashes", () => {
+    expect(resolveModelFromRemainder("openrouter/moonshotai/kimi-k2")).toEqual({
+      provider: "openrouter",
+      model: "moonshotai/kimi-k2",
+    });
+  });
+
   it("should return null for unknown tokens", () => {
     expect(resolveModelFromRemainder("unknown")).toBeNull();
     expect(resolveModelFromRemainder("hello world")).toBeNull();
@@ -195,6 +215,26 @@ describe("tryHandleCommand", () => {
     expect(sessionStore._rotated).toHaveLength(1);
     expect(channels.sent).toHaveLength(1);
     expect(channels.sent[0].text).toContain("New session started");
+  });
+
+  it("should carry forward primaryModelRefOverride when /new is called without explicit model", async () => {
+    await sessionStore.getOrCreate("discord:user123", { primaryModelRefOverride: "openai/gpt-5.2" } as any);
+
+    const ctx = createMockCtx({ body: "/new" });
+    const result = await tryHandleCommand(makeContext(ctx));
+
+    expect(result.handled).toBe(true);
+    expect(sessionStore._rotated).toHaveLength(1);
+    expect(sessionStore._rotated[0]?.entry.primaryModelRefOverride).toBe("openai/gpt-5.2");
+  });
+
+  it("should persist /new <model> selection into primaryModelRefOverride", async () => {
+    const ctx = createMockCtx({ body: "/new sonnet" });
+    const result = await tryHandleCommand(makeContext(ctx));
+
+    expect(result.handled).toBe(true);
+    expect(sessionStore._rotated).toHaveLength(1);
+    expect(sessionStore._rotated[0]?.entry.primaryModelRefOverride).toBe("anthropic/claude-sonnet-4-5");
   });
 
   it("should handle /reset command", async () => {
@@ -455,5 +495,103 @@ describe("tryHandleCommand", () => {
     );
 
     expect(channels.sent[0].text).not.toContain("📝");
+  });
+
+  // --- Model switching commands (/model, /models) ---
+
+  it("should handle /model <provider/model> and persist session primaryModelRefOverride", async () => {
+    const ctx = createMockCtx({ body: "/model openai/gpt-5.2" });
+    const spy = vi.spyOn(sessionStore, "getOrCreate");
+
+    const result = await tryHandleCommand(
+      makeContext(ctx, {
+        providers: [
+          { id: "anthropic", model: "claude-opus-4-5", apiKey: "k1", priority: 1 } as any,
+          { id: "openai", model: "gpt-4o", apiKey: "k2", priority: 2 } as any,
+        ],
+      }),
+    );
+
+    expect(result.handled).toBe(true);
+    expect(spy).toHaveBeenCalledWith("discord:user123", expect.objectContaining({}));
+
+    const entry = await sessionStore.get("discord:user123");
+    expect(entry?.primaryModelRefOverride).toBe("openai/gpt-5.2");
+    expect(channels.sent[0].text).toContain("openai/gpt-5.2");
+  });
+
+  it("should handle /model clear and remove primaryModelRefOverride", async () => {
+    await sessionStore.getOrCreate("discord:user123", { primaryModelRefOverride: "openai/gpt-5.2" } as any);
+    const ctx = createMockCtx({ body: "/model clear" });
+
+    const result = await tryHandleCommand(
+      makeContext(ctx, {
+        providers: [
+          { id: "openai", model: "gpt-4o", apiKey: "k2", priority: 1 } as any,
+        ],
+      }),
+    );
+
+    expect(result.handled).toBe(true);
+    const entry = await sessionStore.get("discord:user123");
+    expect(entry?.primaryModelRefOverride).toBeUndefined();
+    expect(channels.sent[0].text.toLowerCase()).toContain("cleared");
+  });
+
+  it("should handle /model default <provider/model>, update providers in-memory, and persist to app.yaml", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "owliabot-model-default-"));
+    const configPath = join(dir, "app.yaml");
+    const inputYaml = `
+providers:
+  - id: anthropic
+    model: claude-opus-4-5
+    apiKey: secrets
+    priority: 1
+  - id: openai
+    model: gpt-4o
+    apiKey: env
+    priority: 2
+`;
+    await writeFile(configPath, inputYaml, "utf-8");
+    const prevConfigPath = process.env.OWLIABOT_CONFIG_PATH;
+    process.env.OWLIABOT_CONFIG_PATH = configPath;
+
+    try {
+      const providers = [
+        { id: "anthropic", model: "claude-opus-4-5", apiKey: "secrets", priority: 1 } as any,
+        { id: "openai", model: "gpt-4o", apiKey: "env", priority: 2 } as any,
+      ];
+
+      const ctx = createMockCtx({ body: "/model default openai/gpt-5.2" });
+      const result = await tryHandleCommand(
+        makeContext(ctx, {
+          providers,
+        }),
+      );
+
+      expect(result.handled).toBe(true);
+
+      // In-memory chain updated
+      expect(providers[0]).toEqual(expect.objectContaining({ id: "openai", model: "gpt-5.2", priority: 1 }));
+      expect(providers[1]).toEqual(expect.objectContaining({ id: "anthropic", model: "claude-opus-4-5", priority: 2 }));
+
+      // Session override cleared (session should follow new default)
+      const entry = await sessionStore.get("discord:user123");
+      expect(entry?.primaryModelRefOverride).toBeUndefined();
+
+      // Config file updated
+      const saved = await readFile(configPath, "utf-8");
+      const doc = parse(saved) as any;
+      expect(doc.providers).toEqual([
+        expect.objectContaining({ id: "openai", model: "gpt-5.2", apiKey: "env", priority: 1 }),
+        expect.objectContaining({ id: "anthropic", model: "claude-opus-4-5", apiKey: "secrets", priority: 2 }),
+      ]);
+    } finally {
+      if (prevConfigPath === undefined) {
+        delete process.env.OWLIABOT_CONFIG_PATH;
+      } else {
+        process.env.OWLIABOT_CONFIG_PATH = prevConfigPath;
+      }
+    }
   });
 });

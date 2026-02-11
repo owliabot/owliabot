@@ -127,6 +127,7 @@ export interface AppConfig {
       host: string;
       port: number;
       token?: string;
+      allowlist?: string[];
     };
   };
 

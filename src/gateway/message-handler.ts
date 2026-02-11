@@ -22,6 +22,7 @@ import { shouldHandleMessage } from "./activation.js";
 import { tryHandleCommand, tryHandleStatusCommand } from "./commands.js";
 import { buildSystemPrompt } from "../agent/system-prompt.js";
 import { runAgenticLoop, createConversation } from "./agentic-loop.js";
+import { resolveEffectiveProviders } from "../models/override.js";
 
 const log = createLogger("gateway:message-handler");
 
@@ -308,8 +309,11 @@ export async function handleMessage(
       sessionStore,
       transcripts,
       channels,
+      providers: config.providers,
       resetTriggers: config.session?.resetTriggers,
-      defaultModelLabel: config.providers?.[0]?.model,
+      defaultModelLabel: config.providers?.[0]
+        ? `${config.providers[0].id}/${config.providers[0].model}`
+        : undefined,
       workspacePath: config.workspace,
       summaryModel: config.session?.summaryModel
         ? {
@@ -341,6 +345,13 @@ export async function handleMessage(
       displayName: ctx.senderName,
     });
 
+    const resolved = resolveEffectiveProviders(config.providers, entry.primaryModelRefOverride);
+    if (resolved.error) {
+      log.warn(`Ignoring invalid primaryModelRefOverride: ${entry.primaryModelRefOverride}`, resolved.error);
+    }
+    const effectiveProviders = resolved.providers;
+    const activeModelLabel = resolved.modelLabel;
+
     // Append user message to transcript
     const userMessage: Message = {
       role: "user",
@@ -358,7 +369,7 @@ export async function handleMessage(
       channel: ctx.channel,
       chatType: ctx.chatType,
       timezone: config.timezone,
-      model: config.providers[0].model,
+      model: activeModelLabel,
       skills: skillsResult ?? undefined,
     });
 
@@ -381,7 +392,7 @@ export async function handleMessage(
         securityConfig: config.security,
       },
       {
-        providers: config.providers,
+        providers: effectiveProviders,
         tools,
         writeGateChannel: writeGateChannels.get(ctx.channel),
         transcripts,

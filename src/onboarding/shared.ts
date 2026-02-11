@@ -8,6 +8,20 @@ import { join } from "node:path";
 import type { LLMProviderId } from "./types.js";
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Abort handling
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Thrown when the user aborts onboarding (Ctrl+C or stdin close).
+ */
+export class AbortError extends Error {
+  constructor(message = "User aborted") {
+    super(message);
+    this.name = "AbortError";
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Colors
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -45,7 +59,8 @@ export function printBanner(subtitle = "") {
   console.log(`${CYAN} | |__| |\\ V  V /| | | (_| | |_) | (_) | |_ ${NC}`);
   console.log(`${CYAN}  \\____/  \\_/\\_/ |_|_|\\__,_|____/ \\___/ \\__|${NC}`);
   console.log("");
-  console.log(`  OwliaBot Interactive Setup ${subtitle}`);
+  const sub = subtitle ? ` ${subtitle}` : "";
+  console.log(`  Let's set up OwliaBot${sub}`);
   console.log("");
 }
 
@@ -63,8 +78,21 @@ type RL = ReturnType<typeof createInterface>;
  * and passwords are typically ASCII-only, so this is safe for most cases.
  */
 export function ask(rl: RL, q: string, secret = false): Promise<string> {
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
+    // When readline closes (Ctrl+C in line mode, or stdin EOF), reject with AbortError.
+    const onClose = () => reject(new AbortError());
+    rl.once("close", onClose);
+
+    const cleanup = () => rl.removeListener("close", onClose);
+
     if (secret) {
+      // In non-interactive environments (CI/tests, piped input), stdin isn't a TTY.
+      // Raw-mode secret input would hang there, so fall back to readline question.
+      if (!process.stdin.isTTY) {
+        rl.question(q, (ans) => { cleanup(); resolve(ans.trim()); });
+        return;
+      }
+
       // Hide input for secrets with proper cleanup
       process.stdout.write(q);
       const stdin = process.stdin;
@@ -83,7 +111,7 @@ export function ask(rl: RL, q: string, secret = false): Promise<string> {
           stdin.setRawMode(true);
         } catch {
           // Fall back to non-secret mode if raw mode fails
-          rl.question("", (ans) => resolve(ans.trim()));
+          rl.question("", (ans) => { cleanup(); resolve(ans.trim()); });
           return;
         }
       }
@@ -95,12 +123,14 @@ export function ask(rl: RL, q: string, secret = false): Promise<string> {
           stdin.removeListener("data", onData);
           restoreMode();
           console.log("");
+          cleanup();
           resolve(input.trim());
         } else if (c === "\x03") { // Ctrl+C
           stdin.removeListener("data", onData);
           restoreMode();
           console.log("");
-          process.exit(130); // Standard exit code for Ctrl+C
+          cleanup();
+          reject(new AbortError());
         } else if (c === "\x7f" || c === "\b") { // Backspace
           input = input.slice(0, -1);
         } else if (c.charCodeAt(0) >= 32 && c.charCodeAt(0) < 127) {
@@ -111,7 +141,7 @@ export function ask(rl: RL, q: string, secret = false): Promise<string> {
       };
       stdin.on("data", onData);
     } else {
-      rl.question(q, (ans) => resolve(ans.trim()));
+      rl.question(q, (ans) => { cleanup(); resolve(ans.trim()); });
     }
   });
 }
@@ -133,10 +163,10 @@ export async function selectOption(rl: RL, prompt: string, options: string[]): P
   console.log(prompt);
   options.forEach((opt, i) => console.log(`  ${i + 1}) ${opt}`));
   while (true) {
-    const ans = await ask(rl, `Select [1-${options.length}]: `);
+    const ans = await ask(rl, `Pick a number [1-${options.length}]: `);
     const num = parseInt(ans, 10);
     if (num >= 1 && num <= options.length) return num - 1;
-    warn(`Please enter a number between 1 and ${options.length}`);
+    warn(`Please type a number between 1 and ${options.length}.`);
   }
 }
 
