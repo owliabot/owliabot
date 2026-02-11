@@ -58,6 +58,21 @@ export function buildDefaultSystemConfig(): SystemCapabilityConfig {
   };
 }
 
+/**
+ * Derive the write-tool allowlist from the final config's channel allowlists.
+ * Returns null when no channel-level user IDs are present (= no restriction).
+ */
+export function deriveWriteToolAllowListFromConfig(config: AppConfig): string[] | null {
+  const ids = new Set<string>();
+  if (config.discord?.memberAllowList) {
+    for (const id of config.discord.memberAllowList) ids.add(id);
+  }
+  if (config.telegram?.allowList) {
+    for (const id of config.telegram.allowList) ids.add(id);
+  }
+  return ids.size > 0 ? [...ids] : null;
+}
+
 export async function buildAppConfigFromPrompts(
   rl: ReturnType<typeof createInterface>,
   dockerMode: boolean,
@@ -66,7 +81,10 @@ export async function buildAppConfigFromPrompts(
   _secrets: SecretsConfig,
   discordEnabled: boolean,
   telegramEnabled: boolean,
-): Promise<{ config: AppConfig; workspace: string; writeToolAllowList: string[] | null }> {
+  reuseTelegramConfig?: boolean,
+  telegramAllowList?: string[],
+  telegramGroups?: NonNullable<NonNullable<AppConfig["telegram"]>["groups"]>,
+): Promise<{ config: AppConfig; workspacePath: string; writeToolAllowList: string[] | null }> {
   const workspace = await getWorkspacePath(rl, dockerMode, appConfigPath);
   const gateway = await getGatewayConfig(rl, dockerMode);
 
@@ -80,9 +98,21 @@ export async function buildAppConfigFromPrompts(
 
   const userAllowLists: UserAllowLists = { discord: [], telegram: [] };
   if (discordEnabled) await configureDiscordConfig(rl, config, userAllowLists);
-  if (telegramEnabled) await configureTelegramConfig(rl, config, userAllowLists);
+
+  if (telegramEnabled) {
+    if (reuseTelegramConfig) {
+      config.telegram = {
+        ...config.telegram,
+        ...(telegramAllowList && telegramAllowList.length > 0 && { allowList: telegramAllowList }),
+        ...(telegramGroups && Object.keys(telegramGroups).length > 0 && { groups: telegramGroups }),
+      };
+      if (telegramAllowList) userAllowLists.telegram = telegramAllowList;
+    } else {
+      await configureTelegramConfig(rl, config, userAllowLists);
+    }
+  }
 
   const writeToolAllowList = await configureWriteToolsSecurity(rl, config, userAllowLists);
 
-  return { config, workspace, writeToolAllowList };
+  return { config, workspacePath: workspace, writeToolAllowList };
 }

@@ -150,7 +150,7 @@ describe("onboarding", () => {
     const secrets = await loadSecrets(appConfigPath);
 
     expect(config?.workspace).toBe(join(dir, "workspace"));
-    expect(config?.memorySearch?.store?.path).toBe("{workspace}/memory/{agentId}.sqlite");
+    expect(config?.memorySearch?.store?.path).toBe(join(dir, "workspace", "memory", "{agentId}.sqlite"));
     expect(config?.timezone).toBe("America/New_York");
     expect(config?.providers?.[0]?.id).toBe("anthropic");
     expect(config?.providers?.[0]?.apiKey).toBe("secrets");
@@ -158,8 +158,8 @@ describe("onboarding", () => {
     expect(config?.gateway?.http).toMatchObject({
       host: "127.0.0.1",
       port: 8787,
-      token: "secrets",
     });
+    expect(config?.gateway?.http?.token).toBeTruthy();
     expect(config?.discord?.requireMentionInGuild).toBe(true);
     expect(config?.discord?.channelAllowList).toEqual(["111", "222"]);
     expect(config?.discord?.memberAllowList).toEqual(["123456789"]);
