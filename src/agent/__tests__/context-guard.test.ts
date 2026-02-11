@@ -10,6 +10,7 @@ import {
   TRUNCATE_TAIL_CHARS,
   DEFAULT_CHARS_PER_TOKEN,
   DEFAULT_RESERVE_TOKENS,
+  MAX_TOOL_RESULT_UPPER_BOUND,
 } from "../context-guard.js";
 import type { Message } from "../session.js";
 
@@ -281,28 +282,52 @@ describe("guardContext", () => {
     }
   });
 
-  it("removes orphaned tool results when assistant is dropped", () => {
+  it("drops assistant+toolResult as atomic group", () => {
     const sys = makeMessage("system", "sys");
     const assistant = makeMessage("assistant", "response", {
-      toolCalls: [{ id: "call-orphan", name: "tool", arguments: {} }],
+      toolCalls: [{ id: "call-1", name: "tool", arguments: {} }],
     });
     const toolResult = makeMessage("user", "", {
       toolResults: [
-        { success: true, data: "data", toolCallId: "call-orphan", toolName: "tool" },
+        { success: true, data: "data", toolCallId: "call-1", toolName: "tool" },
       ],
     });
     const recent = makeMessage("user", repeat("u", 10_000));
 
-    // Drop assistant but keep toolResult initially
+    // Budget only allows recent message, not the assistant+toolResult group
     const result = guardContext([sys, assistant, toolResult, recent], {
       contextWindow: 5_000,
       reserveTokens: 1_000,
     });
 
-    // Tool result should be filtered out since assistant was dropped
-    const keptToolResult = result.messages.find((m) => m === toolResult);
-    if (keptToolResult?.toolResults) {
-      expect(keptToolResult.toolResults.length).toBe(0);
+    // Check by content/structure (truncateMessageToolResults may clone objects)
+    const hasAssistant = result.messages.some(
+      (m) => m.role === "assistant" && m.toolCalls?.some((tc) => tc.id === "call-1")
+    );
+    const hasToolResult = result.messages.some(
+      (m) => m.toolResults?.some((tr) => tr.toolCallId === "call-1")
+    );
+    
+    // They should both be dropped or both be kept (atomic group)
+    expect(hasAssistant).toBe(hasToolResult);
+    
+    // Verify no orphaned tool results
+    const allToolCallIds = new Set<string>();
+    for (const msg of result.messages) {
+      if (msg.toolCalls) {
+        for (const tc of msg.toolCalls) {
+          allToolCallIds.add(tc.id);
+        }
+      }
+    }
+    for (const msg of result.messages) {
+      if (msg.toolResults) {
+        for (const tr of msg.toolResults) {
+          if (tr.toolCallId) {
+            expect(allToolCallIds.has(tr.toolCallId)).toBe(true);
+          }
+        }
+      }
     }
   });
 
@@ -326,32 +351,149 @@ describe("guardContext", () => {
 // ── calculateMaxToolResultChars ───────────────────────────
 
 describe("calculateMaxToolResultChars", () => {
-  it("calculates 30% of available context as max tool result size", () => {
+  it("calculates 30% of context window * 4 chars/token", () => {
     const contextWindow = 200_000;
-    const reserveTokens = 8_192;
-    const max = calculateMaxToolResultChars(contextWindow, reserveTokens);
+    const max = calculateMaxToolResultChars(contextWindow);
     
-    const availableTokens = contextWindow - reserveTokens;
-    const expectedTokens = Math.floor(availableTokens * 0.3);
-    const expectedChars = expectedTokens * DEFAULT_CHARS_PER_TOKEN;
+    // Formula: min(contextWindow * 0.3 * 4, 400000)
+    const expectedChars = Math.floor(contextWindow * 0.3 * 4);
     
     expect(max).toBe(expectedChars);
   });
 
-  it("uses default reserve tokens if not provided", () => {
-    const contextWindow = 100_000;
+  it("caps at 400KB upper bound", () => {
+    // Large context window that would exceed 400KB
+    const contextWindow = 500_000;
     const max = calculateMaxToolResultChars(contextWindow);
     
-    const availableTokens = contextWindow - DEFAULT_RESERVE_TOKENS;
-    const expectedTokens = Math.floor(availableTokens * 0.3);
-    const expectedChars = expectedTokens * DEFAULT_CHARS_PER_TOKEN;
+    // Should be capped at 400000
+    expect(max).toBe(400_000);
+  });
+
+  it("ignores reserveTokens parameter (backward compat)", () => {
+    const contextWindow = 100_000;
+    const maxWithReserve = calculateMaxToolResultChars(contextWindow, 8_192);
+    const maxWithoutReserve = calculateMaxToolResultChars(contextWindow);
     
-    expect(max).toBe(expectedChars);
+    // Both should return same value (reserveTokens is ignored)
+    expect(maxWithReserve).toBe(maxWithoutReserve);
+    expect(maxWithReserve).toBe(Math.floor(contextWindow * 0.3 * 4));
   });
 
   it("returns reasonable limits for small context windows", () => {
-    const max = calculateMaxToolResultChars(10_000, 2_000);
+    const max = calculateMaxToolResultChars(10_000);
     expect(max).toBeGreaterThan(0);
-    expect(max).toBeLessThan(10_000 * DEFAULT_CHARS_PER_TOKEN);
+    // 10000 * 0.3 * 4 = 12000, which is less than 400000
+    expect(max).toBe(12_000);
+  });
+});
+
+// ── Atomic group edge cases ────────────────────────────────
+
+describe("guardContext atomic groups", () => {
+  it("handles multiple tool calls in single assistant message", () => {
+    const sys = makeMessage("system", "sys");
+    const assistant = makeMessage("assistant", "calling multiple tools", {
+      toolCalls: [
+        { id: "call-a", name: "tool1", arguments: {} },
+        { id: "call-b", name: "tool2", arguments: {} },
+      ],
+    });
+    const toolResult1 = makeMessage("user", "", {
+      toolResults: [
+        { success: true, data: "result-a", toolCallId: "call-a", toolName: "tool1" },
+      ],
+    });
+    const toolResult2 = makeMessage("user", "", {
+      toolResults: [
+        { success: true, data: "result-b", toolCallId: "call-b", toolName: "tool2" },
+      ],
+    });
+    const recent = makeMessage("user", repeat("u", 8_000));
+
+    // Budget only allows recent message
+    const result = guardContext([sys, assistant, toolResult1, toolResult2, recent], {
+      contextWindow: 5_000,
+      reserveTokens: 1_000,
+    });
+
+    // All three (assistant + both toolResults) should be dropped together
+    const hasCallA = result.messages.some(
+      (m) => m.toolCalls?.some((tc) => tc.id === "call-a")
+    );
+    const hasCallB = result.messages.some(
+      (m) => m.toolCalls?.some((tc) => tc.id === "call-b")
+    );
+    const hasResultA = result.messages.some(
+      (m) => m.toolResults?.some((tr) => tr.toolCallId === "call-a")
+    );
+    const hasResultB = result.messages.some(
+      (m) => m.toolResults?.some((tr) => tr.toolCallId === "call-b")
+    );
+
+    // All should be consistently present or absent
+    expect(hasCallA).toBe(hasResultA);
+    expect(hasCallB).toBe(hasResultB);
+    expect(hasCallA).toBe(hasCallB);
+  });
+
+  it("keeps entire group when budget allows", () => {
+    const sys = makeMessage("system", "sys");
+    const assistant = makeMessage("assistant", "tool call", {
+      toolCalls: [{ id: "call-1", name: "t", arguments: {} }],
+    });
+    const toolResult = makeMessage("user", "", {
+      toolResults: [
+        { success: true, data: "result", toolCallId: "call-1", toolName: "t" },
+      ],
+    });
+
+    const result = guardContext([sys, assistant, toolResult], {
+      contextWindow: 200_000,
+    });
+
+    expect(result.dropped).toBe(0);
+    expect(result.messages).toHaveLength(3);
+  });
+
+  it("handles interleaved user messages between tool calls", () => {
+    const sys = makeMessage("system", "sys");
+    const user1 = makeMessage("user", "first question");
+    const assistant1 = makeMessage("assistant", "using tool", {
+      toolCalls: [{ id: "call-1", name: "t", arguments: {} }],
+    });
+    const toolResult1 = makeMessage("user", "", {
+      toolResults: [
+        { success: true, data: "data", toolCallId: "call-1", toolName: "t" },
+      ],
+    });
+    const user2 = makeMessage("user", "follow up");
+    const assistant2 = makeMessage("assistant", "final answer");
+
+    const result = guardContext(
+      [sys, user1, assistant1, toolResult1, user2, assistant2],
+      { contextWindow: 200_000 }
+    );
+
+    // Should keep all, no orphans
+    expect(result.dropped).toBe(0);
+    
+    const allToolCallIds = new Set<string>();
+    for (const msg of result.messages) {
+      if (msg.toolCalls) {
+        for (const tc of msg.toolCalls) {
+          allToolCallIds.add(tc.id);
+        }
+      }
+    }
+    for (const msg of result.messages) {
+      if (msg.toolResults) {
+        for (const tr of msg.toolResults) {
+          if (tr.toolCallId) {
+            expect(allToolCallIds.has(tr.toolCallId)).toBe(true);
+          }
+        }
+      }
+    }
   });
 });
