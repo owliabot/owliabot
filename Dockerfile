@@ -40,11 +40,25 @@ RUN npm prune --production
 # ==============================================================================
 FROM node:22-slim AS production
 
-# Install runtime dependencies
+# Install runtime dependencies + Chromium for Playwright MCP
+# Chromium and its dependencies are needed for browser automation via @playwright/mcp.
+# Using system Chromium avoids Playwright's own download (~400MB) and works in containers.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     coreutils \
     wget \
+    chromium \
+    fonts-liberation \
+    fonts-noto-color-emoji \
+    libgbm1 \
+    libnss3 \
+    libatk-bridge2.0-0 \
+    libdrm2 \
+    libxkbcommon0 \
+    libxcomposite1 \
+    libxdamage1 \
+    libxrandr2 \
+    libatspi2.0-0 \
     && rm -rf /var/lib/apt/lists/*
 
 # Create non-root user for security
@@ -93,6 +107,11 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD wget --no-verbose --tries=1 --spider http://localhost:8787/health || exit 1
 
 # Default config path - can be overridden via -c flag or volume mount
+# Playwright MCP: use system Chromium, skip download, disable sandbox (container)
+ENV OWLIABOT_PLAYWRIGHT_CHROMIUM_PATH=/usr/bin/chromium
+ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
+ENV PLAYWRIGHT_MCP_NO_SANDBOX=1
+
 ENV OWLIABOT_CONFIG_PATH=/home/owliabot/.owliabot/app.yaml
 
 # Entry point: start the bot
