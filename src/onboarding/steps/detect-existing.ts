@@ -30,12 +30,8 @@ export async function detectExistingConfig(
     if (existing.gateway?.token) { result.gatewayToken = existing.gateway.token; hasAny = true; }
 
     const authDir = join(ensureOwliabotHomeEnv(), "auth");
-    if (existsSync(join(authDir, "auth-anthropic.json")) || existsSync(join(authDir, "anthropic.json"))) {
-      result.anthropicOAuth = true; result.hasOAuthAnthro = true; hasAny = true;
-    }
-    if (existsSync(join(authDir, "auth-openai-codex.json")) || existsSync(join(authDir, "openai-codex.json"))) {
-      result.openaiOAuth = true; result.hasOAuthCodex = true; hasAny = true;
-    }
+    if (existsSync(join(authDir, "anthropic.json"))) { result.hasOAuthAnthro = true; hasAny = true; }
+    if (existsSync(join(authDir, "openai-codex.json"))) { result.hasOAuthCodex = true; hasAny = true; }
 
     return hasAny ? result : null;
   } catch {

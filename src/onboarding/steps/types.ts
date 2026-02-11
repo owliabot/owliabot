@@ -7,16 +7,10 @@ import type { SecretsConfig } from "../secrets.js";
 import type { ExistingConfig } from "../shared.js";
 import type { AppConfig } from "../types.js";
 
-type TelegramGroups = NonNullable<NonNullable<AppConfig["telegram"]>["groups"]>;
-
 export interface DetectedConfig extends ExistingConfig {
   openaiCompatKey?: string;
-  anthropicOAuth?: boolean;
-  openaiOAuth?: boolean;
   hasOAuthAnthro?: boolean;
   hasOAuthCodex?: boolean;
-  telegramAllowList?: string[];
-  telegramGroups?: TelegramGroups;
 }
 
 export interface OnboardOptions {
@@ -50,13 +44,20 @@ export interface ChannelResult {
   telegramEnabled: boolean;
   discordToken: string;
   telegramToken: string;
-  reuseTelegramConfig?: boolean;
-  telegramAllowList?: string[];
-  telegramGroups?: TelegramGroups;
 }
 
 /** @deprecated Use ChannelResult instead */
 export type ChannelsSetup = ChannelResult;
+
+export interface DockerPaths {
+  /** Host directory where we write app.yaml + secrets.yaml */
+  configDir: string;
+  /** Original configDir option (may be a container path like /app/config) */
+  containerConfigDir: string;
+  dockerConfigPath: string;
+  shellConfigPath: string;
+  outputDir: string;
+}
 
 export interface DockerGatewaySetup {
   gatewayToken: string;

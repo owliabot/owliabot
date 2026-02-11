@@ -1,166 +1,52 @@
 /**
- * Provider setup for onboarding (AI provider configuration)
+ * Step module: provider setup (Anthropic, OpenAI, OpenAI Codex, OpenAI-compatible).
  */
 
 import { createInterface } from "node:readline";
 import type { ProviderConfig, LLMProviderId } from "../types.js";
 import type { SecretsConfig } from "../secrets.js";
+import { info, success, warn, header, ask, askYN, selectOption, DEFAULT_MODELS } from "../shared.js";
 import { startOAuthFlow } from "../../auth/oauth.js";
-import {
-  validateAnthropicSetupToken,
-  isSetupToken,
-} from "../../auth/setup-token.js";
-import { listConfiguredModelCatalog } from "../../models/catalog.js";
-import {
-  ask,
-  askYN,
-  selectOption,
-  info,
-  success,
-  warn,
-  header,
-  DEFAULT_MODELS,
-} from "../shared.js";
-import type {
-  DetectedConfig,
-  ProviderResult,
-  ProviderSetupState,
-} from "./types.js";
+import { validateAnthropicSetupToken, isSetupToken } from "../../auth/setup-token.js";
+import type { DetectedConfig, ProviderResult, ProviderSetupState } from "./types.js";
 
-type RL = ReturnType<typeof createInterface>;
-
-/**
- * Prompt for which model to use for a given provider.
- * Uses the model catalog when available, falls back to free-text input.
- */
-export async function promptModel(
-  rl: RL,
-  providerId: string,
-  defaultModel: string,
-): Promise<string> {
-  const providerKey = providerId.trim().toLowerCase();
-  const entries = listConfiguredModelCatalog({
-    // Seed with the provider we are configuring so pi-ai backed providers list their full catalog.
-    providers: [{ id: providerKey, model: defaultModel }],
-  });
-  const catalogModels = entries
-    .filter((e) => e.provider === providerKey)
-    .map((e) => e.model)
-    .filter(Boolean);
-
-  const seen = new Set<string>();
-  const uniqueCatalogModels: string[] = [];
-  for (const m of catalogModels) {
-    if (seen.has(m)) continue;
-    seen.add(m);
-    uniqueCatalogModels.push(m);
-  }
-
-  // If the catalog is empty/unavailable, keep prior behavior (free text with default).
-  if (uniqueCatalogModels.length === 0) {
-    return (
-      (await ask(rl, `Which model should I use? [${defaultModel}]: `)) ||
-      defaultModel
-    );
-  }
-
-  // Keep default model first if it exists in the catalog; otherwise just use catalog order.
-  const orderedModels = uniqueCatalogModels.includes(defaultModel)
-    ? [defaultModel, ...uniqueCatalogModels.filter((m) => m !== defaultModel)]
-    : uniqueCatalogModels;
-
-  const CUSTOM = "Custom (type your own)";
-  const picked = await selectOption(rl, "Which model should I use?", [
-    ...orderedModels,
-    CUSTOM,
-  ]);
-
-  if (picked === orderedModels.length) {
-    return (
-      (await ask(rl, `Which model should I use? [${defaultModel}]: `)) ||
-      defaultModel
-    );
-  }
-  return orderedModels[picked] ?? defaultModel;
-}
-
-/**
- * Configure Anthropic provider if selected.
- */
 export async function maybeConfigureAnthropic(
-  rl: RL,
+  rl: ReturnType<typeof createInterface>,
   state: ProviderSetupState,
   aiChoice: number,
-  existing?: DetectedConfig | null,
-  reuseExisting = false,
 ): Promise<void> {
   if (!(aiChoice === 0 || aiChoice === 4)) return;
 
   state.useAnthropic = true;
   console.log("");
 
-  header("Connect Claude (Anthropic)");
-  const existingToken = existing?.anthropicToken;
-  const existingTokenValid = existing?.anthropicTokenValid;
-  const canReuseToken = !!existingToken && existingTokenValid === true;
+  header("Anthropic Authentication");
+  info("Supports two authentication methods:");
+  info("");
+  info("  • Setup-token (Claude Pro/Max subscription)");
+  info("    Run `claude setup-token` to generate one");
+  info("    Format: sk-ant-oat01-...");
+  info("");
+  info("  • API Key (pay-as-you-go)");
+  info("    Get from console.anthropic.com");
+  info("    Format: sk-ant-api03-...");
+  console.log("");
 
-  // If we already have a valid setup-token, optionally reuse it.
-  // If the user selected a "fresh setup", don't silently reuse; ask explicitly.
-  if (canReuseToken) {
-    const shouldReuse = reuseExisting
-      ? true
-      : await askYN(rl, "Reuse the existing Claude setup-token?", false);
-
-    if (shouldReuse) {
-      state.secrets.anthropic = {
-        ...(state.secrets.anthropic ?? {}),
-        token: existingToken,
-      };
-      success(
-        "Reusing your existing Claude setup-token. Skipping authorization.",
-      );
-      info(
-        "If this fails later, generate a new one with `claude setup-token`.",
-      );
-    }
-  } else if (existingToken && existingTokenValid === false) {
-    warn(
-      "Found a Claude setup-token, but it looks invalid. You'll need to paste a new one.",
-    );
-  }
-
-  // Only prompt for credentials if we didn't reuse anything.
-  if (!state.secrets.anthropic) {
-    info("Quick question: how do you want to authenticate?");
-    info("");
-    info("  • Claude subscription (Pro/Max): use a setup-token");
-    info("    Generate one with: `claude setup-token`");
-    info("    It looks like: sk-ant-oat01-...");
-    info("");
-    info("  • Pay-as-you-go: use an API key from console.anthropic.com");
-    info("    It looks like: sk-ant-api03-...");
-    console.log("");
-
-    const tokenAns = await ask(
-      rl,
-      "Paste your setup-token or API key (or press Enter to use an environment variable): ",
-      true,
-    );
-    if (tokenAns) {
-      if (isSetupToken(tokenAns)) {
-        const err = validateAnthropicSetupToken(tokenAns);
-        if (err) warn(`Quick check: ${err}`);
-        state.secrets.anthropic = { token: tokenAns };
-        success("Got it. I'll use that setup-token.");
-      } else {
-        state.secrets.anthropic = { apiKey: tokenAns };
-        success("Got it. I'll use that API key.");
-      }
+  const tokenAns = await ask(rl, "Paste setup-token or API key (leave empty for env var): ");
+  if (tokenAns) {
+    if (isSetupToken(tokenAns)) {
+      const err = validateAnthropicSetupToken(tokenAns);
+      if (err) warn(`Setup-token validation warning: ${err}`);
+      state.secrets.anthropic = { token: tokenAns };
+      success("Setup-token saved (Claude Pro/Max)");
+    } else {
+      state.secrets.anthropic = { apiKey: tokenAns };
+      success("API key saved");
     }
   }
 
   const defaultModel = DEFAULT_MODELS.anthropic;
-  const model = await promptModel(rl, "anthropic", defaultModel);
+  const model = (await ask(rl, `Model [${defaultModel}]: `)) || defaultModel;
   const apiKeyValue = state.secrets.anthropic ? "secrets" : "env";
 
   state.providers.push({
@@ -171,32 +57,23 @@ export async function maybeConfigureAnthropic(
   } as ProviderConfig);
 }
 
-/**
- * Configure OpenAI provider if selected.
- */
 export async function maybeConfigureOpenAI(
-  rl: RL,
+  rl: ReturnType<typeof createInterface>,
   state: ProviderSetupState,
   aiChoice: number,
 ): Promise<void> {
   if (!(aiChoice === 1 || aiChoice === 4)) return;
 
   console.log("");
-  info(
-    "If you don't have an OpenAI API key yet, you can create one here: https://platform.openai.com/api-keys",
-  );
-  const apiKey = await ask(
-    rl,
-    "Paste your OpenAI API key (or press Enter to use an environment variable): ",
-    true,
-  );
+  info("OpenAI API keys: https://platform.openai.com/api-keys");
+  const apiKey = await ask(rl, "OpenAI API key (leave empty for env var): ");
   if (apiKey) {
     state.secrets.openai = { apiKey };
-    success("Got it. I'll use that OpenAI API key.");
+    success("OpenAI API key saved");
   }
 
   const defaultModel = DEFAULT_MODELS.openai;
-  const model = await promptModel(rl, "openai", defaultModel);
+  const model = (await ask(rl, `Model [${defaultModel}]: `)) || defaultModel;
   state.providers.push({
     id: "openai",
     model,
@@ -205,56 +82,33 @@ export async function maybeConfigureOpenAI(
   } as ProviderConfig);
 }
 
-/**
- * Configure OpenAI Codex provider if selected.
- */
 export async function maybeConfigureOpenAICodex(
-  rl: RL,
+  rl: ReturnType<typeof createInterface>,
   dockerMode: boolean,
   state: ProviderSetupState,
   aiChoice: number,
-  existing?: DetectedConfig | null,
-  reuseExisting = false,
 ): Promise<void> {
   if (!(aiChoice === 2 || aiChoice === 4)) return;
 
   state.useOpenaiCodex = true;
   console.log("");
-  info(
-    "If you have ChatGPT Plus/Pro, you can connect via OAuth (no API key needed).",
-  );
+  info("OpenAI Codex uses your ChatGPT Plus/Pro subscription via OAuth.");
 
-  const hasExistingOAuth = existing?.hasOAuthCodex === true;
-  if (hasExistingOAuth) {
-    // Valid OAuth token detected and user chose this provider — skip auth entirely.
-    success("Detected a valid OpenAI Codex sign-in. Skipping authorization.");
-    if (dockerMode) {
-      info(
-        "If this fails later, run: docker exec -it owliabot owliabot auth setup openai-codex",
-      );
-    } else {
-      info("If this fails later, run: `owliabot auth setup openai-codex`");
+  const runOAuth = await askYN(rl, "Start OAuth flow now?", false);
+  if (runOAuth) {
+    info("Starting OpenAI Codex OAuth flow...");
+    rl.pause();
+    try {
+      await startOAuthFlow("openai-codex", { headless: dockerMode });
+      success("OAuth completed");
+    } finally {
+      rl.resume();
     }
   } else {
-    const runOAuth = await askYN(rl, "Want to connect it now?", false);
-    if (runOAuth) {
-      info("Starting the sign-in flow...");
-      // Pause onboard readline so OAuth's own readline doesn't fight for stdin
-      rl.pause();
-      try {
-        await startOAuthFlow("openai-codex", { headless: dockerMode });
-        success("You're connected.");
-      } finally {
-        rl.resume();
-      }
+    if (dockerMode) {
+      info("Run after container starts: docker exec -it owliabot owliabot auth setup openai-codex");
     } else {
-      if (dockerMode) {
-        info(
-          "After the container is running, run: docker exec -it owliabot owliabot auth setup openai-codex",
-        );
-      } else {
-        info("You can connect later with: `owliabot auth setup openai-codex`");
-      }
+      info("Run `owliabot auth setup openai-codex` later to authenticate.");
     }
   }
 
@@ -266,37 +120,27 @@ export async function maybeConfigureOpenAICodex(
   } as ProviderConfig);
 }
 
-/**
- * Configure OpenAI-compatible provider if selected.
- */
 export async function maybeConfigureOpenAICompatible(
-  rl: RL,
+  rl: ReturnType<typeof createInterface>,
   state: ProviderSetupState,
   aiChoice: number,
 ): Promise<void> {
   if (!(aiChoice === 3 || aiChoice === 4)) return;
 
   console.log("");
-  info("Using a local or self-hosted model?");
-  info(
-    "Give me the base URL for its OpenAI-compatible /v1 endpoint. Examples:",
-  );
+  info("OpenAI-compatible supports any server with the OpenAI v1 API:");
   info("  - Ollama:    http://localhost:11434/v1");
   info("  - vLLM:      http://localhost:8000/v1");
   info("  - LM Studio: http://localhost:1234/v1");
   info("  - LocalAI:   http://localhost:8080/v1");
   console.log("");
 
-  const baseUrl = await ask(rl, "Base URL (ends with /v1): ");
+  const baseUrl = await ask(rl, "API base URL: ");
   if (!baseUrl) return;
 
   const defaultModel = DEFAULT_MODELS["openai-compatible"];
-  const model = await promptModel(rl, "openai-compatible", defaultModel);
-  const apiKey = await ask(
-    rl,
-    "API key (optional; press Enter if not needed): ",
-    true,
-  );
+  const model = (await ask(rl, `Model [${defaultModel}]: `)) || defaultModel;
+  const apiKey = await ask(rl, "API key (optional, leave empty if not required): ");
 
   state.providers.push({
     id: "openai-compatible" as LLMProviderId,
@@ -309,17 +153,12 @@ export async function maybeConfigureOpenAICompatible(
   if (apiKey) {
     state.secrets["openai-compatible"] = { apiKey };
   }
-  success(`Great. I'll use ${baseUrl}`);
+  success(`OpenAI-compatible configured: ${baseUrl}`);
 }
 
-/**
- * Interactive prompt for AI providers.
- */
 export async function askProviders(
-  rl: RL,
+  rl: ReturnType<typeof createInterface>,
   dockerMode: boolean,
-  existing?: DetectedConfig | null,
-  reuseExisting = false,
 ): Promise<ProviderResult> {
   const state: ProviderSetupState = {
     secrets: {},
@@ -329,24 +168,17 @@ export async function askProviders(
     useOpenaiCodex: false,
   };
 
-  const aiChoice = await selectOption(rl, "Which AI should OwliaBot use?", [
-    "Claude (Anthropic) (setup-token or API key)",
+  const aiChoice = await selectOption(rl, "Choose your AI provider(s):", [
+    "Anthropic (Claude) - API Key or setup-token",
     "OpenAI (API key)",
-    "OpenAI Codex (ChatGPT Plus/Pro, OAuth)",
-    "OpenAI-compatible (self-hosted or local)",
-    "Use multiple providers (fallback chain)",
+    "OpenAI Codex (ChatGPT Plus/Pro OAuth)",
+    "OpenAI-compatible (Ollama / vLLM / LM Studio / etc.)",
+    "Multiple providers (fallback chain)",
   ]);
 
-  await maybeConfigureAnthropic(rl, state, aiChoice, existing, reuseExisting);
+  await maybeConfigureAnthropic(rl, state, aiChoice);
   await maybeConfigureOpenAI(rl, state, aiChoice);
-  await maybeConfigureOpenAICodex(
-    rl,
-    dockerMode,
-    state,
-    aiChoice,
-    existing,
-    reuseExisting,
-  );
+  await maybeConfigureOpenAICodex(rl, dockerMode, state, aiChoice);
   await maybeConfigureOpenAICompatible(rl, state, aiChoice);
 
   return {
@@ -357,12 +189,7 @@ export async function askProviders(
   };
 }
 
-/**
- * Reuse existing provider configuration.
- */
-export function reuseProvidersFromExisting(
-  existing: DetectedConfig,
-): ProviderResult {
+export function reuseProvidersFromExisting(existing: DetectedConfig): ProviderResult {
   const secrets: SecretsConfig = {};
   const providers: ProviderConfig[] = [];
   let priority = 1;
@@ -370,32 +197,18 @@ export function reuseProvidersFromExisting(
   let useOpenaiCodex = false;
 
   // Anthropic
-  const canReuseToken =
-    !!existing.anthropicToken && existing.anthropicTokenValid !== false;
-  if (existing.anthropicKey || canReuseToken || existing.hasOAuthAnthro) {
+  if (existing.anthropicKey || existing.anthropicToken || existing.hasOAuthAnthro) {
     useAnthropic = true;
-    if (existing.anthropicKey)
-      secrets.anthropic = { apiKey: existing.anthropicKey };
-    if (canReuseToken && existing.anthropicToken) {
-      secrets.anthropic = {
-        ...secrets.anthropic,
-        token: existing.anthropicToken,
-      };
-    } else if (
-      existing.anthropicToken &&
-      existing.anthropicTokenValid === false
-    ) {
-      warn(
-        "Found a Claude setup-token in secrets, but it looks invalid. You'll need to paste a new one.",
-      );
-    }
+    if (existing.anthropicKey) secrets.anthropic = { apiKey: existing.anthropicKey };
+    if (existing.anthropicToken) secrets.anthropic = { ...secrets.anthropic, token: existing.anthropicToken };
+    const apiKey = (existing.anthropicKey || existing.anthropicToken) ? "secrets" : "oauth";
     providers.push({
       id: "anthropic",
       model: DEFAULT_MODELS.anthropic,
-      apiKey: "secrets",
+      apiKey,
       priority: priority++,
     } as ProviderConfig);
-    success("Using your existing Anthropic setup.");
+    success("Reusing Anthropic configuration");
   }
 
   // OpenAI
@@ -407,7 +220,7 @@ export function reuseProvidersFromExisting(
       apiKey: "secrets",
       priority: priority++,
     } as ProviderConfig);
-    success("Using your existing OpenAI setup.");
+    success("Reusing OpenAI configuration");
   }
 
   // OpenAI Codex (OAuth)
@@ -419,41 +232,36 @@ export function reuseProvidersFromExisting(
       apiKey: "oauth",
       priority: priority++,
     } as ProviderConfig);
-    success("Using your existing OpenAI Codex sign-in.");
+    success("Reusing OpenAI Codex (OAuth) configuration");
   }
 
   return { providers, secrets, useAnthropic, useOpenaiCodex };
 }
 
-/**
- * Get provider setup - either reuse existing or prompt for new.
- */
 export async function getProvidersSetup(
-  rl: RL,
+  rl: ReturnType<typeof createInterface>,
   dockerMode: boolean,
   existing: DetectedConfig | null,
   reuseExisting: boolean,
 ): Promise<ProviderResult> {
-  header("AI");
+  header("AI provider setup");
 
   if (reuseExisting && existing) {
     const reused = reuseProvidersFromExisting(existing);
     if (reused.providers.length > 0) return reused;
   }
 
-  const result = await askProviders(rl, dockerMode, existing, reuseExisting);
+  const result = await askProviders(rl, dockerMode);
   if (result.providers.length > 0) return result;
 
-  warn("No AI provider yet. You can add one later in app.yaml.");
+  warn("No provider configured. Add one later in the config file.");
   return {
-    providers: [
-      {
-        id: "anthropic",
-        model: DEFAULT_MODELS.anthropic,
-        apiKey: "env",
-        priority: 1,
-      } as ProviderConfig,
-    ],
+    providers: [{
+      id: "anthropic",
+      model: DEFAULT_MODELS.anthropic,
+      apiKey: "env",
+      priority: 1,
+    } as ProviderConfig],
     secrets: {},
     useAnthropic: false,
     useOpenaiCodex: false,

@@ -19,8 +19,6 @@ export interface DetectedConfig {
   gatewayToken?: string;
   hasOAuthAnthro?: boolean;
   hasOAuthCodex?: boolean;
-  oauthCodexExpires?: number;
-  anthropicTokenValid?: boolean;
 }
 
 export interface ProviderResult {

@@ -17,8 +17,6 @@ vi.mock("node:readline", () => ({
       cb(next);
     },
     close: vi.fn(),
-    once: vi.fn(),
-    removeListener: vi.fn(),
     pause: vi.fn(),
     resume: vi.fn(),
   }),
