@@ -4,6 +4,7 @@ import {
   estimateTokens,
   estimateContextTokens,
   guardContext,
+  calculateMaxToolResultChars,
   DEFAULT_TOOL_RESULT_MAX_CHARS,
   TRUNCATE_HEAD_CHARS,
   TRUNCATE_TAIL_CHARS,
@@ -187,18 +188,24 @@ describe("guardContext", () => {
 
   it("truncates tool results in messages", () => {
     const longData = repeat("d", 100_000);
-    const msg = makeMessage("user", "", {
+    const assistant = makeMessage("assistant", "calling tool", {
+      toolCalls: [{ id: "tool-1", name: "t", arguments: {} }],
+    });
+    const toolResult = makeMessage("user", "", {
       toolResults: [
-        { success: true, data: longData, toolCallId: "1", toolName: "t" },
+        { success: true, data: longData, toolCallId: "tool-1", toolName: "t" },
       ],
     });
-    const result = guardContext([msg], {
+    const result = guardContext([assistant, toolResult], {
       contextWindow: 200_000,
       maxToolResultChars: 10_000,
     });
 
     // The tool result data should have been truncated
-    const tr = result.messages[0].toolResults![0];
+    const resultMsg = result.messages.find((m) => m.toolResults);
+    expect(resultMsg).toBeDefined();
+    expect(resultMsg!.toolResults).toBeDefined();
+    const tr = resultMsg!.toolResults![0];
     expect(typeof tr.data).toBe("string");
     expect((tr.data as string).length).toBeLessThan(100_000);
     expect((tr.data as string)).toContain("characters truncated");
@@ -219,5 +226,132 @@ describe("guardContext", () => {
 
     expect(result.dropped).toBe(10 - (result.messages.length - 1));
     expect(result.dropped).toBeGreaterThan(0);
+  });
+
+  it("preserves tool-call pairing when dropping messages", () => {
+    const sys = makeMessage("system", "sys");
+    const old1 = makeMessage("user", "old user message");
+    const old2 = makeMessage("assistant", "old assistant", {
+      toolCalls: [{ id: "call-1", name: "tool1", arguments: {} }],
+    });
+    const old3 = makeMessage("user", "", {
+      toolResults: [
+        { success: true, data: "result1", toolCallId: "call-1", toolName: "tool1" },
+      ],
+    });
+    const recent1 = makeMessage("user", repeat("u", 5_000));
+    const recent2 = makeMessage("assistant", repeat("a", 5_000));
+
+    // Budget allows recent messages but not old messages
+    const result = guardContext([sys, old1, old2, old3, recent1, recent2], {
+      contextWindow: 8_000,
+      reserveTokens: 1_000,
+    });
+
+    // Verify old2 and old3 are both dropped (since they're both old)
+    // The key test: if old3 were somehow kept, old2 should also be kept
+    const keptMessages = result.messages.filter((m) => m.role !== "system");
+    const hasOld2 = keptMessages.some((m) => m === old2);
+    const hasOld3Message = keptMessages.find((m) => m === old3);
+    
+    // If old3 is in the list, check if it still has toolResults
+    if (hasOld3Message && hasOld3Message.toolResults && hasOld3Message.toolResults.length > 0) {
+      // If old3 kept its tool result, old2 must be present
+      expect(hasOld2).toBe(true);
+    }
+    
+    // More robust check: no orphaned tool results
+    const allToolCallIds = new Set<string>();
+    for (const msg of result.messages) {
+      if (msg.toolCalls) {
+        for (const tc of msg.toolCalls) {
+          allToolCallIds.add(tc.id);
+        }
+      }
+    }
+    
+    for (const msg of result.messages) {
+      if (msg.toolResults) {
+        for (const tr of msg.toolResults) {
+          if (tr.toolCallId) {
+            expect(allToolCallIds.has(tr.toolCallId)).toBe(true);
+          }
+        }
+      }
+    }
+  });
+
+  it("removes orphaned tool results when assistant is dropped", () => {
+    const sys = makeMessage("system", "sys");
+    const assistant = makeMessage("assistant", "response", {
+      toolCalls: [{ id: "call-orphan", name: "tool", arguments: {} }],
+    });
+    const toolResult = makeMessage("user", "", {
+      toolResults: [
+        { success: true, data: "data", toolCallId: "call-orphan", toolName: "tool" },
+      ],
+    });
+    const recent = makeMessage("user", repeat("u", 10_000));
+
+    // Drop assistant but keep toolResult initially
+    const result = guardContext([sys, assistant, toolResult, recent], {
+      contextWindow: 5_000,
+      reserveTokens: 1_000,
+    });
+
+    // Tool result should be filtered out since assistant was dropped
+    const keptToolResult = result.messages.find((m) => m === toolResult);
+    if (keptToolResult?.toolResults) {
+      expect(keptToolResult.toolResults.length).toBe(0);
+    }
+  });
+
+  it("handles all system messages over budget", () => {
+    // Edge case: system messages alone exceed budget
+    const sys1 = makeMessage("system", repeat("s", 50_000));
+    const sys2 = makeMessage("system", repeat("s", 50_000));
+    const user = makeMessage("user", "hi");
+
+    const result = guardContext([sys1, sys2, user], {
+      contextWindow: 10_000,
+      reserveTokens: 2_000,
+    });
+
+    // Should still keep system messages and at least one chat message
+    expect(result.messages.filter((m) => m.role === "system").length).toBe(2);
+    expect(result.messages.some((m) => m.role === "user")).toBe(true);
+  });
+});
+
+// ── calculateMaxToolResultChars ───────────────────────────
+
+describe("calculateMaxToolResultChars", () => {
+  it("calculates 30% of available context as max tool result size", () => {
+    const contextWindow = 200_000;
+    const reserveTokens = 8_192;
+    const max = calculateMaxToolResultChars(contextWindow, reserveTokens);
+    
+    const availableTokens = contextWindow - reserveTokens;
+    const expectedTokens = Math.floor(availableTokens * 0.3);
+    const expectedChars = expectedTokens * DEFAULT_CHARS_PER_TOKEN;
+    
+    expect(max).toBe(expectedChars);
+  });
+
+  it("uses default reserve tokens if not provided", () => {
+    const contextWindow = 100_000;
+    const max = calculateMaxToolResultChars(contextWindow);
+    
+    const availableTokens = contextWindow - DEFAULT_RESERVE_TOKENS;
+    const expectedTokens = Math.floor(availableTokens * 0.3);
+    const expectedChars = expectedTokens * DEFAULT_CHARS_PER_TOKEN;
+    
+    expect(max).toBe(expectedChars);
+  });
+
+  it("returns reasonable limits for small context windows", () => {
+    const max = calculateMaxToolResultChars(10_000, 2_000);
+    expect(max).toBeGreaterThan(0);
+    expect(max).toBeLessThan(10_000 * DEFAULT_CHARS_PER_TOKEN);
   });
 });
