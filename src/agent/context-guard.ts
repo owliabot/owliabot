@@ -33,6 +33,8 @@ export interface GuardOptions {
   contextWindow: number;
   reserveTokens?: number;
   maxToolResultChars?: number;
+  truncateHeadChars?: number;
+  truncateTailChars?: number;
 }
 
 // ── L1: Tool result truncation ─────────────────────────────
@@ -43,12 +45,14 @@ export interface GuardOptions {
 export function truncateToolResult(
   text: string,
   maxChars: number = DEFAULT_TOOL_RESULT_MAX_CHARS,
+  headChars: number = TRUNCATE_HEAD_CHARS,
+  tailChars: number = TRUNCATE_TAIL_CHARS,
 ): string {
   if (text.length <= maxChars) return text;
 
-  const head = text.slice(0, TRUNCATE_HEAD_CHARS);
-  const tail = text.slice(-TRUNCATE_TAIL_CHARS);
-  const omitted = text.length - TRUNCATE_HEAD_CHARS - TRUNCATE_TAIL_CHARS;
+  const head = text.slice(0, headChars);
+  const tail = text.slice(-tailChars);
+  const omitted = text.length - headChars - tailChars;
 
   return `${head}\n\n... [${omitted} characters truncated] ...\n\n${tail}`;
 }
@@ -91,10 +95,14 @@ export function estimateContextTokens(messages: Message[]): number {
 function truncateMessageToolResults(
   msg: Message,
   maxChars?: number,
+  headChars?: number,
+  tailChars?: number,
 ): Message {
   if (!msg.toolResults || msg.toolResults.length === 0) return msg;
 
   const max = maxChars ?? DEFAULT_TOOL_RESULT_MAX_CHARS;
+  const head = headChars ?? TRUNCATE_HEAD_CHARS;
+  const tail = tailChars ?? TRUNCATE_TAIL_CHARS;
   return {
     ...msg,
     toolResults: msg.toolResults.map((tr) => {
@@ -104,7 +112,7 @@ function truncateMessageToolResults(
       // Truncate by replacing data with the truncated string
       return {
         ...tr,
-        data: truncateToolResult(serialized, max),
+        data: truncateToolResult(serialized, max, head, tail),
       };
     }),
   };
@@ -127,7 +135,12 @@ export function guardContext(
 
   // L1: truncate tool results in all messages
   const truncated = messages.map((m) =>
-    truncateMessageToolResults(m, options.maxToolResultChars),
+    truncateMessageToolResults(
+      m,
+      options.maxToolResultChars,
+      options.truncateHeadChars,
+      options.truncateTailChars,
+    ),
   );
 
   const systemMsgs = truncated.filter((m) => m.role === "system");

@@ -26,7 +26,7 @@ import {
   isOpenAICompatible,
   type OpenAICompatibleConfig,
 } from "./openai-compatible.js";
-import { resolveModel, type ModelConfig } from "./models.js";
+import { resolveModel, getContextWindow, type ModelConfig } from "./models.js";
 import {
   guardContext,
   truncateToolResult,
@@ -58,6 +58,14 @@ export interface RunnerOptions {
   temperature?: number;
   tools?: ToolDefinition[];
   reasoning?: "minimal" | "low" | "medium" | "high";
+  contextGuard?: {
+    enabled?: boolean;
+    maxToolResultChars?: number;
+    reserveTokens?: number;
+    truncateHeadChars?: number;
+    truncateTailChars?: number;
+    contextWindowOverride?: number;
+  };
 }
 
 export interface LLMResponse {
@@ -313,15 +321,15 @@ export async function runLLM(
   const apiKey = await resolveApiKey(model.provider, modelConfig.apiKey);
 
   // L2: Context window guard — prune history if needed
-  const contextWindow = (model as typeof model & { contextWindow?: number }).contextWindow ?? 200_000;
+  const guardConfig = options?.contextGuard;
+  const contextWindow = guardConfig?.contextWindowOverride ?? getContextWindow(modelConfig);
   const { messages: guardedMessages, dropped } = guardContext(messages, {
     contextWindow,
-    reserveTokens: options?.maxTokens ?? 4096,
-    maxToolResultChars: DEFAULT_TOOL_RESULT_MAX_CHARS,
+    reserveTokens: guardConfig?.reserveTokens ?? options?.maxTokens ?? DEFAULT_RESERVE_TOKENS,
+    maxToolResultChars: guardConfig?.maxToolResultChars ?? DEFAULT_TOOL_RESULT_MAX_CHARS,
+    truncateHeadChars: guardConfig?.truncateHeadChars,
+    truncateTailChars: guardConfig?.truncateTailChars,
   });
-  if (dropped > 0) {
-    log.warn(`Context guard: dropped ${dropped} old messages to fit context window (${contextWindow} tokens)`);
-  }
 
   const context = toContext(guardedMessages, options?.tools, model);
 
