@@ -642,6 +642,16 @@ export async function startGateway(
   };
 }
 
+/**
+ * Local message handler for channel plugins.
+ * 
+ * Note: This is separate from message-handler.ts's exported handleMessage.
+ * Both implementations use the same runAgenticLoop, but serve different purposes:
+ * - This function: Direct integration with channel plugins in server.ts
+ * - message-handler.ts: Modular, reusable version for other entry points
+ * 
+ * Both are valid and serve different architectural needs.
+ */
 async function handleMessage(
   ctx: MsgContext,
   config: Config,

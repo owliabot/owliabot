@@ -83,6 +83,11 @@ export function adaptToolForAgent(
     execute: async (toolCallId, params, signal) => {
       log.debug(`Executing tool ${tool.name} via pi-agent-core adapter`);
 
+      // Note: executeToolCall doesn't accept AbortSignal yet.
+      // Tool cancellation support requires changes to the executor interface.
+      // For now, long-running tools cannot be cancelled via signal.
+      // TODO: Add signal support to executeToolCall for proper cancellation
+
       // Use the existing executor which handles all security checks
       const result = await executeToolCall(
         { id: toolCallId, name: tool.name, arguments: params },

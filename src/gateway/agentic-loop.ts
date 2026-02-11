@@ -253,7 +253,7 @@ export async function runAgenticLoop(
     // Run agent loop
     const stream = agentLoop([], agentContext, loopConfig, combinedSignal);
 
-    // Collect events
+    // Collect events and messages
     for await (const event of stream) {
       handleAgentEvent(
         event,
@@ -264,11 +264,31 @@ export async function runAgenticLoop(
           toolCallsCount++;
         }
       );
+
+      // Collect messages from events to preserve conversation history
+      // even if the loop errors out before completion
+      if (event.type === "turn_end" && event.message) {
+        collectedMessages.push(event.message);
+      } else if (event.type === "message_end" && event.message) {
+        // Update or add the message
+        const existingIndex = collectedMessages.findIndex(
+          (m) => m.role === event.message.role && m.timestamp === event.message.timestamp
+        );
+        if (existingIndex >= 0) {
+          collectedMessages[existingIndex] = event.message;
+        } else {
+          collectedMessages.push(event.message);
+        }
+      } else if (event.type === "agent_end" && event.messages) {
+        // Final messages from agent_end event
+        collectedMessages = event.messages;
+      }
     }
 
-    // Get final messages from stream result
+    // Get final messages from stream result (should match what we collected)
     const finalMessages = await stream.result();
-    collectedMessages = finalMessages;
+    // Use result if available, fall back to collected messages
+    collectedMessages = finalMessages.length > 0 ? finalMessages : collectedMessages;
 
     // Extract final content from last assistant message
     const lastMessage = finalMessages[finalMessages.length - 1];
