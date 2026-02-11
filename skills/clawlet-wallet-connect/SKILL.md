@@ -44,12 +44,39 @@ sudo -H -u clawlet clawlet start --agent owliabot --daemon
 clawlet start --agent owliabot
 ```
 
-This will:
-1. Initialize a new wallet (if not already initialized)
-2. Grant an auth token with `read,trade` scope
-3. Start the HTTP server on `http://127.0.0.1:9100`
+The command will walk through an interactive flow:
 
-The token (`clwt_xxxxx`) is printed to stdout — **save it** for the next step.
+### 3a. Set wallet password
+
+You'll be prompted to enter and confirm a password. This password encrypts your private key AND is used to authorize token grants later.
+
+Password requirements:
+- At least 8 characters
+- At least 1 uppercase letter
+- At least 1 lowercase letter
+- At least 1 digit
+- At least 1 symbol (non-alphanumeric)
+
+### 3b. Create or import wallet
+
+If no existing keystore is found, you'll choose:
+- **1) Create new wallet** — generates a BIP-39 mnemonic
+- **2) Import existing mnemonic** — enter your own mnemonic phrase
+
+If you chose "Create new wallet", a 24-word mnemonic is shown in a secure alternate screen. **Write it down immediately** — it will NOT be shown again. Press Enter after saving it.
+
+If a keystore already exists, you'll just enter the existing password to unlock.
+
+### 3c. Token output
+
+After init, the command prints a token like:
+
+```
+🎫 Token for "owliabot" (scope: read,trade, expires: 2027-02-11)
+   clwt_xxxxx
+```
+
+**Copy and save this token** — you'll need it in the next step.
 
 ## Step 4 — Connect to OwliaBot
 
