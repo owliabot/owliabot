@@ -304,11 +304,11 @@ function isContextOverflowError(error: unknown): boolean {
   if (!(error instanceof Error)) return false;
   const msg = error.message.toLowerCase();
   return (
-    msg.includes("context") ||
-    msg.includes("too long") ||
-    msg.includes("maximum context") ||
+    msg.includes("context_length_exceeded") ||
     msg.includes("prompt is too long") ||
-    msg.includes("context_length_exceeded")
+    msg.includes("maximum context length") ||
+    msg.includes("request too large") ||
+    msg.includes("token limit")
   );
 }
 
@@ -352,24 +352,26 @@ export async function runLLM(
 
   // L2: Context window guard — prune history if needed
   const guardConfig = options?.contextGuard;
-  const contextWindow = guardConfig?.contextWindowOverride ?? getContextWindow(modelConfig);
+  const baseContextWindow = guardConfig?.contextWindowOverride ?? getContextWindow(modelConfig);
   
-  // Apply more aggressive limits on retry
-  const retryMultiplier = _retryCount === 0 ? 1.0 : _retryCount === 1 ? 0.5 : 0.25;
+  // Apply more aggressive limits on retry (both context window and tool result chars)
+  const retryMultiplier = _retryCount === 0 ? 1.0 : _retryCount === 1 ? 0.8 : 0.6;
+  const effectiveContextWindow = Math.floor(baseContextWindow * retryMultiplier);
   const effectiveMaxToolResultChars = guardConfig?.maxToolResultChars 
     ? Math.floor(guardConfig.maxToolResultChars * retryMultiplier)
     : undefined;
   
   const { messages: guardedMessages, dropped } = guardContext(messages, {
-    contextWindow,
+    contextWindow: effectiveContextWindow,
     reserveTokens: guardConfig?.reserveTokens ?? options?.maxTokens ?? DEFAULT_RESERVE_TOKENS,
     maxToolResultChars: effectiveMaxToolResultChars,
     truncateHeadChars: guardConfig?.truncateHeadChars,
     truncateTailChars: guardConfig?.truncateTailChars,
   });
 
+  // Skip double truncation: guardContext already handled truncation, so pass Infinity to toContext
   const context = toContext(guardedMessages, options?.tools, model, {
-    maxToolResultChars: effectiveMaxToolResultChars,
+    maxToolResultChars: Infinity,
     truncateHeadChars: guardConfig?.truncateHeadChars,
     truncateTailChars: guardConfig?.truncateTailChars,
   });
