@@ -7,6 +7,8 @@ export {
   ClawletError,
   getClawletClient,
   resetClawletClient,
+  resolveClawletBaseUrl,
+  DEFAULT_BASE_URL,
   type ClawletClientConfig,
   type BalanceQuery,
   type BalanceResponse,
