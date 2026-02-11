@@ -141,6 +141,7 @@ describe("onboarding", () => {
       "111,222",           // Discord channelAllowList
       "123456789",         // Discord memberAllowList
       "539066683",         // Telegram allowList
+      "",                  // Enable Playwright MCP: default yes
       "",                  // Additional write-tool user IDs (empty = use only channel users)
     ];
 
@@ -199,6 +200,7 @@ describe("onboarding", () => {
         "",  // Gateway port: default 8787
         "",  // Discord channelAllowList (empty)
         "",  // Discord memberAllowList (empty)
+      "",                  // Enable Playwright MCP: default yes
       ];
 
       await runOnboarding({ appConfigPath });
@@ -230,6 +232,7 @@ describe("onboarding", () => {
       "",                  // Gateway port: default 8787
       "",                  // Discord channelAllowList (empty)
       "",                  // Discord memberAllowList (empty)
+      "",                  // Enable Playwright MCP: default yes
     ];
 
     await runOnboarding({ appConfigPath });
@@ -257,6 +260,7 @@ describe("onboarding", () => {
       "",                  // Gateway port: default 8787
       "",                  // Discord channelAllowList (empty)
       "",                  // Discord memberAllowList (empty)
+      "",                  // Enable Playwright MCP: default yes
     ];
 
     await runOnboarding({ appConfigPath });
@@ -282,6 +286,7 @@ describe("onboarding", () => {
       "",                  // Gateway port: default 8787
       "",                  // Discord channelAllowList (empty)
       "",                  // Discord memberAllowList (empty)
+      "",                  // Enable Playwright MCP: default yes
     ];
 
     await runOnboarding({ appConfigPath });
@@ -311,6 +316,7 @@ describe("onboarding", () => {
       "",                  // Gateway port: default 8787
       "",                  // Discord channelAllowList (empty)
       "",                  // Discord memberAllowList (empty)
+      "",                  // Enable Playwright MCP: default yes
     ];
 
     await runOnboarding({ appConfigPath });
@@ -334,6 +340,7 @@ describe("onboarding", () => {
       "",                  // Enable Gateway HTTP: default yes
       "",                  // Gateway port: default 8787
       "",                  // Telegram allowList (empty)
+      "",                  // Enable Playwright MCP: default yes
     ];
 
     await runOnboarding({ appConfigPath });
@@ -360,6 +367,7 @@ describe("onboarding", () => {
       "",                  // Gateway port: default 8787
       "",                  // Discord channelAllowList (empty)
       "",                  // Discord memberAllowList (empty)
+      "",                  // Enable Playwright MCP: default yes
     ];
 
     await runOnboarding({ appConfigPath });
@@ -385,6 +393,7 @@ describe("onboarding", () => {
       "",                  // Discord channelAllowList (empty)
       "",                  // Discord memberAllowList (empty)
       "",                  // Telegram allowList (empty)
+      "",                  // Enable Playwright MCP: default yes
     ];
 
     await runOnboarding({ appConfigPath });
@@ -412,6 +421,7 @@ describe("onboarding", () => {
       "",                  // Gateway port: default 8787
       "",                  // Discord channelAllowList (empty)
       "123456789",         // Discord memberAllowList
+      "",                  // Enable Playwright MCP: default yes
       "",                  // Additional write-tool user IDs (empty = use only channel users)
     ];
 
@@ -467,6 +477,7 @@ describe("onboarding", () => {
         "",          // Enable Gateway HTTP: default yes
         "",          // Gateway port: default 8787
         "",          // Telegram allowList (empty - will use reused values)
+      "",                  // Enable Playwright MCP: default yes
       ];
 
       await runOnboarding({ appConfigPath });
@@ -538,6 +549,7 @@ describe("onboarding", () => {
         "",  // Enable Gateway HTTP: default yes
         "",  // Gateway port: default 8787
         "",  // Telegram allowList (empty - will use reused values)
+      "",                  // Enable Playwright MCP: default yes
       ];
 
       await runOnboarding({ appConfigPath });
@@ -592,6 +604,7 @@ describe("onboarding", () => {
         "",  // Enable Gateway HTTP: default yes
         "",  // Gateway port: default 8787
         "",  // Telegram allowList (empty - will use reused values)
+      "",                  // Enable Playwright MCP: default yes
       ];
 
       await runOnboarding({ appConfigPath });
@@ -648,6 +661,7 @@ describe("onboarding", () => {
         // No reuse prompt — token only, silently reused
         "",  // "Which port should I use on your machine for Gateway HTTP?" -> default
         "",  // Telegram allowList (empty)
+      "",                  // Enable Playwright MCP: default yes
       ];
 
       await runOnboarding({ docker: true, outputDir: dir });
