@@ -394,10 +394,12 @@ const WalletSendTxParamsSchema = z.object({
     .describe("Recipient address (required)"),
   value: z
     .string()
+    .regex(/^(0x[a-fA-F0-9]+|\d+)$/, "Must be a decimal string or 0x-prefixed hex")
     .optional()
     .describe("Value in wei (hex or decimal string)"),
   data: z
     .string()
+    .regex(/^0x([a-fA-F0-9]{2})*$/, "Must be 0x-prefixed even-length hex string")
     .optional()
     .describe("Calldata (0x-prefixed hex)"),
   chain_id: z

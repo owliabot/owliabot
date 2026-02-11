@@ -297,10 +297,10 @@ describe("createBuiltinTools", () => {
       });
 
       const walletTools = tools.filter((t) =>
-        ["wallet_balance", "wallet_transfer"].includes(t.name)
+        ["wallet_balance", "wallet_transfer", "wallet_send_tx"].includes(t.name)
       );
 
-      expect(walletTools).toHaveLength(2);
+      expect(walletTools).toHaveLength(3);
       for (const tool of walletTools) {
         expect(tool.name).toBeTruthy();
         expect(tool.description).toBeTruthy();
@@ -328,6 +328,7 @@ describe("createBuiltinTools", () => {
       expect(names).toContain("echo");
       expect(names).toContain("wallet_balance");
       expect(names).not.toContain("wallet_transfer");
+      expect(names).not.toContain("wallet_send_tx");
     });
 
     it("wallet tools can be denied by policy", async () => {
@@ -348,6 +349,49 @@ describe("createBuiltinTools", () => {
       const names = tools.map((t) => t.name);
       expect(names).toContain("wallet_balance");
       expect(names).not.toContain("wallet_transfer");
+      expect(names).toContain("wallet_send_tx");
+    });
+
+    it("wallet_send_tx can be filtered by allowList policy", async () => {
+      const tools = await createBuiltinTools({
+        workspace: "/tmp/workspace",
+        sessionStore: mockSessionStore,
+        transcripts: mockTranscripts,
+        wallet: {
+          clawlet: {
+            enabled: true,
+          },
+        },
+        tools: {
+          policy: { allowList: ["wallet_send_tx"] },
+        },
+      });
+
+      const names = tools.map((t) => t.name);
+      expect(names).toContain("wallet_send_tx");
+      expect(names).not.toContain("wallet_balance");
+      expect(names).not.toContain("wallet_transfer");
+    });
+
+    it("wallet_send_tx can be denied by denyList policy", async () => {
+      const tools = await createBuiltinTools({
+        workspace: "/tmp/workspace",
+        sessionStore: mockSessionStore,
+        transcripts: mockTranscripts,
+        wallet: {
+          clawlet: {
+            enabled: true,
+          },
+        },
+        tools: {
+          policy: { denyList: ["wallet_send_tx"] },
+        },
+      });
+
+      const names = tools.map((t) => t.name);
+      expect(names).toContain("wallet_balance");
+      expect(names).toContain("wallet_transfer");
+      expect(names).not.toContain("wallet_send_tx");
     });
   });
 });
