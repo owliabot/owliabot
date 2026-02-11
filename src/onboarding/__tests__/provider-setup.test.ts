@@ -148,6 +148,12 @@ describe("provider-setup step", () => {
       };
       const result = reuseProvidersFromExisting(existing);
       expect(result.providers).toHaveLength(0);
+    });
+
+    it("reuses anthropic OAuth", () => {
+      const existing: DetectedConfig = { hasOAuthAnthro: true };
+      const result = reuseProvidersFromExisting(existing);
+      expect(result.providers).toHaveLength(0);
       expect(result.useAnthropic).toBe(false);
       expect(result.secrets.anthropic).toBeUndefined();
     });

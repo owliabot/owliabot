@@ -493,6 +493,7 @@ export async function startGateway(
       transcripts,
       workspacePath: config.workspace,
       system: config.system,
+      toolsPolicy: config.tools?.policy,
     });
     stopHttp = httpGateway.stop;
 

@@ -68,7 +68,6 @@ export interface WalletConfigResult {
   enabled: boolean;
   baseUrl?: string;
   defaultChainId?: number;
-  defaultAddress?: string;
 }
 
 /**
@@ -163,6 +162,5 @@ export async function runClawletOnboarding(
     enabled: true,
     baseUrl,
     defaultChainId,
-    defaultAddress,
   };
 }

@@ -42,7 +42,7 @@ import { createExecTool, type ExecToolDeps } from "./exec.js";
 import { createWebFetchTool, type WebFetchToolDeps } from "./web-fetch.js";
 import { createWebSearchTool, type WebSearchToolDeps } from "./web-search.js";
 
-// Wallet tools (require wallet config) - use wallet.ts which has fail-closed + defaultAddress
+// Wallet tools (require wallet config) - use wallet.ts which has fail-closed + dynamic address lookup
 import { createWalletBalanceTool, createWalletTransferTool } from "./wallet.js";
 import type { ClawletClientConfig } from "../../../wallet/index.js";
 
@@ -59,7 +59,6 @@ export interface WalletFactoryConfig {
     token?: string;
     requestTimeout?: number;
     defaultChainId?: number;
-    defaultAddress?: string;
   };
 }
 
@@ -220,7 +219,6 @@ export function createBuiltinTools(
       requestTimeout: walletConfig.clawlet.requestTimeout,
     };
     const defaultChainId = walletConfig.clawlet.defaultChainId ?? 8453;
-    const defaultAddress = walletConfig.clawlet.defaultAddress;
 
     log.info(`Wallet tools enabled (chain: ${defaultChainId}, url: ${clawletClientConfig.baseUrl ?? "default"})`);
 
@@ -228,7 +226,6 @@ export function createBuiltinTools(
       createWalletBalanceTool({
         clawletConfig: clawletClientConfig,
         defaultChainId,
-        defaultAddress,
       }),
       createWalletTransferTool({
         clawletConfig: clawletClientConfig,

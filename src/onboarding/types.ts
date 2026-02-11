@@ -177,7 +177,6 @@ export interface AppConfig {
       baseUrl?: string;
       requestTimeout?: number;
       defaultChainId?: number;
-      defaultAddress?: string;
     };
   };
 }

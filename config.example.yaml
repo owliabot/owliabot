@@ -201,4 +201,3 @@ heartbeat:
 #     token: ${CLAWLET_TOKEN}                 # Auth token from clawlet (required when enabled)
 #     requestTimeout: 30000                   # Request timeout in ms (default: 30s)
 #     defaultChainId: 8453                    # Default chain ID (8453 = Base, 1 = Ethereum)
-#     defaultAddress: "0x742d35Cc6634C0532925a3b844Bc9e7595f5b5e2"  # Default wallet address (must be quoted)

@@ -7,10 +7,11 @@ import { dirname, join } from "node:path";
 import type { AppConfig, ProviderConfig, MemorySearchConfig, SystemCapabilityConfig } from "../types.js";
 import type { SecretsConfig } from "../secrets.js";
 import { runClawletOnboarding } from "../clawlet-onboard.js";
-import {
-  configureDiscordConfig,
-  configureTelegramConfig,
-} from "./channel-setup.js";
+import { getWorkspacePath } from "./workspace-setup.js";
+import { getGatewayConfig } from "./gateway-setup.js";
+import { configureDiscordConfig } from "./configure-discord.js";
+import { configureTelegramConfig } from "./configure-telegram.js";
+import { configureWriteToolsSecurity } from "./security-setup.js";
 import type { UserAllowLists } from "./types.js";
 import { ask, info, warn, header, askYN } from "../shared.js";
 import { playwrightServerConfig, playwrightSecurityOverrides } from "../../mcp/servers/playwright.js";
@@ -163,7 +164,7 @@ export async function buildAppConfigFromPrompts(
   dockerMode: boolean,
   appConfigPath: string,
   providers: ProviderConfig[],
-  secrets: SecretsConfig,
+  _secrets: SecretsConfig,
   discordEnabled: boolean,
   telegramEnabled: boolean,
   reuseTelegramConfig: boolean,
@@ -202,6 +203,7 @@ export async function buildAppConfigFromPrompts(
   }
 
   await configureWallet(rl, secrets, config);
+  const writeToolAllowList = await configureWriteToolsSecurity(rl, config, userAllowLists);
 
   // MCP servers
   const mcpConfig = await configureMcpServers(rl);

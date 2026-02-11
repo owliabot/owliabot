@@ -22,7 +22,7 @@ export async function getGatewayConfig(
   header("Gateway HTTP (optional)");
   info("Gateway HTTP provides a REST API for health checks and integrations.");
 
-  const enableGateway = await askYN(rl, "Enable Gateway HTTP?", false);
+  const enableGateway = await askYN(rl, "Enable Gateway HTTP?", true);
   if (!enableGateway) return undefined;
 
   const port = parseInt(await ask(rl, "Port [8787]: ") || "8787", 10);

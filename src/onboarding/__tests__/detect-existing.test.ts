@@ -121,7 +121,7 @@ describe("detect-existing step", () => {
         typeof p === "string" && p.includes("anthropic.json"),
       );
       const result = await detectExistingConfig(false, "/fake/app.yaml");
-      expect(result?.anthropicOAuth).toBe(true);
+      expect(result?.hasOAuthAnthro).toBe(true);
     });
 
     it("detects OAuth openai-codex.json", async () => {
@@ -130,7 +130,7 @@ describe("detect-existing step", () => {
         typeof p === "string" && p.includes("openai-codex.json"),
       );
       const result = await detectExistingConfig(false, "/fake/app.yaml");
-      expect(result?.openaiOAuth).toBe(true);
+      expect(result?.hasOAuthCodex).toBe(true);
     });
 
     it("detects discord and telegram tokens", async () => {
@@ -182,7 +182,7 @@ describe("detect-existing step", () => {
     });
 
     it("prints OAuth only in docker mode", () => {
-      const existing: DetectedConfig = { anthropicOAuth: true, openaiOAuth: true };
+      const existing: DetectedConfig = { hasOAuthAnthro: true, hasOAuthCodex: true };
       consoleSpy.mockClear();
       printExistingConfigSummary(false, "/fake/app.yaml", existing);
       const devCalls = consoleSpy.mock.calls.map((c) => c[0]).join("\n");

@@ -13,8 +13,21 @@ export interface DetectedConfig extends ExistingConfig {
   openaiCompatKey?: string;
   anthropicOAuth?: boolean;
   openaiOAuth?: boolean;
+  hasOAuthAnthro?: boolean;
+  hasOAuthCodex?: boolean;
   telegramAllowList?: string[];
   telegramGroups?: TelegramGroups;
+}
+
+export interface OnboardOptions {
+  /** Path for app.yaml in dev mode */
+  appConfigPath?: string;
+  /** Enable Docker-aware mode */
+  docker?: boolean;
+  /** Config output directory (docker mode) */
+  configDir?: string;
+  /** Output directory for docker-compose.yml (docker mode) */
+  outputDir?: string;
 }
 
 export interface ProviderResult {

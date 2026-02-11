@@ -768,6 +768,173 @@ apiKey
     }
   });
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Wallet command group — runtime wallet connect/disconnect (memory-only)
+// ─────────────────────────────────────────────────────────────────────────────
+const wallet = program.command("wallet").description("Manage wallet integration (Clawlet)");
+
+/**
+ * Read gateway HTTP url and token from app.yaml config.
+ * Throws if gateway.http is not configured.
+ */
+async function loadGatewayInfo(configOverride?: string): Promise<{ gatewayUrl: string; gatewayToken: string | undefined }> {
+  const configPath = configOverride ?? process.env.OWLIABOT_CONFIG_PATH ?? defaultConfigPath();
+  const config = await loadConfig(configPath);
+  const http = config.gateway?.http;
+  if (!http) {
+    throw new Error("gateway.http is not configured in config; cannot determine gateway URL");
+  }
+  if (http.enabled === false) {
+    throw new Error("gateway.http.enabled is false; cannot connect to admin endpoint");
+  }
+  let host = http.host ?? "127.0.0.1";
+  // Normalize wildcard bind addresses to localhost for client requests
+  if (host === "0.0.0.0") {
+    host = "127.0.0.1";
+  } else if (host === "::") {
+    host = "::1";
+  }
+  const port = http.port ?? 8787;
+  // Bracket IPv6 literals in URLs (e.g. ::1 → [::1])
+  const urlHost = host.includes(":") ? `[${host}]` : host;
+  return {
+    gatewayUrl: `http://${urlHost}:${port}`,
+    gatewayToken: http.token,
+  };
+}
+
+wallet
+  .command("connect")
+  .description("Connect wallet to the running gateway (stored in memory only)")
+  .option("-c, --config <path>", "Config file path (overrides OWLIABOT_CONFIG_PATH)")
+  .option("--gateway-token <token>", "Gateway auth token (overrides config)")
+  .option("--base-url <url>", "Clawlet daemon base URL", "http://127.0.0.1:9100")
+  .option("--token <token>", "Clawlet auth token (or set CLAWLET_TOKEN env)")
+  .option("--chain-id <id>", "Default chain ID", "8453")
+  .option("--scope <scope>", "Token scope: read, trade, or read,trade", "trade")
+  .action(async (options) => {
+    try {
+      const info = await loadGatewayInfo(options.config);
+      const gatewayUrl = info.gatewayUrl;
+      const gatewayToken = options.gatewayToken ?? info.gatewayToken;
+
+      let baseUrl: string = options.baseUrl;
+      let token: string | undefined = options.token ?? process.env.CLAWLET_TOKEN;
+      let chainId = parseInt(options.chainId, 10);
+
+      // If token not provided, prompt interactively
+      if (!token) {
+        const { createInterface } = await import("node:readline");
+        const { detectClawlet, isValidClawletToken } = await import("./onboarding/clawlet-onboard.js");
+
+        const rl = createInterface({ input: process.stdin, output: process.stdout });
+        const ask = (q: string): Promise<string> =>
+          new Promise((resolve) => rl.question(q, (ans) => resolve(ans.trim())));
+
+        try {
+          log.info("Checking for Clawlet daemon...");
+          const detection = await detectClawlet();
+          if (detection.detected) {
+            const v = detection.version ? ` (v${detection.version})` : "";
+            log.info(`Clawlet daemon detected${v}`);
+          } else {
+            log.warn(detection.error?.message ?? "Clawlet daemon not detected");
+          }
+
+          const baseUrlAns = await ask(`Clawlet base URL [${baseUrl}]: `);
+          if (baseUrlAns) baseUrl = baseUrlAns;
+
+          const tokenAns = await ask("Paste Clawlet token: ");
+          if (!isValidClawletToken(tokenAns)) {
+            throw new Error("Invalid token format (should start with 'clwt_')");
+          }
+          token = tokenAns;
+
+          const chainIdAns = await ask(`Default chain ID [${chainId}]: `);
+          if (chainIdAns) chainId = parseInt(chainIdAns, 10);
+        } finally {
+          rl.close();
+        }
+      }
+
+      if (!token) {
+        throw new Error("Clawlet token required (--token, CLAWLET_TOKEN, or interactive prompt)");
+      }
+      if (isNaN(chainId) || chainId <= 0) {
+        throw new Error("Invalid chain ID");
+      }
+
+      log.info(`Connecting wallet to gateway at ${gatewayUrl}...`);
+
+      const res = await fetch(`${gatewayUrl}/admin/wallet`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(gatewayToken ? { "X-Gateway-Token": gatewayToken } : {}),
+        },
+        body: JSON.stringify({
+          baseUrl,
+          token,
+          defaultChainId: chainId,
+          scope: options.scope,
+        }),
+      });
+
+      const json = (await res.json()) as any;
+      if (!json.ok) {
+        throw new Error(json.error?.message ?? "Failed to connect wallet");
+      }
+
+      log.info("Wallet connected successfully!");
+      log.info(`  Address: ${json.data.wallet?.address ?? "unknown"}`);
+      log.info(`  Balance: ${json.data.wallet?.ethBalance ?? "?"} ETH`);
+      log.info(`  Scope:   ${options.scope}`);
+      log.info(`  Tools:   ${json.data.tools.join(", ")}`);
+      log.info("");
+      log.warn("Note: Wallet config is stored in gateway memory only.");
+      log.warn("It will be lost when the gateway restarts.");
+    } catch (err) {
+      log.error("Failed to connect wallet", err);
+      process.exit(1);
+    }
+  });
+
+wallet
+  .command("disconnect")
+  .description("Disconnect wallet from the running gateway")
+  .option("-c, --config <path>", "Config file path (overrides OWLIABOT_CONFIG_PATH)")
+  .option("--gateway-token <token>", "Gateway auth token (overrides config)")
+  .action(async (options) => {
+    try {
+      const info = await loadGatewayInfo(options.config);
+      const gatewayUrl = info.gatewayUrl;
+      const gatewayToken = options.gatewayToken ?? info.gatewayToken;
+
+      const res = await fetch(`${gatewayUrl}/admin/wallet`, {
+        method: "DELETE",
+        headers: {
+          "Content-Type": "application/json",
+          ...(gatewayToken ? { "X-Gateway-Token": gatewayToken } : {}),
+        },
+      });
+
+      const json = (await res.json()) as any;
+      if (!json.ok) {
+        throw new Error(json.error?.message ?? "Failed to disconnect wallet");
+      }
+
+      log.info("Wallet disconnected.");
+      if (json.data.removed.length > 0) {
+        log.info(`  Removed tools: ${json.data.removed.join(", ")}`);
+      } else {
+        log.info("  (No wallet tools were registered)");
+      }
+    } catch (err) {
+      log.error("Failed to disconnect wallet", err);
+      process.exit(1);
+    }
+  });
+
 // Logs command — view real-time logs (auto-detects npm/Docker environment)
 program
   .command("logs")

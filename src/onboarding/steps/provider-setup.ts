@@ -372,7 +372,7 @@ export function reuseProvidersFromExisting(
   // Anthropic
   const canReuseToken =
     !!existing.anthropicToken && existing.anthropicTokenValid !== false;
-  if (existing.anthropicKey || canReuseToken) {
+  if (existing.anthropicKey || canReuseToken || existing.hasOAuthAnthro) {
     useAnthropic = true;
     if (existing.anthropicKey)
       secrets.anthropic = { apiKey: existing.anthropicKey };
