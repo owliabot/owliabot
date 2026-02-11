@@ -141,8 +141,8 @@ export const playwrightSecurityOverrides: Record<string, MCPSecurityOverride> = 
   "playwright__browser_upload": { level: "read" },
   "playwright__browser_download": { level: "write" }, // only download is write (disk mutation)
 
-  // Browser installation - read (managed by the MCP server process)
-  "playwright__browser_install": { level: "read" },
+  // Browser installation - write (downloads & installs browser binaries to disk)
+  "playwright__browser_install": { level: "write" },
 };
 
 // ============================================================================
