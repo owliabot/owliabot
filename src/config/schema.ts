@@ -14,6 +14,11 @@ export const providerSchema = z
     apiKey: z.string().optional(),
     priority: z.number().int().positive(),
     baseUrl: z.string().url().optional(),
+    authType: z
+      .enum(["bearer", "api-key", "header", "none"])
+      .default("bearer")
+      .optional(),
+    authHeader: z.string().optional(),
   })
   .refine(
     (data) => {
@@ -28,6 +33,20 @@ export const providerSchema = z
         "baseUrl is required when provider id is 'openai-compatible'. " +
         "Example: http://localhost:11434/v1 for Ollama",
       path: ["baseUrl"],
+    },
+  )
+  .refine(
+    (data) => {
+      if (data.authType === "header" && !data.authHeader) {
+        return false;
+      }
+      return true;
+    },
+    {
+      message:
+        "authHeader is required when authType is 'header'. " +
+        "Example: authHeader: 'X-API-Key'",
+      path: ["authHeader"],
     },
   );
 
