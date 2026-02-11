@@ -110,9 +110,9 @@ export async function securitySetup(): Promise<void> {
       gateDefault,
     );
 
-    // writeToolConfirmation
+    // writeToolConfirmation (runtime default is true — keep aligned)
     const currentConfirm = existing.writeToolConfirmation;
-    const confirmDefault = currentConfirm != null ? Boolean(currentConfirm) : false;
+    const confirmDefault = currentConfirm != null ? Boolean(currentConfirm) : true;
     const writeToolConfirmation = await askYN(
       rl,
       "Require interactive confirmation for write operations?",
@@ -132,11 +132,13 @@ export async function securitySetup(): Promise<void> {
     );
 
     let writeToolAllowList: string[];
-    if (listInput.trim() === "" && currentList.length > 0) {
+    if (listInput.trim() === "") {
+      // Empty input = keep current list as-is
       writeToolAllowList = currentList;
     } else {
+      // Non-empty input = replace (not merge) to avoid retaining stale IDs
       const newIds = listInput.split(",").map((s) => s.trim()).filter(Boolean);
-      writeToolAllowList = [...new Set([...currentList, ...newIds])];
+      writeToolAllowList = [...new Set(newIds)];
     }
 
     // Write
