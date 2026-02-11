@@ -13,6 +13,8 @@ export {
   type TokenBalance,
   type TransferRequest,
   type TransferResponse,
+  type SendRawRequest,
+  type SendRawResponse,
   type HealthResponse,
   type AddressResponse,
   type AuthGrantRequest,
