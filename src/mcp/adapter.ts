@@ -202,6 +202,7 @@ export class MCPToolAdapter {
     const readPrefixes = [
       "read", "get", "list", "search", "fetch", "query", "check",
       "status", "health", "describe",
+      "screenshot", "snapshot", "capture", "inspect", "observe",
     ];
 
     // Tools that likely modify state
