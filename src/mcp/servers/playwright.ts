@@ -121,9 +121,13 @@ export const playwrightSecurityOverrides: Record<string, MCPSecurityOverride> = 
   "playwright__browser_close_tab": { level: "write" },
   "playwright__browser_switch_tab": { level: "write" },
   
-  // Screenshot/PDF - read level (doesn't modify state)
-  "playwright__browser_screenshot": { level: "read" },
+  // Screenshot/PDF/Snapshot - read level (doesn't modify state)
+  // Note: actual @playwright/mcp tool names use "take_screenshot" not "screenshot"
+  "playwright__browser_take_screenshot": { level: "read" },
+  "playwright__browser_screenshot": { level: "read" }, // alias for compat
+  "playwright__browser_snapshot": { level: "read" },
   "playwright__browser_pdf": { level: "read" },
+  "playwright__browser_save_as_pdf": { level: "read" }, // alias for compat
   
   // Page content inspection - read level
   "playwright__browser_get_content": { level: "read" },
