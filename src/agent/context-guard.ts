@@ -114,6 +114,9 @@ function truncateMessageToolResults(
  * Ensure messages fit within contextWindow - reserveTokens.
  * Drops oldest non-system messages first. Always keeps system messages
  * and at least one non-system message.
+ * 
+ * Critical: Maintains tool-call/tool-result pairing. If a tool_result is kept,
+ * its corresponding assistant message with the tool_call must also be kept.
  */
 export function guardContext(
   messages: Message[],
@@ -137,12 +140,38 @@ export function guardContext(
   const systemTokens = estimateContextTokens(systemMsgs);
   const remaining = budget - systemTokens;
 
+  // Build a map of toolCallId -> assistant message index
+  const toolCallIdToAssistantIndex = new Map<string, number>();
+  for (let i = 0; i < chatMsgs.length; i++) {
+    const msg = chatMsgs[i];
+    if (msg.role === "assistant" && msg.toolCalls) {
+      for (const tc of msg.toolCalls) {
+        toolCallIdToAssistantIndex.set(tc.id, i);
+      }
+    }
+  }
+
   // Walk backwards from newest, accumulating tokens
   let startIndex = chatMsgs.length;
   let accumulated = 0;
+  const requiredIndices = new Set<number>(); // Indices that must be included for pairing
 
   for (let i = chatMsgs.length - 1; i >= 0; i--) {
-    const msgTokens = estimateContextTokens([chatMsgs[i]]);
+    const msg = chatMsgs[i];
+    const msgTokens = estimateContextTokens([msg]);
+    
+    // Check if this message references tool calls we need to preserve
+    if (msg.toolResults) {
+      for (const tr of msg.toolResults) {
+        if (!tr.toolCallId) continue; // Skip tool results without callId
+        const assistantIndex = toolCallIdToAssistantIndex.get(tr.toolCallId);
+        if (assistantIndex !== undefined && assistantIndex < i) {
+          // Mark the assistant message as required
+          requiredIndices.add(assistantIndex);
+        }
+      }
+    }
+
     if (accumulated + msgTokens > remaining && startIndex < chatMsgs.length) {
       // Already have at least one message, stop here
       break;
@@ -151,8 +180,46 @@ export function guardContext(
     startIndex = i;
   }
 
-  const kept = chatMsgs.slice(startIndex);
-  const dropped = chatMsgs.length - kept.length;
+  // Include required assistant messages that might be before startIndex
+  for (const reqIdx of requiredIndices) {
+    if (reqIdx < startIndex) {
+      // Need to include messages from reqIdx
+      const additionalTokens = estimateContextTokens(chatMsgs.slice(reqIdx, startIndex));
+      accumulated += additionalTokens;
+      startIndex = reqIdx;
+    }
+  }
+
+  // Final pass: remove any orphaned tool_results whose assistant was dropped
+  const keptMessages = chatMsgs.slice(startIndex);
+  const keptToolCallIds = new Set<string>();
+  
+  // Collect all tool call IDs from kept assistant messages
+  for (const msg of keptMessages) {
+    if (msg.role === "assistant" && msg.toolCalls) {
+      for (const tc of msg.toolCalls) {
+        keptToolCallIds.add(tc.id);
+      }
+    }
+  }
+
+  // Filter out orphaned tool results
+  const filteredMessages = keptMessages.map((msg) => {
+    if (msg.toolResults) {
+      const validResults = msg.toolResults.filter((tr) =>
+        tr.toolCallId && keptToolCallIds.has(tr.toolCallId)
+      );
+      if (validResults.length !== msg.toolResults.length) {
+        log.debug(
+          `Removed ${msg.toolResults.length - validResults.length} orphaned tool results`
+        );
+        return { ...msg, toolResults: validResults.length > 0 ? validResults : undefined };
+      }
+    }
+    return msg;
+  });
+
+  const dropped = chatMsgs.length - keptMessages.length;
 
   if (dropped > 0) {
     log.warn(
@@ -161,7 +228,7 @@ export function guardContext(
   }
 
   return {
-    messages: [...systemMsgs, ...kept],
+    messages: [...systemMsgs, ...filteredMessages],
     dropped,
   };
 }
