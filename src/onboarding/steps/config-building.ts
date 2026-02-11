@@ -159,6 +159,17 @@ export async function buildAppConfigFromPrompts(
   const mcpConfig = await configureMcpServers(rl);
   if (mcpConfig) config.mcp = mcpConfig;
 
+  // When MCP is enabled, auto-set security defaults so MCP tools (e.g. Playwright
+  // screenshot) aren't blocked by WriteGate out of the box.
+  // writeToolAllowList is NOT auto-set here — that's user-specific.
+  if (mcpConfig) {
+    config.security = {
+      ...(config.security ?? {}),
+      writeGateEnabled: true,
+      writeToolConfirmation: false,
+    };
+  }
+
   const writeToolAllowList = await configureWriteToolsSecurity(rl, config, userAllowLists);
 
   return { config, workspacePath: workspace, writeToolAllowList };
