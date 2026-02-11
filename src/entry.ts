@@ -982,4 +982,61 @@ program
     }
   });
 
+// Security command group
+const security = program.command("security").description("Manage WriteGate and security configuration");
+
+security
+  .command("show")
+  .description("Display current security configuration")
+  .action(async () => {
+    try {
+      const { securityShow } = await import("./security/cli.js");
+      await securityShow();
+    } catch (err) {
+      log.error("Failed to show security config", err);
+      process.exit(1);
+    }
+  });
+
+security
+  .command("setup")
+  .description("Interactive security configuration")
+  .action(async () => {
+    try {
+      const { securitySetup } = await import("./security/cli.js");
+      await securitySetup();
+    } catch (err) {
+      log.error("Security setup failed", err);
+      process.exit(1);
+    }
+  });
+
+security
+  .command("add-user")
+  .description("Add a user to the writeToolAllowList")
+  .argument("<userId>", "Discord or Telegram user ID")
+  .action(async (userId: string) => {
+    try {
+      const { securityAddUser } = await import("./security/cli.js");
+      await securityAddUser(userId);
+    } catch (err) {
+      log.error("Failed to add user", err);
+      process.exit(1);
+    }
+  });
+
+security
+  .command("remove-user")
+  .description("Remove a user from the writeToolAllowList")
+  .argument("<userId>", "Discord or Telegram user ID")
+  .action(async (userId: string) => {
+    try {
+      const { securityRemoveUser } = await import("./security/cli.js");
+      await securityRemoveUser(userId);
+    } catch (err) {
+      log.error("Failed to remove user", err);
+      process.exit(1);
+    }
+  });
+
 await program.parseAsync();
