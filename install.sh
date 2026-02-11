@@ -355,6 +355,9 @@ main() {
     die "Onboard did not generate docker-compose.yml. Cannot auto-start."
   fi
 
+  # Chromium is bundled in the Docker image — Playwright MCP will use it automatically
+  success "Chromium browser bundled in image (Playwright MCP ready)"
+
   # Detect docker compose command
   COMPOSE_CMD=""
   if command -v docker-compose &>/dev/null; then
