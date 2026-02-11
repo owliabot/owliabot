@@ -678,6 +678,36 @@ describe("ClawletClient", () => {
     });
   });
 
+  describe("chains", () => {
+    it("should return supported chains without auth", async () => {
+      const client = new ClawletClient({
+        requestTimeout: 5000,
+      });
+
+      mockFetch.mockResolvedValueOnce(
+        createMockResponse({
+          jsonrpc: "2.0",
+          result: [
+            { chain_id: 8453, name: "Base" },
+            { chain_id: 1, name: "Ethereum Mainnet" },
+            { chain_id: 11155111, name: "Sepolia", testnet: true },
+          ],
+          id: 1,
+        })
+      );
+
+      const result = await client.chains();
+
+      expect(result).toHaveLength(3);
+      expect(result[0]).toEqual({ chain_id: 8453, name: "Base" });
+      expect(result[2]).toEqual({ chain_id: 11155111, name: "Sepolia", testnet: true });
+
+      // Verify no auth header for chains
+      const options = mockFetch.mock.calls[0][1];
+      expect(options.headers["Authorization"]).toBeUndefined();
+    });
+  });
+
   describe("authGrant", () => {
     it("should grant token and auto-set it", async () => {
       const client = new ClawletClient({
