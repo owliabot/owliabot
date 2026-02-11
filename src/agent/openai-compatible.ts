@@ -254,6 +254,14 @@ export async function openAICompatibleComplete(
     "Content-Type": "application/json",
   };
 
+  // Warn on suspicious auth configurations
+  if (authType === "none" && apiKey && apiKey.trim() !== "") {
+    log.warn("authType is 'none' but apiKey is set — apiKey will be ignored");
+  }
+  if (authType === "header" && (!authHeader || authHeader.trim() === "")) {
+    log.warn("authType is 'header' but authHeader is empty");
+  }
+
   // Add auth header if API key is provided and not empty
   if (apiKey && apiKey.trim() !== "") {
     switch (authType ?? "bearer") {
