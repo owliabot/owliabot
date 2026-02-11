@@ -75,6 +75,28 @@ export interface TransferResponse {
   reason?: string;
 }
 
+/** Send raw transaction request */
+export interface SendRawRequest {
+  /** Recipient address (0x-prefixed) */
+  to: string;
+  /** Value in wei (hex or decimal string) */
+  value?: string;
+  /** Calldata (0x-prefixed) */
+  data?: string;
+  /** Chain ID */
+  chain_id: number;
+  /** Gas limit */
+  gas_limit?: number;
+}
+
+/** Send raw transaction response */
+export interface SendRawResponse {
+  /** Transaction hash */
+  tx_hash: string;
+  /** Audit event ID */
+  audit_id: string;
+}
+
 /** Health check response */
 export interface HealthResponse {
   status: "ok" | "error";
@@ -286,6 +308,15 @@ export class ClawletClient extends EventEmitter {
   async balance(query: BalanceQuery): Promise<BalanceResponse> {
     this.validateAddress(query.address);
     return this.call<BalanceResponse>("balance", [query]);
+  }
+
+  /**
+   * Send a raw transaction
+   * Requires: Trade scope token
+   */
+  async sendRaw(req: SendRawRequest): Promise<SendRawResponse> {
+    this.validateAddress(req.to);
+    return this.call<SendRawResponse>("send_raw", [req]);
   }
 
   /**
