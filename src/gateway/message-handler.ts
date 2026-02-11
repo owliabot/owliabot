@@ -378,6 +378,7 @@ export async function handleMessage(
     // ─────────────────────────────────────────────────────────────────────────
     const conversationMessages = createConversation(systemPrompt, history);
     
+    const loopConfig = config.agents?.loop ?? { maxIterations: 50, timeoutSeconds: 600 };
     const loopResult = await runAgenticLoop(
       conversationMessages,
       {
@@ -396,10 +397,18 @@ export async function handleMessage(
         tools,
         writeGateChannel: writeGateChannels.get(ctx.channel),
         transcripts,
+        maxIterations: loopConfig.maxIterations,
+        timeoutMs: loopConfig.timeoutSeconds * 1000,
+        cliBackends: config.agents?.defaults?.cliBackends,
       },
     );
 
     const finalContent = loopResult.content;
+    
+    // Log timeout if occurred
+    if (loopResult.timedOut) {
+      log.warn(`Agentic loop timed out after ${loopConfig.timeoutSeconds}s`);
+    }
 
     log.info(`Final response: ${finalContent.slice(0, 50)}...`);
 

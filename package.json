@@ -19,7 +19,8 @@
   },
   "dependencies": {
     "@grammyjs/auto-chat-action": "^0.1.1",
-    "@mariozechner/pi-ai": "^0.49.3",
+    "@mariozechner/pi-agent-core": "^0.52.9",
+    "@mariozechner/pi-ai": "^0.52.9",
     "better-sqlite3": "^12.6.2",
     "commander": "^12.1.0",
     "croner": "^8.1.2",

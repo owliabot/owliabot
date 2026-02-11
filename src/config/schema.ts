@@ -268,8 +268,17 @@ const agentsSchema = z
         cliBackends: CliBackendsSchema,
       })
       .optional(),
+    /** Agentic loop configuration */
+    loop: z
+      .object({
+        /** Maximum iterations (hard safety ceiling, default: 50) */
+        maxIterations: z.number().int().positive().default(50),
+        /** Timeout in seconds (default: 600 = 10 minutes) */
+        timeoutSeconds: z.number().int().positive().default(600),
+      })
+      .default({ maxIterations: 50, timeoutSeconds: 600 }),
   })
-  .default({ defaultId: "main" });
+  .default({ defaultId: "main", loop: { maxIterations: 50, timeoutSeconds: 600 } });
 
 const groupSchema = z
   .object({

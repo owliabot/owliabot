@@ -27,7 +27,7 @@ export type SupportedOAuthProvider = "openai-codex";
 
 /**
  * Credentials shape stored on disk.
- * Compatible with the old OAuthCredentials interface from pi-ai.
+ * Compatible with the OAuthCredentials interface from pi-ai 0.52+.
  */
 export interface OAuthCredentials {
   access: string;
@@ -38,6 +38,7 @@ export interface OAuthCredentials {
   projectId?: string;
   email?: string;
   accountId?: string;
+  [key: string]: unknown; // Required by pi-ai 0.52+ index signature
 }
 
 const AUTH_DIR = join(

@@ -25,6 +25,7 @@ import { GroupRateLimiter } from "./group-rate-limit.js";
 import { resolveEffectiveProviders } from "../models/override.js";
 import { ToolRegistry } from "../agent/tools/registry.js";
 import { executeToolCalls } from "../agent/tools/executor.js";
+import { runAgenticLoop, createConversation } from "./agentic-loop.js";
 import {
   createBuiltinTools,
   createHelpTool,
@@ -945,121 +946,40 @@ async function handleMessage(
     return;
   }
 
-  // Agentic loop
-  const MAX_ITERATIONS = 5;
-  let iteration = 0;
-  let finalContent = "";
-
-  const conversationMessages: Message[] = [
-    { role: "system", content: systemPrompt, timestamp: Date.now() },
-    ...history,
-  ];
-
-  try {
-    while (iteration < MAX_ITERATIONS) {
-      iteration++;
-      log.debug(`Agentic loop iteration ${iteration}`);
-
-      // Call LLM with tools
-      const providers: LLMProvider[] = effectiveProviders;
-      const response = await callWithFailover(providers, conversationMessages, {
-        tools: tools.getAll(),
-      });
-
-      // If no tool calls, we're done
-      if (!response.toolCalls || response.toolCalls.length === 0) {
-        finalContent = response.content;
-        break;
-      }
-
-      log.info(`LLM requested ${response.toolCalls.length} tool calls`);
-      for (const call of response.toolCalls) {
-        const argsStr = JSON.stringify(call.arguments);
-        log.info(`  ↳ ${call.name}(${argsStr.length > 200 ? argsStr.slice(0, 200) + "…" : argsStr})`);
-      }
-
-      // Execute tool calls
-      const toolResults = await executeToolCalls(response.toolCalls, {
-        registry: tools,
-        context: {
-          sessionKey,
-          agentId,
-          config: {
-            memorySearch: config.memorySearch,
-            channel: ctx.channel,
-            target: ctx.chatType === "direct" ? ctx.from : (ctx.groupId ?? ctx.from),
-          },
-        },
-        writeGateChannel: writeGateChannels.get(ctx.channel),
-        securityConfig: config.security,
-        workspacePath: config.workspace,
-        userId: ctx.from,
-      });
-
-      for (const [id, result] of toolResults) {
-        const body = result.success ? (result.data ?? "") : (result.error ?? "");
-        const bodyStr = typeof body === "string" ? body : JSON.stringify(body);
-        log.info(`  ↳ result [${id}] success=${result.success}: ${bodyStr.length > 300 ? bodyStr.slice(0, 300) + "…" : bodyStr}`);
-      }
-
-      // Add assistant message with tool calls to conversation
-      const assistantToolCallMessage: Message = {
-        role: "assistant",
-        content: response.content || "",
-        timestamp: Date.now(),
-        toolCalls: response.toolCalls,
-      };
-      conversationMessages.push(assistantToolCallMessage);
-      await transcripts.append(entry.sessionId, assistantToolCallMessage);
-
-      // Add tool results as user message with proper toolResults structure
-      // The runner will convert this to pi-ai's ToolResultMessage format
-      const toolResultsArray = response.toolCalls.map((call) => {
-        const result = toolResults.get(call.id);
-        if (!result) {
-          return {
-            success: false,
-            error: "Missing tool result",
-            toolCallId: call.id,
-            toolName: call.name,
-          } as ToolResult;
-        }
-        return {
-          ...result,
-          toolCallId: call.id,
-          toolName: call.name,
-        } as ToolResult;
-      });
-
-      const toolResultMessage: Message = {
-        role: "user",
-        content: "", // Content is empty, tool results are in toolResults array
-        timestamp: Date.now(),
-        toolResults: toolResultsArray,
-      };
-      conversationMessages.push(toolResultMessage);
-      await transcripts.append(entry.sessionId, toolResultMessage);
+  // Agentic loop (using pi-agent-core)
+  const conversationMessages = createConversation(systemPrompt, history);
+  
+  const loopConfig = config.agents?.loop ?? { maxIterations: 50, timeoutSeconds: 600 };
+  const loopResult = await runAgenticLoop(
+    conversationMessages,
+    {
+      sessionKey,
+      agentId,
+      sessionId: entry.sessionId,
+      userId: ctx.from,
+      channelId: ctx.channel,
+      chatTargetId: ctx.chatType === "direct" ? ctx.from : (ctx.groupId ?? ctx.from),
+      workspacePath: config.workspace,
+      memorySearchConfig: config.memorySearch,
+      securityConfig: config.security,
+    },
+    {
+      providers: effectiveProviders,
+      tools,
+      writeGateChannel: writeGateChannels.get(ctx.channel),
+      transcripts,
+      maxIterations: loopConfig.maxIterations,
+      timeoutMs: loopConfig.timeoutSeconds * 1000,
+      cliBackends: config.agents?.defaults?.cliBackends,
     }
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
+  );
 
-    // Provide a user-visible hint for missing provider keys / auth.
-    if (message.includes("No API key found for anthropic")) {
-      finalContent =
-        "⚠️ Anthropic 未授权：请先运行 `owliabot auth setup`（或设置 `ANTHROPIC_API_KEY`），然后再试一次。";
-    } else {
-      finalContent = `⚠️ 处理失败：${message}`;
-    }
-  }
-
-  if (!finalContent && iteration >= MAX_ITERATIONS) {
-    finalContent =
-      "I apologize, but I couldn't complete your request. Please try again.";
-  }
+  const finalContent = loopResult.content;
+  const iteration = loopResult.iterations;
 
   log.info(`Final response: ${finalContent.slice(0, 50)}...`);
 
-  // Append assistant response to session
+  // Append assistant response to session (final message already in loopResult.messages)
   const assistantMessage: Message = {
     role: "assistant",
     content: finalContent,
