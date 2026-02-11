@@ -67,8 +67,10 @@ describe("configureWallet step", () => {
     await configureWallet(rl, {}, config);
     expect(config.wallet).toBeDefined();
     expect(config.wallet.clawlet.enabled).toBe(true);
-    expect(config.wallet.clawlet.defaultAddress).toBe("0xABC");
     expect(config.wallet.clawlet.baseUrl).toBe("http://localhost:3000");
+    // defaultAddress is NOT persisted to config — address is fetched
+    // dynamically via client.address() at runtime
+    expect(config.wallet.clawlet.defaultAddress).toBeUndefined();
   });
 
   it("handles clawlet onboarding error gracefully", async () => {

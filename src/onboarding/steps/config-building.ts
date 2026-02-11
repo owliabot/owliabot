@@ -6,12 +6,10 @@ import { createInterface } from "node:readline";
 import { join } from "node:path";
 import type { AppConfig, ProviderConfig, MemorySearchConfig, SystemCapabilityConfig } from "../types.js";
 import type { SecretsConfig } from "../secrets.js";
-import { header } from "../shared.js";
 import { getWorkspacePath } from "./workspace-setup.js";
 import { getGatewayConfig } from "./gateway-setup.js";
 import { configureDiscordConfig } from "./configure-discord.js";
 import { configureTelegramConfig } from "./configure-telegram.js";
-import { configureWallet } from "./configure-wallet.js";
 import { configureWriteToolsSecurity } from "./security-setup.js";
 import type { UserAllowLists } from "./types.js";
 
@@ -65,7 +63,7 @@ export async function buildAppConfigFromPrompts(
   dockerMode: boolean,
   appConfigPath: string,
   providers: ProviderConfig[],
-  secrets: SecretsConfig,
+  _secrets: SecretsConfig,
   discordEnabled: boolean,
   telegramEnabled: boolean,
 ): Promise<{ config: AppConfig; workspace: string; writeToolAllowList: string[] | null }> {
@@ -84,7 +82,6 @@ export async function buildAppConfigFromPrompts(
   if (discordEnabled) await configureDiscordConfig(rl, config, userAllowLists);
   if (telegramEnabled) await configureTelegramConfig(rl, config, userAllowLists);
 
-  await configureWallet(rl, secrets, config);
   const writeToolAllowList = await configureWriteToolsSecurity(rl, config, userAllowLists);
 
   return { config, workspace, writeToolAllowList };

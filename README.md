@@ -210,22 +210,29 @@ clawlet serve
 # Listens on http://127.0.0.1:9100
 ```
 
-4. **Configure OwliaBot** in `config.yaml`:
-
-```yaml
-wallet:
-  clawlet:
-    enabled: true
-    baseUrl: "http://127.0.0.1:9100"
-    authToken: ${CLAWLET_AUTH_TOKEN}
-    defaultChainId: 8453  # Base
-```
-
-5. **Set the auth token and start**:
+4. **Start the OwliaBot gateway**:
 
 ```bash
-export CLAWLET_AUTH_TOKEN=clwt_xxxxx
-npx tsx src/entry.ts start
+owliabot start
+# Or with a specific config: owliabot start -c config.yaml
+```
+
+5. **Connect wallet to the running bot**:
+
+```bash
+# With token as argument
+owliabot wallet connect --token clwt_xxxxx
+
+# Or interactive mode (auto-detects daemon, prompts for token)
+owliabot wallet connect
+```
+
+The command tests the connection (fetches address and balance) and registers wallet tools in the gateway. Wallet configuration is stored **in memory only** — it is never written to the config file. If the gateway restarts, run `wallet connect` again.
+
+To disconnect:
+
+```bash
+owliabot wallet disconnect
 ```
 
 See [Clawlet documentation](https://github.com/owliabot/clawlet) for advanced configuration (Unix socket mode, policy rules, systemd/launchd setup).
@@ -242,6 +249,7 @@ See [Clawlet documentation](https://github.com/owliabot/clawlet) for advanced co
 | Chain ID | Network |
 |----------|---------|
 | 1 | Ethereum Mainnet |
+| 11155111 | Ethereum Sepolia (testnet) |
 | 8453 | Base |
 | 10 | Optimism |
 | 42161 | Arbitrum One |

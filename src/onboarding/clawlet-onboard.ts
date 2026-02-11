@@ -75,7 +75,6 @@ export interface WalletConfigResult {
   enabled: boolean;
   baseUrl?: string;
   defaultChainId?: number;
-  defaultAddress?: string;
 }
 
 /**
@@ -140,18 +139,6 @@ export async function runClawletOnboarding(
   secrets.clawlet = { token };
   log.info("✓ Clawlet token saved");
 
-  // Get wallet address from daemon
-  const client = new ClawletClient({ authToken: token });
-  let defaultAddress: string | undefined;
-
-  try {
-    const addrResp = await client.address();
-    defaultAddress = addrResp.address;
-    log.info(`✓ Wallet address: ${defaultAddress}`);
-  } catch (err) {
-    log.warn("Could not fetch wallet address from clawlet daemon");
-  }
-
   // Ask for default chain ID
   const chainIdAns = await ask(rl, "Default chain ID [8453 for Base]: ");
   const defaultChainId = chainIdAns ? parseInt(chainIdAns, 10) : 8453;
@@ -166,6 +153,5 @@ export async function runClawletOnboarding(
     enabled: true,
     baseUrl,
     defaultChainId,
-    defaultAddress,
   };
 }

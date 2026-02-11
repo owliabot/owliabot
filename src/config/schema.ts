@@ -296,11 +296,6 @@ const clawletConfigSchema = z
     requestTimeout: z.number().int().default(30_000),
     /** Default chain ID for wallet operations (8453 = Base) */
     defaultChainId: z.number().int().default(8453),
-    /** Default wallet address for balance queries */
-    defaultAddress: z
-      .string()
-      .regex(/^0x[a-fA-F0-9]{40}$/, "Must be a valid 0x-prefixed 40-character hex address")
-      .optional(),
   })
   .default({
     enabled: false,

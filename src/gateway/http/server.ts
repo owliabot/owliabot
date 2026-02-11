@@ -11,7 +11,7 @@
  * - /command/tool, /command/system — device token + scope check
  * - /events/poll — device token, ACK mechanism
  * - /mcp — device token + scope check (JSON-RPC 2.0)
- * - /admin/* — gateway token (devices, approve, reject, revoke, scope, token rotate)
+ * - /admin/* — gateway token (devices, approve, reject, revoke, scope, token rotate, wallet)
  *
  * @see docs/plans/gateway-unification.md Phase 2
  */
@@ -68,6 +68,8 @@ export interface GatewayHttpOptions {
   transcripts: SessionTranscriptStore;
   workspacePath: string;
   system?: SystemCapabilityConfig;
+  /** Tool policy for filtering dynamically registered tools */
+  toolsPolicy?: { allowList?: string[]; denyList?: string[] };
   /** Optional fetch injection for tests (defaults to global fetch) */
   fetchImpl?: typeof fetch;
 }
@@ -499,6 +501,162 @@ export async function startGatewayHttp(opts: GatewayHttpOptions): Promise<Gatewa
         return;
       }
       sendJson(res, 200, { ok: true });
+      return;
+    }
+
+    // ── Wallet connect/disconnect (runtime, memory-only) ──────────────────
+
+    if (url.pathname === "/admin/wallet" && req.method === "POST") {
+      if (!requireGatewayAuth(req, config.token)) {
+        sendJson(res, 401, {
+          ok: false,
+          error: { code: "ERR_UNAUTHORIZED", message: "Missing gateway token" },
+        });
+        return;
+      }
+
+      let body: any;
+      try {
+        body = await readJsonBody(req);
+      } catch {
+        sendJson(res, 400, {
+          ok: false,
+          error: { code: "ERR_INVALID_REQUEST", message: "Invalid JSON body" },
+        });
+        return;
+      }
+
+      const baseUrl = body?.baseUrl;
+      const token = body?.token;
+      const defaultChainId = body?.defaultChainId;
+      const scope = body?.scope;
+
+      if (typeof baseUrl !== "string" || baseUrl.length === 0) {
+        sendJson(res, 400, {
+          ok: false,
+          error: { code: "ERR_INVALID_REQUEST", message: "baseUrl is required (string)" },
+        });
+        return;
+      }
+      if (typeof token !== "string" || token.length === 0) {
+        sendJson(res, 400, {
+          ok: false,
+          error: { code: "ERR_INVALID_REQUEST", message: "token is required (string)" },
+        });
+        return;
+      }
+      if (
+        defaultChainId !== undefined &&
+        (typeof defaultChainId !== "number" || !Number.isInteger(defaultChainId) || defaultChainId <= 0)
+      ) {
+        sendJson(res, 400, {
+          ok: false,
+          error: { code: "ERR_INVALID_REQUEST", message: "defaultChainId must be a positive integer" },
+        });
+        return;
+      }
+      if (scope !== undefined && typeof scope !== "string") {
+        sendJson(res, 400, {
+          ok: false,
+          error: { code: "ERR_INVALID_REQUEST", message: "scope must be a string" },
+        });
+        return;
+      }
+
+      const resolvedChainId = defaultChainId ?? 8453;
+      const clawletConfig = {
+        baseUrl,
+        authToken: token,
+        requestTimeout: typeof body?.requestTimeout === "number" ? body.requestTimeout : 30_000,
+      };
+
+      // ── Connectivity test: address + balance ──────────────────────────────
+      const { ClawletClient } = await import("../../wallet/clawlet-client.js");
+      const client = new ClawletClient(clawletConfig);
+
+      let walletAddress: string;
+      let ethBalance: string;
+      try {
+        const addrResp = await client.address();
+        walletAddress = addrResp.address;
+        const balResp = await client.balance({
+          address: walletAddress,
+          chain_id: resolvedChainId,
+        });
+        ethBalance = balResp.eth;
+      } catch (err: any) {
+        sendJson(res, 502, {
+          ok: false,
+          error: {
+            code: "ERR_WALLET_TEST_FAILED",
+            message: `Wallet connectivity test failed: ${err?.message ?? String(err)}`,
+          },
+        });
+        return;
+      }
+
+      // ── Determine tool scope ──────────────────────────────────────────────
+      // Respect the requested scope from the caller.
+      // Default to read-only for safety if scope is not explicitly provided.
+      const requestedScope = scope ?? "read";
+      const scopes = requestedScope.split(",").map((s: string) => s.trim());
+      const enableTrade = scopes.includes("trade");
+
+      // ── Register tools ────────────────────────────────────────────────────
+      // Always unregister both first to handle reconnect with different scope
+      tools.unregister("wallet_balance");
+      tools.unregister("wallet_transfer");
+
+      const { createWalletBalanceTool, createWalletTransferTool } = await import("../../agent/tools/builtin/wallet.js");
+      const { filterToolsByPolicy } = await import("../../agent/tools/policy.js");
+
+      const toolConfig = { clawletConfig, defaultChainId: resolvedChainId };
+      let walletTools = [createWalletBalanceTool(toolConfig)];
+      if (enableTrade) {
+        walletTools.push(createWalletTransferTool(toolConfig));
+      }
+
+      // Apply tool policy filtering before registration
+      walletTools = filterToolsByPolicy(walletTools, opts.toolsPolicy);
+
+      const registeredNames: string[] = [];
+      for (const tool of walletTools) {
+        tools.register(tool);
+        registeredNames.push(tool.name);
+      }
+
+      sendJson(res, 200, {
+        ok: true,
+        data: {
+          message: "Wallet tools registered",
+          tools: registeredNames,
+          wallet: { address: walletAddress, ethBalance, scope: requestedScope },
+          config: { baseUrl, defaultChainId: resolvedChainId },
+        },
+      });
+      return;
+    }
+
+    if (url.pathname === "/admin/wallet" && req.method === "DELETE") {
+      if (!requireGatewayAuth(req, config.token)) {
+        sendJson(res, 401, {
+          ok: false,
+          error: { code: "ERR_UNAUTHORIZED", message: "Missing gateway token" },
+        });
+        return;
+      }
+
+      const removed: string[] = [];
+      for (const name of ["wallet_balance", "wallet_transfer"]) {
+        if (tools.unregister(name)) {
+          removed.push(name);
+        }
+      }
+
+      sendJson(res, 200, {
+        ok: true,
+        data: { message: "Wallet tools removed", removed },
+      });
       return;
     }
 
