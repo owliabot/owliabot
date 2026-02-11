@@ -654,7 +654,7 @@ wallet
   .option("--base-url <url>", "Clawlet daemon base URL", "http://127.0.0.1:9100")
   .option("--token <token>", "Clawlet auth token (or set CLAWLET_TOKEN env)")
   .option("--chain-id <id>", "Default chain ID", "8453")
-  .option("--scope <scope>", "Token scope: read, trade, or read,trade", "read")
+  .option("--scope <scope>", "Token scope: read, trade, or read,trade", "trade")
   .action(async (options) => {
     try {
       const info = await loadGatewayInfo(options.config);
