@@ -12,6 +12,7 @@
  */
 
 import { createLogger } from "../utils/logger.js";
+import { isInsideDocker } from "../logs/docker.js";
 import { EventEmitter } from "node:events";
 import { createConnection } from "node:net";
 
@@ -191,9 +192,34 @@ export class ClawletError extends Error {
 // Client Implementation
 // ============================================================================
 
-const DEFAULT_BASE_URL = "http://127.0.0.1:9100";
+export const DEFAULT_BASE_URL = "http://127.0.0.1:9100";
+const DOCKER_HOST_URL = "http://host.docker.internal:9100";
 const DEFAULT_REQUEST_TIMEOUT = 30000;
 const DEFAULT_RPC_PATH = "/rpc";
+
+/**
+ * Resolve the Clawlet base URL, auto-detecting Docker environment.
+ *
+ * - If the user explicitly configured a non-default URL, use it as-is.
+ * - If we're inside Docker and no custom URL was set, use `host.docker.internal`.
+ * - Otherwise, fall back to `127.0.0.1`.
+ */
+export function resolveClawletBaseUrl(configBaseUrl?: string): string {
+  // User explicitly set a custom (non-default) URL → respect it
+  if (configBaseUrl && configBaseUrl !== DEFAULT_BASE_URL) {
+    log.info(`Clawlet baseUrl: ${configBaseUrl} (user-configured)`);
+    return configBaseUrl;
+  }
+
+  // Auto-detect Docker
+  if (isInsideDocker()) {
+    log.info(`Clawlet baseUrl: ${DOCKER_HOST_URL} (Docker auto-detected)`);
+    return DOCKER_HOST_URL;
+  }
+
+  log.debug(`Clawlet baseUrl: ${DEFAULT_BASE_URL} (default)`);
+  return DEFAULT_BASE_URL;
+}
 const NEWLINE = "\n";
 
 /**
@@ -226,7 +252,7 @@ export class ClawletClient extends EventEmitter {
   constructor(config: ClawletClientConfig = {}) {
     super();
     this.config = {
-      baseUrl: config.baseUrl ?? DEFAULT_BASE_URL,
+      baseUrl: resolveClawletBaseUrl(config.baseUrl),
       socketPath: config.socketPath,
       authToken: config.authToken ?? "",
       requestTimeout: config.requestTimeout ?? DEFAULT_REQUEST_TIMEOUT,
