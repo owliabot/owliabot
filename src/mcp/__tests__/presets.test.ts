@@ -1,14 +1,19 @@
 import { describe, it, expect } from "vitest";
-import { expandMCPPresets, getAvailablePresets } from "../presets.js";
+import { expandMCPPresets, getAvailablePresets, getDefaultSecurityOverrides } from "../presets.js";
 
 describe("expandMCPPresets", () => {
-  it("expands playwright preset to a valid server config", () => {
-    const configs = expandMCPPresets(["playwright"]);
-    expect(configs).toHaveLength(1);
-    expect(configs[0].name).toBe("playwright");
-    expect(configs[0].command).toBe("npx");
-    expect(configs[0].transport).toBe("stdio");
-    expect(configs[0].args).toContain("--headless");
+  it("expands playwright preset to a valid server config + security overrides", () => {
+    const result = expandMCPPresets(["playwright"]);
+    expect(result.servers).toHaveLength(1);
+    expect(result.servers[0].name).toBe("playwright");
+    expect(result.servers[0].command).toBe("npx");
+    expect(result.servers[0].transport).toBe("stdio");
+    expect(result.servers[0].args).toContain("--headless");
+
+    // Security overrides should include playwright screenshot as read
+    expect(result.securityOverrides["playwright__browser_take_screenshot"]).toEqual({ level: "read" });
+    expect(result.securityOverrides["playwright__browser_snapshot"]).toEqual({ level: "read" });
+    expect(result.securityOverrides["playwright__browser_navigate"]).toEqual({ level: "read" });
   });
 
   it("uses system chromium when OWLIABOT_PLAYWRIGHT_CHROMIUM_PATH is set", () => {
@@ -16,16 +21,16 @@ describe("expandMCPPresets", () => {
     process.env.OWLIABOT_PLAYWRIGHT_CHROMIUM_PATH = "/usr/bin/chromium";
 
     try {
-      const configs = expandMCPPresets(["playwright"]);
-      expect(configs).toHaveLength(1);
-      expect(configs[0].args).toContain("--browser");
-      expect(configs[0].args).toContain("chrome");
-      expect(configs[0].args).toContain("--executable-path");
-      expect(configs[0].args).toContain("/usr/bin/chromium");
-      expect(configs[0].env?.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH).toBe(
+      const result = expandMCPPresets(["playwright"]);
+      expect(result.servers).toHaveLength(1);
+      expect(result.servers[0].args).toContain("--browser");
+      expect(result.servers[0].args).toContain("chrome");
+      expect(result.servers[0].args).toContain("--executable-path");
+      expect(result.servers[0].args).toContain("/usr/bin/chromium");
+      expect(result.servers[0].env?.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH).toBe(
         "/usr/bin/chromium"
       );
-      expect(configs[0].env?.PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD).toBe("1");
+      expect(result.servers[0].env?.PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD).toBe("1");
     } finally {
       if (previous === undefined) {
         delete process.env.OWLIABOT_PLAYWRIGHT_CHROMIUM_PATH;
@@ -40,9 +45,9 @@ describe("expandMCPPresets", () => {
     process.env.PLAYWRIGHT_MCP_NO_SANDBOX = "1";
 
     try {
-      const configs = expandMCPPresets(["playwright"]);
-      expect(configs).toHaveLength(1);
-      expect(configs[0].args).toContain("--no-sandbox");
+      const result = expandMCPPresets(["playwright"]);
+      expect(result.servers).toHaveLength(1);
+      expect(result.servers[0].args).toContain("--no-sandbox");
     } finally {
       if (previous === undefined) {
         delete process.env.PLAYWRIGHT_MCP_NO_SANDBOX;
@@ -53,18 +58,34 @@ describe("expandMCPPresets", () => {
   });
 
   it("skips unknown presets without throwing", () => {
-    const configs = expandMCPPresets(["nonexistent"]);
-    expect(configs).toHaveLength(0);
+    const result = expandMCPPresets(["nonexistent"]);
+    expect(result.servers).toHaveLength(0);
+    expect(Object.keys(result.securityOverrides)).toHaveLength(0);
   });
 
   it("handles mixed known and unknown presets", () => {
-    const configs = expandMCPPresets(["playwright", "unknown", "playwright"]);
+    const result = expandMCPPresets(["playwright", "unknown", "playwright"]);
     // Duplicates are deduplicated by name
-    expect(configs).toHaveLength(1);
+    expect(result.servers).toHaveLength(1);
   });
 
-  it("returns empty array for empty input", () => {
-    expect(expandMCPPresets([])).toEqual([]);
+  it("returns empty for empty input", () => {
+    const result = expandMCPPresets([]);
+    expect(result.servers).toEqual([]);
+    expect(result.securityOverrides).toEqual({});
+  });
+});
+
+describe("getDefaultSecurityOverrides", () => {
+  it("returns playwright overrides for 'playwright' server name", () => {
+    const overrides = getDefaultSecurityOverrides("playwright");
+    expect(overrides["playwright__browser_take_screenshot"]).toEqual({ level: "read" });
+    expect(overrides["playwright__browser_navigate"]).toEqual({ level: "read" });
+    expect(overrides["playwright__browser_download"]).toEqual({ level: "write" });
+  });
+
+  it("returns empty object for unknown server name", () => {
+    expect(getDefaultSecurityOverrides("unknown")).toEqual({});
   });
 });
 

@@ -46,7 +46,7 @@ import { createNotificationService } from "../notifications/service.js";
 import { initializeSkills, type SkillsInitResult } from "../skills/index.js";
 import { createInfraStore, hashMessage, type InfraStore } from "../infra/index.js";
 import { MCPManager, createMCPManager } from "../mcp/manager.js";
-import { expandMCPPresets } from "../mcp/presets.js";
+import { expandMCPPresets, getDefaultSecurityOverrides } from "../mcp/presets.js";
 import { applyPlaywrightDefaults } from "../mcp/servers/playwright.js";
 import { startGatewayHttp } from "./http/server.js";
 import { runBootOnce } from "./boot.js";
@@ -268,16 +268,31 @@ export async function startGateway(
   let mcpManager: MCPManager | null = null;
   if (config.mcp && config.mcp.autoStart !== false) {
     const mcpConfig = config.mcp;
-    // Expand presets into server configs
-    const presetServers = expandMCPPresets(mcpConfig.presets ?? []);
-    const allServers = [...presetServers, ...(mcpConfig.servers ?? [])].map(
+    // Expand presets into server configs + their default security overrides
+    const expanded = expandMCPPresets(mcpConfig.presets ?? []);
+    const allServers = [...expanded.servers, ...(mcpConfig.servers ?? [])].map(
       applyPlaywrightDefaults
     );
+
+    // Also apply default security overrides for any manually-configured servers
+    // that match a known preset name (e.g. "playwright" configured without preset)
+    const manualServerOverrides: Record<string, import("../mcp/types.js").MCPSecurityOverride> = {};
+    for (const server of mcpConfig.servers ?? []) {
+      const defaults = getDefaultSecurityOverrides(server.name);
+      Object.assign(manualServerOverrides, defaults);
+    }
+
+    // Merge order: preset defaults < manual server defaults < explicit config overrides
+    const mergedOverrides = {
+      ...expanded.securityOverrides,
+      ...manualServerOverrides,
+      ...(mcpConfig.securityOverrides ?? {}),
+    };
 
     if (allServers.length > 0) {
       mcpManager = createMCPManager({
         defaults: mcpConfig.defaults,
-        securityOverrides: mcpConfig.securityOverrides,
+        securityOverrides: mergedOverrides,
       });
 
       for (const serverConfig of allServers) {
