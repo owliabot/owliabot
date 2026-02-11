@@ -210,7 +210,14 @@ clawlet serve
 # Listens on http://127.0.0.1:9100
 ```
 
-4. **Connect wallet to the running bot**:
+4. **Start the OwliaBot gateway**:
+
+```bash
+owliabot start
+# Or with a specific config: owliabot start -c config.yaml
+```
+
+5. **Connect wallet to the running bot**:
 
 ```bash
 # With token as argument

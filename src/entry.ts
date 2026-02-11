@@ -627,6 +627,9 @@ async function loadGatewayInfo(configOverride?: string): Promise<{ gatewayUrl: s
   if (!http) {
     throw new Error("gateway.http is not configured in config; cannot determine gateway URL");
   }
+  if (http.enabled === false) {
+    throw new Error("gateway.http.enabled is false; cannot connect to admin endpoint");
+  }
   let host = http.host ?? "127.0.0.1";
   // Normalize wildcard bind addresses to localhost for client requests
   if (host === "0.0.0.0") {
