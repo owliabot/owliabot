@@ -808,7 +808,7 @@ wallet
   .description("Connect wallet to the running gateway (stored in memory only)")
   .option("-c, --config <path>", "Config file path (overrides OWLIABOT_CONFIG_PATH)")
   .option("--gateway-token <token>", "Gateway auth token (overrides config)")
-  .option("--base-url <url>", "Clawlet daemon base URL", "http://127.0.0.1:9100")
+  .option("--base-url <url>", "Clawlet daemon base URL (auto-detected in Docker)")
   .option("--token <token>", "Clawlet auth token (or set CLAWLET_TOKEN env)")
   .option("--chain-id <id>", "Default chain ID", "8453")
   .option("--scope <scope>", "Token scope: read, trade, or read,trade", "trade")
@@ -818,7 +818,8 @@ wallet
       const gatewayUrl = info.gatewayUrl;
       const gatewayToken = options.gatewayToken ?? info.gatewayToken;
 
-      let baseUrl: string = options.baseUrl;
+      const { resolveClawletBaseUrl } = await import("./wallet/clawlet-client.js");
+      let baseUrl: string = options.baseUrl ?? resolveClawletBaseUrl();
       let token: string | undefined = options.token ?? process.env.CLAWLET_TOKEN;
       let chainId = parseInt(options.chainId, 10);
 

@@ -191,13 +191,3 @@ heartbeat:
 #       level: read
 #     playwright__browser_screenshot:
 #       level: read
-
-# Wallet Tools (Clawlet integration) - optional
-# Enables wallet_balance and wallet_transfer tools for on-chain operations
-# wallet:
-#   clawlet:
-#     enabled: false                          # Set to true to enable wallet tools
-#     baseUrl: http://127.0.0.1:9100          # Clawlet daemon HTTP endpoint
-#     token: ${CLAWLET_TOKEN}                 # Auth token from clawlet (required when enabled)
-#     requestTimeout: 30000                   # Request timeout in ms (default: 30s)
-#     defaultChainId: 8453                    # Default chain ID (8453 = Base, 1 = Ethereum)
