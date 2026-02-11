@@ -30,6 +30,8 @@ vi.mock("node:readline", () => ({
     close: vi.fn(),
     pause: vi.fn(),
     resume: vi.fn(),
+    once: vi.fn(),
+    removeListener: vi.fn(),
   }),
 }));
 
@@ -37,6 +39,7 @@ vi.mock("../../auth/oauth.js", () => ({
   startOAuthFlow: vi.fn().mockResolvedValue({ access: "test", refresh: "r", expires: Date.now() + 3600000 }),
 }));
 
+vi.mock("../steps/clawlet-setup.js", () => ({
   runClawletOnboarding: vi.fn().mockResolvedValue({ enabled: false }),
 }));
 

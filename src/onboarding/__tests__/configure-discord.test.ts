@@ -28,6 +28,7 @@ vi.mock("../../auth/oauth.js", () => ({
   startOAuthFlow: vi.fn().mockResolvedValue({}),
 }));
 
+vi.mock("../steps/clawlet-setup.js", () => ({
   runClawletOnboarding: vi.fn().mockResolvedValue({ enabled: false }),
 }));
 
