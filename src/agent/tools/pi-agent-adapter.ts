@@ -10,8 +10,25 @@ import type { WriteGateChannel } from "../../security/write-gate.js";
 import type { Config } from "../../config/schema.js";
 import { executeToolCall } from "./executor.js";
 import { createLogger } from "../../utils/logger.js";
+import type { TSchema } from "@sinclair/typebox";
 
 const log = createLogger("pi-agent-adapter");
+
+/**
+ * Type guard to validate that a JsonSchema is compatible with TSchema.
+ * Both use JSON Schema Draft 7 format, so we check for basic structure.
+ */
+function isValidSchema(schema: unknown): schema is TSchema {
+  if (!schema || typeof schema !== "object") return false;
+  const s = schema as Record<string, unknown>;
+  // Must have a type field (object, string, number, etc.)
+  if (!("type" in s)) return false;
+  // If type is object, should have properties
+  if (s.type === "object" && !("properties" in s)) {
+    return false;
+  }
+  return true;
+}
 
 /**
  * Options for adapting tools
@@ -48,13 +65,19 @@ export function adaptToolForAgent(
   registry: ToolRegistry,
   options: AdaptToolOptions
 ): AgentTool {
+  // Validate schema structure before converting
+  if (!isValidSchema(tool.parameters)) {
+    throw new Error(
+      `Tool ${tool.name} has invalid schema: missing 'type' field or malformed structure`
+    );
+  }
+
   return {
     name: tool.name,
     label: tool.name,
     description: tool.description,
-    // Type assertion is safe: JsonSchema (from ToolDefinition) is structurally
-    // compatible with TSchema (TypeBox schema). Both use the same JSON Schema
-    // Draft 7 format. The `any` cast bridges the nominal type gap.
+    // Safe: JsonSchema (from ToolDefinition) is structurally compatible with
+    // TSchema (TypeBox). Both use JSON Schema Draft 7. Validated above.
     parameters: tool.parameters as any,
 
     execute: async (toolCallId, params, signal) => {

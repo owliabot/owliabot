@@ -100,9 +100,24 @@ export interface AgenticLoopResult {
 
 /**
  * Convert internal Message to AgentMessage (pi-ai compatible)
+ * 
+ * Runtime validation: Ensures messages have required fields before casting.
  */
 function convertToLlm(messages: AgentMessage[]): PiAiMessage[] {
-  // AgentMessage is already compatible with pi-ai Message in this simple case
+  // Validate that messages have required fields
+  for (const msg of messages) {
+    const m = msg as any;
+    if (!m.role) {
+      throw new Error("Message missing required 'role' field");
+    }
+    if (m.role === "user" || m.role === "assistant") {
+      if (!("content" in m)) {
+        throw new Error(`${m.role} message missing 'content' field`);
+      }
+    }
+  }
+  
+  // AgentMessage is structurally compatible with pi-ai Message
   // If we had custom message types, we'd transform them here
   return messages as PiAiMessage[];
 }
@@ -159,6 +174,7 @@ export async function runAgenticLoop(
   let toolCallsCount = 0;
   let timedOut = false;
   let maxIterationsReached = false;
+  let collectedMessages: AgentMessage[] = [];
 
   // Setup timeout
   const timeoutController = new AbortController();
@@ -252,6 +268,7 @@ export async function runAgenticLoop(
 
     // Get final messages from stream result
     const finalMessages = await stream.result();
+    collectedMessages = finalMessages;
 
     // Extract final content from last assistant message
     const lastMessage = finalMessages[finalMessages.length - 1];
@@ -277,7 +294,7 @@ export async function runAgenticLoop(
           "I apologize, but I couldn't complete your request. Please try again.",
         iterations,
         toolCallsCount,
-        messages: [],
+        messages: collectedMessages as Message[], // Return accumulated messages
         maxIterationsReached: true,
         timedOut: false,
       };
@@ -291,7 +308,7 @@ export async function runAgenticLoop(
           content: "⚠️ 处理超时：请求耗时过长。请简化您的请求后重试。",
           iterations,
           toolCallsCount,
-          messages: [],
+          messages: collectedMessages as Message[], // Return accumulated messages
           maxIterationsReached: false,
           timedOut: true,
         };
@@ -301,7 +318,7 @@ export async function runAgenticLoop(
           content: "⚠️ 处理已取消。",
           iterations,
           toolCallsCount,
-          messages: [],
+          messages: collectedMessages as Message[], // Return accumulated messages
           maxIterationsReached: false,
           timedOut: false,
           error: "Aborted",
@@ -325,7 +342,7 @@ export async function runAgenticLoop(
       content: userMessage,
       iterations,
       toolCallsCount,
-      messages: [],
+      messages: collectedMessages as Message[], // Return accumulated messages
       maxIterationsReached: false,
       timedOut: false,
       error: message,
