@@ -220,15 +220,27 @@ export async function createBuiltinTools(
     };
     const defaultChainId = walletConfig.clawlet.defaultChainId ?? 8453;
 
-    // Fetch supported chains from Clawlet daemon
+    // Fetch supported chains from Clawlet daemon (best-effort with timeout
+    // so a slow/unreachable daemon doesn't block startup).
+    const CHAINS_FALLBACK: ChainInfo[] = [
+      { chain_id: 8453, name: "Base" },
+      { chain_id: 1, name: "Ethereum" },
+    ] as ChainInfo[];
+    const CHAINS_TIMEOUT_MS = 3_000;
     let supportedChains: ChainInfo[] | undefined;
     try {
       const client = getClawletClient(clawletClientConfig);
-      supportedChains = await client.chains();
-      log.info(`Wallet tools enabled (chains: ${supportedChains.map(c => c.chain_id).join(",")}, url: ${clawletClientConfig.baseUrl ?? "default"})`);
+      supportedChains = await Promise.race([
+        client.chains(),
+        new Promise<undefined>((_, reject) =>
+          setTimeout(() => reject(new Error("chains() timed out")), CHAINS_TIMEOUT_MS),
+        ),
+      ]);
+      log.info(`Wallet tools enabled (chains: ${supportedChains!.map(c => c.chain_id).join(",")}, url: ${clawletClientConfig.baseUrl ?? "default"})`);
     } catch (err) {
-      log.warn("Failed to fetch supported chains from Clawlet, tool descriptions will omit chain list", err);
-      log.info(`Wallet tools enabled (chain: ${defaultChainId}, url: ${clawletClientConfig.baseUrl ?? "default"})`);
+      supportedChains = CHAINS_FALLBACK;
+      log.warn("Failed to fetch supported chains from Clawlet, using fallback chain list", err);
+      log.info(`Wallet tools enabled (chains [fallback]: ${supportedChains.map(c => c.chain_id).join(",")}, url: ${clawletClientConfig.baseUrl ?? "default"})`);
     }
 
     builtins.push(
