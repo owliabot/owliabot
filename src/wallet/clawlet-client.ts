@@ -676,7 +676,7 @@ export function getClawletClient(config?: ClawletClientConfig): ClawletClient {
   } else if (config) {
     // Update config if provided
     if (config.baseUrl) {
-      globalClient.setBaseUrl(config.baseUrl);
+      globalClient.setBaseUrl(resolveClawletBaseUrl(config.baseUrl));
     }
     if (config.socketPath) {
       globalClient.setSocketPath(config.socketPath);
