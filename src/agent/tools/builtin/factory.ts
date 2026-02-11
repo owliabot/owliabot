@@ -43,7 +43,7 @@ import { createWebFetchTool, type WebFetchToolDeps } from "./web-fetch.js";
 import { createWebSearchTool, type WebSearchToolDeps } from "./web-search.js";
 
 // Wallet tools (require wallet config) - use wallet.ts which has fail-closed + dynamic address lookup
-import { createWalletBalanceTool, createWalletTransferTool } from "./wallet.js";
+import { createWalletBalanceTool, createWalletTransferTool, createWalletSendTxTool } from "./wallet.js";
 import type { ClawletClientConfig } from "../../../wallet/index.js";
 
 const log = createLogger("builtin-tools");
@@ -228,6 +228,10 @@ export function createBuiltinTools(
         defaultChainId,
       }),
       createWalletTransferTool({
+        clawletConfig: clawletClientConfig,
+        defaultChainId,
+      }),
+      createWalletSendTxTool({
         clawletConfig: clawletClientConfig,
         defaultChainId,
       }),

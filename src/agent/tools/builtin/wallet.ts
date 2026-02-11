@@ -17,6 +17,7 @@ import {
   ClawletError,
   type BalanceQuery,
   type TransferRequest,
+  type SendRawRequest,
   type ClawletClientConfig,
 } from "../../../wallet/index.js";
 import { createLogger } from "../../../utils/logger.js";
@@ -372,6 +373,171 @@ EXAMPLE:
 }
 
 // ============================================================================
+// wallet_send_tx Tool
+// ============================================================================
+
+const WalletSendTxParamsSchema = z.object({
+  to: z
+    .string()
+    .regex(/^0x[a-fA-F0-9]{40}$/, "Must be 0x-prefixed 40-character hex")
+    .describe("Recipient/contract address (required)"),
+  value: z
+    .string()
+    .optional()
+    .describe("ETH value in wei (hex or decimal string, optional)"),
+  data: z
+    .string()
+    .regex(/^0x[a-fA-F0-9]*$/, "Must be 0x-prefixed hex calldata")
+    .optional()
+    .describe("Raw calldata (hex, 0x-prefixed, optional)"),
+  chain_id: z
+    .number()
+    .int()
+    .positive()
+    .optional()
+    .describe("Chain ID (optional, defaults from config)"),
+  gas_limit: z
+    .number()
+    .int()
+    .positive()
+    .optional()
+    .describe("Gas limit override (optional)"),
+});
+
+type WalletSendTxParams = z.infer<typeof WalletSendTxParamsSchema>;
+
+/**
+ * Create the wallet_send_tx tool
+ *
+ * Scope: trade (requires confirmation via WriteGate)
+ * For arbitrary contract calls and raw transactions.
+ */
+export function createWalletSendTxTool(config: WalletToolsConfig = {}): ToolDefinition {
+  const defaultChainId = config.defaultChainId ?? 8453;
+
+  return {
+    name: "wallet_send_tx",
+    description: `Send a raw transaction via Clawlet wallet. For arbitrary contract calls.
+
+\u26a0\ufe0f This is a TRADE-level operation that requires user confirmation via WriteGate.
+The transaction is subject to policy limits configured in Clawlet.
+
+PARAMETERS:
+- to: Recipient/contract address (0x-prefixed, required)
+- value: ETH value in wei as hex or decimal string (optional, default: "0")
+- data: Raw calldata hex (0x-prefixed, optional)
+- chain_id: Chain ID (optional, default: ${defaultChainId})
+- gas_limit: Gas limit override (optional)
+
+EXAMPLE:
+{ "to": "0xContract...", "data": "0xa9059cbb...", "chain_id": 8453 }
+{ "to": "0xRecipient...", "value": "1000000000000000000", "chain_id": 1 }`,
+    parameters: {
+      type: "object",
+      properties: {
+        to: {
+          type: "string",
+          description: "Recipient/contract address (0x-prefixed)",
+        },
+        value: {
+          type: "string",
+          description: "ETH value in wei (hex or decimal string)",
+        },
+        data: {
+          type: "string",
+          description: "Raw calldata (hex, 0x-prefixed)",
+        },
+        chain_id: {
+          type: "number",
+          description: `Chain ID (default: ${defaultChainId})`,
+        },
+        gas_limit: {
+          type: "number",
+          description: "Gas limit override",
+        },
+      },
+      required: ["to"],
+    },
+    security: {
+      level: "sign",
+      confirmRequired: true,
+    },
+    async execute(params: unknown, ctx: ToolContext): Promise<ToolResult> {
+      const parseResult = WalletSendTxParamsSchema.safeParse(params);
+      if (!parseResult.success) {
+        return {
+          success: false,
+          error: `Invalid parameters: ${parseResult.error.errors.map((e) => e.message).join(", ")}`,
+        };
+      }
+
+      const p = parseResult.data;
+      const chainId = p.chain_id ?? defaultChainId;
+
+      const request: SendRawRequest = {
+        to: p.to,
+        chain_id: chainId,
+        ...(p.value !== undefined && { value: p.value }),
+        ...(p.data !== undefined && { data: p.data }),
+        ...(p.gas_limit !== undefined && { gas_limit: p.gas_limit }),
+      };
+
+      // Confirmation via WriteGate pattern
+      if (!ctx.requestConfirmation) {
+        return {
+          success: false,
+          error: "Transaction rejected: confirmation callback is required for signing operations",
+        };
+      }
+
+      const confirmed = await ctx.requestConfirmation({
+        type: "transaction",
+        title: "Confirm Transaction",
+        description: `Send transaction to ${p.to} on chain ${chainId}. Confirm? [y/n]`,
+        details: {
+          To: p.to,
+          ...(p.value !== undefined && { Value: `${p.value} wei` }),
+          ...(p.data !== undefined && { Data: p.data.length > 66 ? `${p.data.slice(0, 66)}...` : p.data }),
+          "Chain ID": String(chainId),
+          ...(p.gas_limit !== undefined && { "Gas Limit": String(p.gas_limit) }),
+        },
+        transaction: {
+          to: p.to,
+          value: p.value ? BigInt(p.value) : 0n,
+          data: p.data ?? "",
+          chainId,
+        },
+      });
+
+      if (!confirmed) {
+        log.info(`Transaction denied by user: to ${p.to}`);
+        return {
+          success: false,
+          error: "Transaction cancelled by user",
+        };
+      }
+
+      try {
+        const client = getClawletClient(config.clawletConfig);
+        const result = await client.sendRaw(request);
+
+        log.info(`Transaction successful: ${result.tx_hash}`);
+        return {
+          success: true,
+          data: {
+            tx_hash: result.tx_hash,
+            audit_id: result.audit_id,
+            summary: `Transaction sent to ${p.to}. TX: ${result.tx_hash}`,
+          },
+        };
+      } catch (err) {
+        return handleClawletError(err, "send_raw");
+      }
+    },
+  };
+}
+
+// ============================================================================
 // Error Handling
 // ============================================================================
 
@@ -432,5 +598,6 @@ export function createWalletTools(config: WalletToolsConfig): ToolDefinition[] {
   return [
     createWalletBalanceTool(config),
     createWalletTransferTool(config),
+    createWalletSendTxTool(config),
   ];
 }

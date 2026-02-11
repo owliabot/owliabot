@@ -368,8 +368,8 @@ describe("createWalletTools factory", () => {
   it("creates both tools when enabled", () => {
     const tools = createWalletTools({ enabled: true, defaultChainId: 8453 });
 
-    expect(tools).toHaveLength(2);
-    expect(tools.map((t) => t.name)).toEqual(["wallet_balance", "wallet_transfer"]);
+    expect(tools).toHaveLength(3);
+    expect(tools.map((t) => t.name)).toEqual(["wallet_balance", "wallet_transfer", "wallet_send_tx"]);
   });
 
   it("returns empty array when disabled", () => {
@@ -381,6 +381,6 @@ describe("createWalletTools factory", () => {
   it("is enabled by default when enabled is not specified", () => {
     const tools = createWalletTools({ defaultChainId: 8453 });
 
-    expect(tools).toHaveLength(2);
+    expect(tools).toHaveLength(3);
   });
 });

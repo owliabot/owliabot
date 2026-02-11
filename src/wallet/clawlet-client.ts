@@ -81,6 +81,28 @@ export interface HealthResponse {
   version?: string;
 }
 
+/** Send raw transaction request */
+export interface SendRawRequest {
+  /** Recipient address (0x-prefixed) */
+  to: string;
+  /** ETH value in wei (hex or decimal string) */
+  value?: string;
+  /** Raw calldata (hex, 0x-prefixed) */
+  data?: string;
+  /** Chain ID */
+  chain_id: number;
+  /** Optional gas limit override */
+  gas_limit?: number;
+}
+
+/** Send raw transaction response */
+export interface SendRawResponse {
+  /** Transaction hash */
+  tx_hash: string;
+  /** Audit event ID */
+  audit_id: string;
+}
+
 /** Address query response */
 export interface AddressResponse {
   /** Wallet address managed by Clawlet (0x-prefixed) */
@@ -298,6 +320,15 @@ export class ClawletClient extends EventEmitter {
       throw new ClawletError("Invalid amount", "RPC_ERROR");
     }
     return this.call<TransferResponse>("transfer", [req]);
+  }
+
+  /**
+   * Send a raw transaction
+   * Requires: Trade scope token
+   */
+  async sendRaw(req: SendRawRequest): Promise<SendRawResponse> {
+    this.validateAddress(req.to);
+    return this.call<SendRawResponse>("send_raw", [req]);
   }
 
   // ==========================================================================

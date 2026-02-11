@@ -17,4 +17,6 @@ export {
   type AddressResponse,
   type AuthGrantRequest,
   type AuthGrantResponse,
+  type SendRawRequest,
+  type SendRawResponse,
 } from "./clawlet-client.js";
