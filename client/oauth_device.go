@@ -265,10 +265,10 @@ func onboardingProjectRootDir() string {
 	if err != nil {
 		return "."
 	}
-	if filepath.Base(cwd) == "go-onboard" {
+	if filepath.Base(cwd) == "client" {
 		return filepath.Dir(cwd)
 	}
-	if fileExists(filepath.Join(cwd, "go-onboard")) && fileExists(filepath.Join(cwd, "src", "entry.ts")) {
+	if fileExists(filepath.Join(cwd, "client")) && fileExists(filepath.Join(cwd, "src", "entry.ts")) {
 		return cwd
 	}
 	return cwd

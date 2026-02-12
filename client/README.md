@@ -13,7 +13,7 @@ owliabot onboard
 Source fallback (developer mode):
 
 ```bash
-go -C go-onboard run .
+go -C client run .
 ```
 
 Defaults:
@@ -45,7 +45,7 @@ bun tests/onboarding/smoke-onboard-go.mjs
 - Launch flow supports image update check and custom image tag/version input
 
 Implementation note:
-- `go-onboard/go.mod` maps `lipgloss` and `bubblezone` to local `third_party/` replacements so the TUI builds in offline Docker/bootstrap environments.
+- `client/go.mod` maps `lipgloss` and `bubblezone` to local `third_party/` replacements so the TUI builds in offline Docker/bootstrap environments.
 
 ## Flow (aligned with TS `onboard --docker`)
 

@@ -94,7 +94,7 @@ export function buildGoOnboardArgs(options: GoOnboardOptions): string[] {
 export function resolveGoOnboardCommand(options: ResolveCommandOptions): ResolvedGoOnboardCommand {
   return {
     cmd: "go",
-    args: ["-C", join(options.rootDir, "go-onboard"), "run", "."],
+    args: ["-C", join(options.rootDir, "client"), "run", "."],
   };
 }
 
