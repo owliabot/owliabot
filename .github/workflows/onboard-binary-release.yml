@@ -54,7 +54,7 @@ jobs:
 
               out="dist/owliabot-onboard-${platform}-${node_arch}${ext}"
               echo "Building ${out}"
-              GOOS="$goos" GOARCH="$goarch" CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o "$out" ./go-onboard
+              GOOS="$goos" GOARCH="$goarch" CGO_ENABLED=0 go -C go-onboard build -trimpath -ldflags="-s -w" -o "../$out" .
             done
           done
 

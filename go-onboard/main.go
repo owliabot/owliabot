@@ -16,7 +16,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 
 	zone "github.com/lrstanley/bubblezone"
@@ -2287,10 +2286,6 @@ func (w *wizardSession) renderOnResize() {
 		w.renderer = renderPopup
 	}
 	w.renderer(w.lastView)
-}
-
-func resizeSignals() []os.Signal {
-	return []os.Signal{syscall.SIGWINCH}
 }
 
 func (w *wizardSession) startResizeWatcher() {
