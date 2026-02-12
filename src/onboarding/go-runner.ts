@@ -420,6 +420,7 @@ export async function runGoOnboarding(
   };
 
   let resolved: ResolvedGoOnboardCommand | null = null;
+  let usedSourceFallback = false;
   let binaryResolveError: unknown;
   try {
     resolved = await deps.resolveBinaryCommand(
@@ -448,15 +449,20 @@ export async function runGoOnboarding(
     resolved = resolveGoOnboardCommand({
       rootDir: deps.rootDir,
     });
+    usedSourceFallback = true;
   }
 
   const args = [...resolved.args, ...buildGoOnboardArgs(options)];
+  const env =
+    usedSourceFallback && deps.platform === "darwin" && !trimValue(process.env.CGO_ENABLED)
+      ? { ...process.env, CGO_ENABLED: "0" }
+      : process.env;
 
   await new Promise<void>((resolve, reject) => {
     const child = deps.spawn(resolved.cmd, args, {
       cwd: deps.rootDir,
       stdio: "inherit",
-      env: process.env,
+      env,
     }) as ChildProcessWithoutNullStreams;
 
     child.on("error", (err) => {

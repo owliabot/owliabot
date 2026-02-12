@@ -99,6 +99,32 @@ describe("go-runner", () => {
     await expect(runPromise).rejects.toThrow("go onboard exited with code 2");
   });
 
+  it("runGoOnboarding sets CGO_ENABLED=0 for darwin source fallback", async () => {
+    const child = createMockChild();
+    const spawnMock = vi.fn(() => child as any);
+
+    const runPromise = runGoOnboarding(
+      {},
+      {
+        spawn: spawnMock as any,
+        platform: "darwin",
+        rootDir: "/repo",
+        allowSourceFallback: true,
+        resolveBinaryCommand: async () => null,
+      },
+    );
+
+    setImmediate(() => {
+      child.emit("close", 0);
+    });
+
+    await expect(runPromise).resolves.toBeUndefined();
+
+    expect(spawnMock).toHaveBeenCalledTimes(1);
+    const spawnOptions = spawnMock.mock.calls[0]?.[2];
+    expect(spawnOptions?.env?.CGO_ENABLED).toBe("0");
+  });
+
   it("runGoOnboarding prefers resolved binary command when available", async () => {
     const child = createMockChild();
     const spawnMock = vi.fn(() => child as any);
