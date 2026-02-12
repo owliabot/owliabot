@@ -1,7 +1,7 @@
 ---
 name: clawlet-wallet-connect
 description: Guide the user through installing Clawlet wallet daemon and connecting it to OwliaBot.
-version: 2.0.0
+version: 2.1.0
 ---
 
 # Wallet Connect (Clawlet)
@@ -16,28 +16,47 @@ Help the user install and connect the Clawlet wallet daemon to OwliaBot.
 which clawlet 2>/dev/null && clawlet status 2>/dev/null; ps aux | grep -v grep | grep -E "clawlet|owliabot" 2>/dev/null
 ```
 
-Based on results:
+## Step 2 — Execute (based on detection)
 
-| Clawlet | OwliaBot | Action |
-|---------|----------|--------|
-| Not installed | Running | → Step 2 (install + connect) |
-| Installed, not running | Running | → Step 2 (script detects existing install, starts + connects) |
-| Installed + running | Running | → `clawlet connect --agent owliabot` then Step 3 |
-| Any | Not running | Warn user to start OwliaBot first |
+Based on Step 1 results, **compose only the commands needed**:
 
-## Step 2 — Install, Start & Connect
+### Case A: Not installed
 
-One command does everything:
+Full chain — install + start + connect:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/owliabot/clawlet/main/scripts/install.sh -o /tmp/clawlet-install.sh && sudo bash /tmp/clawlet-install.sh --isolated && sudo -H -u clawlet /usr/local/bin/clawlet start --agent owliabot --daemon && clawlet connect --agent owliabot
 ```
 
-The script will interactively prompt for:
-1. Wallet password (encrypts private key)
-2. Create new wallet or import existing mnemonic
+> Creating a new wallet will show a mnemonic — **remind the user to save it**, it won't be shown again.
 
-After completion, expect:
+### Case B: Installed but not running
+
+Start + connect only:
+
+```bash
+sudo -H -u clawlet /usr/local/bin/clawlet start --agent owliabot --daemon && clawlet connect --agent owliabot
+```
+
+### Case C: Running but not connected
+
+Connect only:
+
+```bash
+clawlet connect --agent owliabot
+```
+
+### Case D: OwliaBot not running
+
+Warn the user to start OwliaBot first — connect requires a running OwliaBot instance.
+
+## Step 3 — Verify
+
+```bash
+clawlet status
+```
+
+Expected:
 
 ```
 ✓ Connected to OwliaBot
@@ -46,23 +65,9 @@ After completion, expect:
   Tools:   wallet_balance, wallet_transfer, wallet_send_tx
 ```
 
-> If creating a new wallet, **remind the user to save the mnemonic** — it won't be shown again.
-
-## Step 3 — Verify
-
-```bash
-clawlet status
-```
-
-If connect failed, re-run: `clawlet connect --agent owliabot` (no sudo needed).
-
 ## Reconnect After Restart
 
-Wallet config is in-memory. After OwliaBot restarts:
-
-```bash
-clawlet connect --agent owliabot
-```
+Wallet config is in-memory. After OwliaBot restarts: `clawlet connect --agent owliabot`
 
 ## Troubleshooting
 
