@@ -34,6 +34,20 @@ OwliaBot 使用三层安全模型：
 
 ## 快速开始
 
+### 不克隆仓库：直接运行 Go Onboard 二进制（默认 preview）
+
+如果你只想运行引导向导，不想先 clone 代码：
+
+```bash
+curl -sSL https://raw.githubusercontent.com/owliabot/owliabot/main/onboard.sh | bash
+```
+
+如果要使用 stable 通道：
+
+```bash
+curl -sSL https://raw.githubusercontent.com/owliabot/owliabot/main/onboard.sh | OWLIABOT_ONBOARD_CHANNEL=stable bash
+```
+
 ### 环境要求
 
 - Node.js >= 22

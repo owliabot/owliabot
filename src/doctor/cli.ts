@@ -1,17 +1,6 @@
 import { createInterface } from "node:readline";
 
 import {
-  header as uiHeader,
-  info as uiInfo,
-  warn as uiWarn,
-  error as uiError,
-  success as uiSuccess,
-  ask,
-  askYN,
-  selectOption,
-} from "../onboarding/shared.js";
-
-import {
   diagnoseDoctor,
   resetConfigFile,
   setChannelToken,
@@ -23,6 +12,61 @@ import {
   deleteProviderApiKeyInConfig,
   type DoctorIssue,
 } from "./index.js";
+
+const COLORS = {
+  RED: "\x1b[0;31m",
+  GREEN: "\x1b[0;32m",
+  YELLOW: "\x1b[1;33m",
+  BLUE: "\x1b[0;34m",
+  CYAN: "\x1b[0;36m",
+  NC: "\x1b[0m",
+};
+
+function uiInfo(msg: string): void { console.log(`${COLORS.BLUE}i${COLORS.NC} ${msg}`); }
+function uiSuccess(msg: string): void { console.log(`${COLORS.GREEN}✓${COLORS.NC} ${msg}`); }
+function uiWarn(msg: string): void { console.log(`${COLORS.YELLOW}!${COLORS.NC} ${msg}`); }
+function uiError(msg: string): void { console.log(`${COLORS.RED}x${COLORS.NC} ${msg}`); }
+function uiHeader(title: string): void {
+  console.log("");
+  console.log(`${COLORS.CYAN}━━━ ${title} ━━━${COLORS.NC}`);
+  console.log("");
+}
+
+type RL = ReturnType<typeof createInterface>;
+
+function ask(rl: RL, q: string, secret = false): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const onClose = () => reject(new Error("input closed"));
+    rl.once("close", onClose);
+    const done = (value: string) => {
+      rl.removeListener("close", onClose);
+      resolve(value.trim());
+    };
+    if (!secret) {
+      rl.question(q, done);
+      return;
+    }
+    rl.question(q, (ans) => done(ans));
+  });
+}
+
+async function askYN(rl: RL, q: string, defaultYes = false): Promise<boolean> {
+  const suffix = defaultYes ? "[Y/n]" : "[y/N]";
+  const ans = await ask(rl, `${q} ${suffix}: `);
+  if (!ans) return defaultYes;
+  return ans.toLowerCase().startsWith("y");
+}
+
+async function selectOption(rl: RL, prompt: string, options: string[]): Promise<number> {
+  console.log(prompt);
+  options.forEach((opt, i) => console.log(`  ${i + 1}) ${opt}`));
+  while (true) {
+    const ans = await ask(rl, `Pick a number [1-${options.length}]: `);
+    const num = Number.parseInt(ans, 10);
+    if (num >= 1 && num <= options.length) return num - 1;
+    uiWarn(`Please type a number between 1 and ${options.length}.`);
+  }
+}
 
 type FixOutcome = "fixed" | "deleted" | "skipped" | "not_applicable";
 
