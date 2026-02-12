@@ -497,7 +497,7 @@ func (w *wizardSession) runWizard(opts cliOptions) (Answers, error) {
 				return Answers{}, confirmErr
 			}
 			if confirm != 0 {
-				return Answers{}, errors.New("cancelled by user")
+				return Answers{}, errWizardCancelled
 			}
 			return answers, nil
 		}
@@ -543,7 +543,7 @@ func (w *wizardSession) ensureDockerReady(displayConfigDir, displayOutputDir str
 				)
 				continue
 			default:
-				return errors.New("cancelled by user")
+				return errWizardCancelled
 			}
 		}
 
@@ -577,7 +577,7 @@ func (w *wizardSession) ensureDockerReady(displayConfigDir, displayOutputDir str
 			)
 			continue
 		default:
-			return errors.New("cancelled by user")
+			return errWizardCancelled
 		}
 	}
 }
