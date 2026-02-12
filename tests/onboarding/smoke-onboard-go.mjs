@@ -57,19 +57,19 @@ async function main() {
     const onData = (chunk) => {
       const text = chunk.toString("utf8");
       transcript += text;
-      plainTranscript += stripAnsi(text).replace(/\r/g, "");
+      plainTranscript += normalizeTerminalText(text);
 
-      if (!reachedStepTwo && /(Step 1\/\d+|Step 1 of \d+)/.test(plainTranscript)) {
+      if (!reachedStepTwo && /\bStep\s*1(?:\s*\/\s*\d+|\s+of\s+\d+)\b/i.test(plainTranscript)) {
         const now = Date.now();
         if (now-lastConfirmAt >= 700) {
           // Step 1 can appear multiple times (for example Docker preflight retries on CI runners).
           // Always pick the first option to keep smoke flow moving toward Step 2.
-          child.stdin.write("1\n");
+          child.stdin.write("1\r\n");
           lastConfirmAt = now;
         }
       }
 
-      if (!reachedStepTwo && /(Step 2\/\d+|Step 2 of \d+)/.test(plainTranscript)) {
+      if (!reachedStepTwo && /\bStep\s*2(?:\s*\/\s*\d+|\s+of\s+\d+)\b/i.test(plainTranscript)) {
         reachedStepTwo = true;
         terminate(child);
       }
@@ -109,6 +109,14 @@ async function main() {
 
 process.exit(await main());
 
-function stripAnsi(value) {
-  return value.replace(/\u001b\[[0-9;?]*[ -/]*[@-~]/g, "");
+function normalizeTerminalText(value) {
+  // OSC control sequences: ESC ] ... BEL or ESC ] ... ESC \
+  let output = value.replace(/\u001b\][^\u0007]*(?:\u0007|\u001b\\)/g, "");
+  // CSI control sequences: ESC [ ... final byte
+  output = output.replace(/\u001b\[[0-?]*[ -/]*[@-~]/g, "");
+  // Single-character ESC control sequences.
+  output = output.replace(/\u001b[@-_]/g, "");
+  // Normalize carriage-return updates into plain stream text.
+  output = output.replace(/\r/g, "");
+  return output;
 }
