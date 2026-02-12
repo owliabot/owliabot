@@ -138,11 +138,26 @@ var runOpenAICodexDeviceLoginFn = runOpenAICodexDeviceLogin
 var runOpenAICodexDeviceLoginWithUpdatesFn = runOpenAICodexDeviceLoginWithUpdates
 
 func resolveInteractiveInput() (*os.File, bool, *bufio.Reader) {
+	if shouldUseStdinInput(os.Stdin) {
+		return os.Stdin, false, bufio.NewReader(os.Stdin)
+	}
+
 	tty, err := openTTYDevice()
 	if err == nil && tty != nil {
 		return tty, true, bufio.NewReader(tty)
 	}
 	return os.Stdin, false, bufio.NewReader(os.Stdin)
+}
+
+func shouldUseStdinInput(stdin *os.File) bool {
+	if stdin == nil {
+		return false
+	}
+	info, err := stdin.Stat()
+	if err != nil || info == nil {
+		return false
+	}
+	return info.Mode()&os.ModeCharDevice == 0
 }
 
 func isInputEOF(err error) bool {
