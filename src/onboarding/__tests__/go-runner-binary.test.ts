@@ -80,6 +80,54 @@ describe("go-runner binary resolver", () => {
     await rm(rootDir, { recursive: true, force: true });
     await rm(cacheRootDir, { recursive: true, force: true });
   });
+
+  it("retries manifest fetch after transient network failure", async () => {
+    const rootDir = await mkTmpDir("owliabot-go-runner-retry-root-");
+    const cacheRootDir = await mkTmpDir("owliabot-go-runner-retry-cache-");
+    const binaryData = Buffer.from("#!/bin/sh\necho onboard\n", "utf8");
+    const digest = sha256(binaryData);
+    const binaryURL = "https://example.test/owliabot-onboard-darwin-arm64";
+    const manifest: OnboardBinaryManifest = {
+      channel: "preview",
+      assets: {
+        "darwin-arm64": {
+          url: binaryURL,
+          sha256: digest,
+          fileName: "owliabot-onboard-darwin-arm64",
+        },
+      },
+    };
+
+    await mkdir(join(rootDir, ".git"), { recursive: true });
+    await writeFile(join(rootDir, ".git", "HEAD"), "ref: refs/heads/develop\n");
+
+    let manifestAttempts = 0;
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url.includes("onboard-manifest.json")) {
+        manifestAttempts += 1;
+        if (manifestAttempts === 1) {
+          throw new Error("temporary network error");
+        }
+        return jsonResponse(manifest);
+      }
+      if (url === binaryURL) {
+        return new Response(binaryData, { status: 200 });
+      }
+      return new Response("not found", { status: 404 });
+    });
+
+    const resolved = await resolveOnboardBinaryCommand(
+      { rootDir, platform: "darwin", arch: "arm64", cacheRootDir },
+      { fetchImpl: fetchMock as unknown as typeof fetch },
+    );
+
+    expect(resolved).not.toBeNull();
+    expect(manifestAttempts).toBe(2);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+
+    await rm(rootDir, { recursive: true, force: true });
+    await rm(cacheRootDir, { recursive: true, force: true });
+  });
 });
 
 async function mkTmpDir(prefix: string): Promise<string> {

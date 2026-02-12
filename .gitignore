@@ -46,3 +46,5 @@ workspace/*.jsonl
 # Worktrees
 .worktrees/
 workspace/gateway.db*
+go-onboard/.cache/
+go-onboard/docker-compose.yml
