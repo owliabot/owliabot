@@ -31,7 +31,7 @@ If `OWLIABOT_RUNNING=no` → **Stop.** Tell user to start OwliaBot first.
 If `CLAWLET_INSTALLED=no` → Full chain (install + start + connect):
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/owliabot/clawlet/main/scripts/install.sh -o /tmp/clawlet-install.sh && sudo bash /tmp/clawlet-install.sh --isolated && sudo -H -u clawlet clawlet start --agent owliabot --daemon && clawlet connect --agent owliabot
+curl -fsSL https://raw.githubusercontent.com/owliabot/clawlet/main/scripts/install.sh -o /tmp/clawlet-install.sh && sudo bash /tmp/clawlet-install.sh --isolated && sudo -H -u clawlet clawlet start --daemon && clawlet connect --agent owliabot
 ```
 
 > Creating a new wallet will show a mnemonic — **remind the user to save it**, it won't be shown again.
@@ -41,7 +41,7 @@ curl -fsSL https://raw.githubusercontent.com/owliabot/clawlet/main/scripts/insta
 If `CLAWLET_INSTALLED=yes` and `CLAWLET_RUNNING=no` → Start + connect:
 
 ```bash
-sudo -H -u clawlet clawlet start --agent owliabot --daemon && clawlet connect --agent owliabot
+sudo -H -u clawlet clawlet start --daemon && clawlet connect --agent owliabot
 ```
 
 ### 4. Running?
@@ -76,7 +76,7 @@ Wallet config is in-memory. After OwliaBot restarts: `clawlet connect --agent ow
 | Problem | Solution |
 |---------|----------|
 | `clawlet: command not found` | Re-run install script or check PATH |
-| Daemon not running | `sudo -H -u clawlet clawlet start --agent owliabot --daemon` |
+| Daemon not running | `sudo -H -u clawlet clawlet start --daemon` |
 | `gateway.http is not configured` | Add `gateway.http` to `app.yaml`, restart OwliaBot |
 | Docker can't reach Clawlet | Clawlet must listen on `0.0.0.0:9100` or use host networking |
 
