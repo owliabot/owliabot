@@ -31,6 +31,12 @@ export interface OnboardBinaryManifest {
   assets: Record<string, OnboardBinaryAsset>;
 }
 
+const MANIFEST_FETCH_TIMEOUT_MS = 15000;
+const BINARY_FETCH_TIMEOUT_MS = 30000;
+const FETCH_RETRY_COUNT = 2;
+const FETCH_BASE_DELAY_MS = 250;
+const RETRYABLE_HTTP_STATUS = new Set([408, 425, 429, 500, 502, 503, 504]);
+
 interface ResolveCommandOptions {
   rootDir: string;
 }
@@ -204,7 +210,10 @@ async function fetchManifest(
   manifestURL: string,
   fetchImpl: typeof fetch,
 ): Promise<OnboardBinaryManifest> {
-  const response = await fetchImpl(manifestURL);
+  const response = await fetchWithTimeoutAndRetry(manifestURL, fetchImpl, {
+    timeoutMs: MANIFEST_FETCH_TIMEOUT_MS,
+    retries: FETCH_RETRY_COUNT,
+  });
   if (!response.ok) {
     throw new Error(`failed to fetch onboard manifest (${response.status})`);
   }
@@ -221,7 +230,10 @@ async function downloadBinaryAsset(
   platform: NodeJS.Platform,
   fetchImpl: typeof fetch,
 ): Promise<void> {
-  const response = await fetchImpl(asset.url);
+  const response = await fetchWithTimeoutAndRetry(asset.url, fetchImpl, {
+    timeoutMs: BINARY_FETCH_TIMEOUT_MS,
+    retries: FETCH_RETRY_COUNT,
+  });
   if (!response.ok) {
     throw new Error(`failed to download onboard binary (${response.status})`);
   }
@@ -238,6 +250,50 @@ async function downloadBinaryAsset(
     await chmod(tempPath, 0o755);
   }
   await rename(tempPath, binaryPath);
+}
+
+interface FetchRetryOptions {
+  timeoutMs: number;
+  retries: number;
+}
+
+async function fetchWithTimeoutAndRetry(
+  url: string,
+  fetchImpl: typeof fetch,
+  options: FetchRetryOptions,
+): Promise<Response> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt <= options.retries; attempt += 1) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), options.timeoutMs);
+    try {
+      const response = await fetchImpl(url, { signal: controller.signal });
+      if (
+        !response.ok &&
+        attempt < options.retries &&
+        RETRYABLE_HTTP_STATUS.has(response.status)
+      ) {
+        await delay(FETCH_BASE_DELAY_MS * (attempt + 1));
+        continue;
+      }
+      return response;
+    } catch (err) {
+      lastError = err;
+      if (attempt >= options.retries) {
+        break;
+      }
+      await delay(FETCH_BASE_DELAY_MS * (attempt + 1));
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  const message = lastError instanceof Error ? lastError.message : String(lastError ?? "unknown error");
+  throw new Error(`failed to fetch ${url}: ${message}`);
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 export async function resolveOnboardBinaryCommand(
