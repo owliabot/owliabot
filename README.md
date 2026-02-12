@@ -62,6 +62,32 @@ docker-compose up -d
 
 See [Docker Installation Guide](docs/docker-install.md) for details.
 
+### No Clone: Run Go Onboard Binary (Preview by default)
+
+If you only want the onboarding wizard and don't want to clone the repo:
+
+```bash
+curl -sSL https://raw.githubusercontent.com/owliabot/owliabot/main/onboard.sh | bash
+```
+
+Use the stable release channel:
+
+```bash
+curl -sSL https://raw.githubusercontent.com/owliabot/owliabot/main/onboard.sh | OWLIABOT_ONBOARD_CHANNEL=stable bash
+```
+
+### Clone Repo + Run Onboard (Docker installed)
+
+If you've already cloned the repo and Docker is running locally:
+
+```bash
+git clone https://github.com/owliabot/owliabot.git
+cd owliabot
+bun install
+bun run build
+bun run onboard:preview
+```
+
 ---
 
 ## Quick Start (Node.js)
@@ -147,6 +173,8 @@ All commands use `npx owliabot <command>`:
 ```bash
 # Interactive onboarding
 npx owliabot onboard
+# preview channel (for develop onboarding binaries)
+npx owliabot onboard --channel preview
 
 # Diagnose startup issues (config errors / malformed tokens)
 npx owliabot doctor
