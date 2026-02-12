@@ -209,7 +209,7 @@ OwliaBot integrates with [Clawlet](https://github.com/owliabot/clawlet), a secur
 ```bash
 curl -fsSL https://raw.githubusercontent.com/owliabot/clawlet/main/scripts/install.sh -o /tmp/clawlet-install.sh && \
   sudo bash /tmp/clawlet-install.sh && \
-  sudo clawlet start --agent owliabot --daemon && \
+  sudo clawlet start --daemon && \
   clawlet connect --agent owliabot
 ```
 
