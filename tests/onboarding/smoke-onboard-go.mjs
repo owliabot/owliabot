@@ -28,6 +28,7 @@ async function main() {
   const outputDir = await mkdtemp(path.join(os.tmpdir(), "owliabot-onboard-output-"));
 
   let transcript = "";
+  let plainTranscript = "";
   let reachedStepTwo = false;
   let lastConfirmAt = 0;
   let timedOut = false;
@@ -56,8 +57,9 @@ async function main() {
     const onData = (chunk) => {
       const text = chunk.toString("utf8");
       transcript += text;
+      plainTranscript += stripAnsi(text).replace(/\r/g, "");
 
-      if (!reachedStepTwo && /(Step 1\/\d+|Step 1 of \d+)/.test(transcript)) {
+      if (!reachedStepTwo && /(Step 1\/\d+|Step 1 of \d+)/.test(plainTranscript)) {
         const now = Date.now();
         if (now-lastConfirmAt >= 700) {
           // Step 1 can appear multiple times (for example Docker preflight retries on CI runners).
@@ -67,7 +69,7 @@ async function main() {
         }
       }
 
-      if (!reachedStepTwo && /(Step 2\/\d+|Step 2 of \d+)/.test(transcript)) {
+      if (!reachedStepTwo && /(Step 2\/\d+|Step 2 of \d+)/.test(plainTranscript)) {
         reachedStepTwo = true;
         terminate(child);
       }
@@ -95,7 +97,7 @@ async function main() {
     return 0;
   }
 
-  const tail = transcript.slice(-4000);
+  const tail = plainTranscript.slice(-4000);
   console.error("onboard-go smoke failed: did not reach Step 2");
   if (timedOut) {
     console.error("reason: timeout");
@@ -106,3 +108,7 @@ async function main() {
 }
 
 process.exit(await main());
+
+function stripAnsi(value) {
+  return value.replace(/\u001b\[[0-9;?]*[ -/]*[@-~]/g, "");
+}
