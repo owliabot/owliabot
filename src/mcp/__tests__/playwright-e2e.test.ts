@@ -22,7 +22,8 @@ import type { ToolDefinition } from "../../agent/tools/types.js";
 let browserAvailable = false;
 
 // Simple test page - minimal HTML to avoid URL encoding issues
-const TEST_PAGE_HTML = `<html><head><title>Test</title></head><body><h1>Hello</h1><button id="btn">Click</button><input id="inp" /></body></html>`;
+const TEST_INPUT_LABEL = "Test input";
+const TEST_PAGE_HTML = `<html><head><title>Test</title></head><body><h1>Hello</h1><button id="btn">Click</button><label for="inp">${TEST_INPUT_LABEL}</label><input id="inp" aria-label="${TEST_INPUT_LABEL}" /></body></html>`;
 
 // Data URL for test page
 const TEST_PAGE_URL = `data:text/html,${encodeURIComponent(TEST_PAGE_HTML)}`;
@@ -55,12 +56,54 @@ function findTool(
 async function executeTool(
   tool: ToolDefinition,
   params: Record<string, unknown>
-): Promise<{ success: boolean; data?: string; error?: string }> {
+): Promise<{ success: boolean; data?: unknown; error?: string }> {
   return tool.execute(params, {
     sessionKey: "playwright-e2e-test",
     agentId: "e2e",
     config: {},
   });
+}
+
+function extractText(data: unknown): string | undefined {
+  if (typeof data === "string") return data;
+  if (data && typeof data === "object" && "text" in data) {
+    const text = (data as { text?: unknown }).text;
+    return typeof text === "string" ? text : undefined;
+  }
+  return undefined;
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function findLinkRef(snapshot: string): { label: string; ref: string } | undefined {
+  const match = snapshot.match(/link "([^"]+)" \[ref=([^\]]+)\]/);
+  if (!match) return undefined;
+  return { label: match[1], ref: match[2] };
+}
+
+function findTextboxRef(snapshot: string, label?: string): string | undefined {
+  if (label) {
+    const labeled = snapshot.match(
+      new RegExp(`textbox "${escapeRegExp(label)}" \\[ref=([^\\]]+)\\]`)
+    );
+    if (labeled) return labeled[1];
+  }
+  const fallback = snapshot.match(/textbox \[ref=([^\]]+)\]/);
+  return fallback?.[1];
+}
+
+async function getSnapshotText(tools: ToolDefinition[]): Promise<string> {
+  const snapshotTool = findTool(tools, "snapshot");
+  expect(snapshotTool).toBeDefined();
+
+  const result = await executeTool(snapshotTool!, {});
+  expect(result.success).toBe(true);
+
+  const text = extractText(result.data);
+  expect(text).toBeDefined();
+  return text!;
 }
 
 describe.sequential("Playwright MCP E2E", () => {
@@ -174,13 +217,12 @@ describe.sequential("Playwright MCP E2E", () => {
         return;
       }
 
-      const snapshotTool = findTool(tools, "snapshot");
-      expect(snapshotTool).toBeDefined();
+      const navigateTool = findTool(tools, "navigate");
+      await executeTool(navigateTool!, { url: EXAMPLE_URL });
 
-      const result = await executeTool(snapshotTool!, {});
-      expect(result.success).toBe(true);
+      const snapshotText = await getSnapshotText(tools);
       // example.com should have "Example Domain" in content
-      expect(result.data).toContain("Example");
+      expect(snapshotText).toContain("Example");
     }, BROWSER_TIMEOUT);
 
     it("navigates to data URL page", async (ctx) => {
@@ -207,14 +249,17 @@ describe.sequential("Playwright MCP E2E", () => {
       // Navigate to example.com which has a "More information" link
       const navigateTool = findTool(tools, "navigate");
       await executeTool(navigateTool!, { url: EXAMPLE_URL });
+      const snapshotText = await getSnapshotText(tools);
+      const linkInfo = findLinkRef(snapshotText);
 
       const clickTool = findTool(tools, "click");
       expect(clickTool).toBeDefined();
+      expect(linkInfo).toBeDefined();
 
-      // Click the "More information" link on example.com
+      // Click the first link on example.com
       const result = await executeTool(clickTool!, {
-        element: "More information",
-        ref: "More information",
+        element: linkInfo!.label,
+        ref: linkInfo!.ref,
       });
 
       // Should succeed
@@ -247,15 +292,18 @@ describe.sequential("Playwright MCP E2E", () => {
       // Navigate to our test page with input
       const navigateTool = findTool(tools, "navigate");
       await executeTool(navigateTool!, { url: TEST_PAGE_URL });
+      const snapshotText = await getSnapshotText(tools);
+      const textboxRef = findTextboxRef(snapshotText, TEST_INPUT_LABEL);
 
       // Find type tool
       const typeTool = findTool(tools, "type");
       expect(typeTool).toBeDefined();
+      expect(textboxRef).toBeDefined();
 
       // Type into the input field (using element/ref for Playwright MCP)
       const result = await executeTool(typeTool!, {
-        element: "textbox", // ARIA role
-        ref: "textbox",
+        element: TEST_INPUT_LABEL,
+        ref: textboxRef,
         text: "Hello Playwright!",
       });
 
@@ -271,18 +319,47 @@ describe.sequential("Playwright MCP E2E", () => {
       // Navigate to test page
       const navigateTool = findTool(tools, "navigate");
       await executeTool(navigateTool!, { url: TEST_PAGE_URL });
+      const snapshotText = await getSnapshotText(tools);
+      const textboxRef = findTextboxRef(snapshotText, TEST_INPUT_LABEL);
 
       // Try fill_form tool if available
       const fillFormTool = findTool(tools, "fill_form");
 
-      if (fillFormTool) {
-        const result = await executeTool(fillFormTool!, {
-          values: [{ ref: "textbox", value: "Test input" }],
-        });
-        expect(result.success).toBe(true);
-      } else {
-        // Skip if fill_form not available
+      if (!fillFormTool) {
+        ctx.skip();
         console.log("fill_form tool not available");
+        return;
+      }
+      expect(textboxRef).toBeDefined();
+
+      const properties = fillFormTool.parameters?.properties ?? {};
+      const hasFields = Object.prototype.hasOwnProperty.call(properties, "fields");
+      const hasValues = Object.prototype.hasOwnProperty.call(properties, "values");
+
+      if (hasFields) {
+        const result = await executeTool(fillFormTool!, {
+          fields: [
+            {
+              name: TEST_INPUT_LABEL,
+              ref: textboxRef,
+              type: "textbox",
+              value: "Test input",
+            },
+          ],
+        });
+        if (!result.success) {
+          throw new Error(`fill_form failed (fields): ${result.error ?? "unknown"}`);
+        }
+      } else if (hasValues) {
+        const result = await executeTool(fillFormTool!, {
+          values: [{ ref: textboxRef, value: "Test input" }],
+        });
+        if (!result.success) {
+          throw new Error(`fill_form failed (values): ${result.error ?? "unknown"}`);
+        }
+      } else {
+        ctx.skip();
+        console.log("fill_form tool schema not recognized");
       }
     }, BROWSER_TIMEOUT);
   });
@@ -305,7 +382,30 @@ describe.sequential("Playwright MCP E2E", () => {
 
       expect(result.success).toBe(true);
       expect(result.data).toBeDefined();
-      expect(result.data!.length).toBeGreaterThan(0);
+      if (typeof result.data === "string") {
+        expect(result.data.length).toBeGreaterThan(0);
+        return;
+      }
+
+      if (result.data && typeof result.data === "object") {
+        const data = result.data as {
+          text?: unknown;
+          images?: Array<{ data?: string }>;
+        };
+
+        if (Array.isArray(data.images) && data.images.length > 0) {
+          expect(data.images[0]?.data?.length ?? 0).toBeGreaterThan(0);
+          return;
+        }
+
+        const text = extractText(data);
+        if (text) {
+          expect(text.length).toBeGreaterThan(0);
+          return;
+        }
+      }
+
+      throw new Error("Unexpected screenshot result shape");
     }, BROWSER_TIMEOUT);
   });
 

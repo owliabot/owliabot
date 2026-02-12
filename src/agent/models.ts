@@ -103,6 +103,14 @@ export function getAvailableModels(provider: string): Model<Api>[] {
 }
 
 /**
+ * Get the context window size for a model configuration.
+ */
+export function getContextWindow(config: ModelConfig): number {
+  const model = resolveModel(config);
+  return (model as Model<Api> & { contextWindow?: number }).contextWindow ?? 200_000;
+}
+
+/**
  * Validate all model aliases at startup (optional)
  */
 export function validateAliases(): { valid: boolean; errors: string[] } {

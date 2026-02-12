@@ -38,7 +38,7 @@ export interface OAuthCredentials {
   projectId?: string;
   email?: string;
   accountId?: string;
-  [key: string]: unknown;
+  [key: string]: unknown; // Required by pi-ai 0.52+ index signature
 }
 
 const AUTH_DIR = join(
@@ -63,9 +63,10 @@ function tokensToCredentials(tokens: OAuthTokens): OAuthCredentials {
 
 /**
  * Start OAuth flow for a provider using Device Code authentication.
- * Works in headless/SSH environments - no browser callback needed.
+ * Works in headless/SSH environments — no browser needed.
  *
  * @param provider - 'openai-codex'
+ * @param _options - reserved for future use
  */
 export async function startOAuthFlow(
   provider: SupportedOAuthProvider = "openai-codex",
@@ -127,7 +128,7 @@ export async function loadOAuthCredentials(
       log.debug(`${provider} OAuth token expired, needs refresh`);
       try {
         return await refreshOAuthCredentials(data, provider);
-      } catch {
+      } catch (err) {
         log.warn(`${provider} token refresh failed, need re-authentication`);
         return null;
       }

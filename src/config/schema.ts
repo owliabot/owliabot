@@ -14,6 +14,11 @@ export const providerSchema = z
     apiKey: z.string().optional(),
     priority: z.number().int().positive(),
     baseUrl: z.string().url().optional(),
+    authType: z
+      .enum(["bearer", "api-key", "header", "none"])
+      .default("bearer")
+      .optional(),
+    authHeader: z.string().optional(),
   })
   .refine(
     (data) => {
@@ -28,6 +33,20 @@ export const providerSchema = z
         "baseUrl is required when provider id is 'openai-compatible'. " +
         "Example: http://localhost:11434/v1 for Ollama",
       path: ["baseUrl"],
+    },
+  )
+  .refine(
+    (data) => {
+      if (data.authType === "header" && !data.authHeader) {
+        return false;
+      }
+      return true;
+    },
+    {
+      message:
+        "authHeader is required when authType is 'header'. " +
+        "Example: authHeader: 'X-API-Key'",
+      path: ["authHeader"],
     },
   );
 
@@ -268,8 +287,17 @@ const agentsSchema = z
         cliBackends: CliBackendsSchema,
       })
       .optional(),
+    /** Agentic loop configuration */
+    loop: z
+      .object({
+        /** Maximum iterations (hard safety ceiling, default: 50) */
+        maxIterations: z.number().int().positive().default(50),
+        /** Timeout in seconds (default: 600 = 10 minutes) */
+        timeoutSeconds: z.number().int().positive().default(600),
+      })
+      .default({ maxIterations: 50, timeoutSeconds: 600 }),
   })
-  .default({ defaultId: "main" });
+  .default({ defaultId: "main", loop: { maxIterations: 50, timeoutSeconds: 600 } });
 
 const groupSchema = z
   .object({
@@ -288,8 +316,8 @@ const clawletConfigSchema = z
   .object({
     /** Enable Clawlet wallet integration */
     enabled: z.boolean().default(false),
-    /** HTTP base URL for Clawlet daemon */
-    baseUrl: z.string().url().default("http://127.0.0.1:9100"),
+    /** HTTP base URL for Clawlet daemon (auto-resolved at runtime if omitted) */
+    baseUrl: z.string().url().optional(),
     /** Auth token - supports env var expansion like ${CLAWLET_TOKEN} */
     token: z.string().optional(),
     /** Request timeout in ms */
@@ -299,7 +327,6 @@ const clawletConfigSchema = z
   })
   .default({
     enabled: false,
-    baseUrl: "http://127.0.0.1:9100",
     requestTimeout: 30_000,
     defaultChainId: 8453,
   });
@@ -312,7 +339,6 @@ const walletSchema = z
   .default({
     clawlet: {
       enabled: false,
-      baseUrl: "http://127.0.0.1:9100",
       requestTimeout: 30_000,
       defaultChainId: 8453,
     },
@@ -422,6 +448,19 @@ export const mcpGatewayConfigSchema = z
 
 export type MCPGatewayConfig = z.infer<typeof mcpGatewayConfigSchema>;
 
+export const contextGuardSchema = z
+  .object({
+    enabled: z.boolean().default(true),
+    maxToolResultChars: z.number().positive().default(50_000),
+    reserveTokens: z.number().positive().default(8_192),
+    truncateHeadChars: z.number().positive().default(2_000),
+    truncateTailChars: z.number().positive().default(2_000),
+    contextWindowOverride: z.number().positive().optional(),
+  })
+  .optional();
+
+export type ContextGuardConfig = z.infer<typeof contextGuardSchema>;
+
 export const configSchema = z.object({
   // AI providers
   providers: z.array(providerSchema).min(1),
@@ -490,6 +529,9 @@ export const configSchema = z.object({
 
   // MCP (Model Context Protocol) servers
   mcp: mcpGatewayConfigSchema,
+
+  // Context window guard
+  contextGuard: contextGuardSchema,
 });
 
 export type Config = z.infer<typeof configSchema>;

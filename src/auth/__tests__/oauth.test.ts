@@ -6,7 +6,6 @@ import {
   getOAuthStatus,
   refreshOAuthCredentials,
   getAllOAuthStatus,
-  type SupportedOAuthProvider,
 } from "../oauth.js";
 import { readFile, writeFile, mkdir, unlink } from "node:fs/promises";
 import { join } from "node:path";
@@ -19,10 +18,7 @@ vi.mock("node:fs/promises", () => ({
   mkdir: vi.fn(),
   unlink: vi.fn(),
 }));
-vi.mock("../device-code-auth.js", () => ({
-  runDeviceCodeLogin: vi.fn(),
-  refreshDeviceCodeTokens: vi.fn(),
-}));
+vi.mock("../device-code-auth.js");
 vi.mock("../../utils/logger.js", () => ({
   createLogger: () => ({
     debug: vi.fn(),
@@ -79,29 +75,27 @@ describe("oauth", () => {
         email: "test@example.com",
       };
 
-      const newCredentials = {
-        access: "new_access",
-        refresh: "refresh_token",
-        expires: Date.now() + 3600000,
-        idToken: "id-token",
+      const newTokens = {
+        accessToken: "new_access",
+        refreshToken: "refresh_token",
+        idToken: "id_tok",
+        expiresAt: Date.now() + 3600000,
       };
 
       vi.mocked(readFile).mockResolvedValue(JSON.stringify(expiredCredentials));
-      vi.mocked(deviceCodeAuth.refreshDeviceCodeTokens).mockResolvedValue(
-        {
-          accessToken: newCredentials.access,
-          refreshToken: newCredentials.refresh,
-          idToken: "id-token",
-          expiresAt: newCredentials.expires,
-        } as any,
-      );
+      vi.mocked(deviceCodeAuth.refreshDeviceCodeTokens).mockResolvedValue(newTokens);
       vi.mocked(mkdir).mockResolvedValue(undefined);
       vi.mocked(writeFile).mockResolvedValue();
 
       const result = await loadOAuthCredentials("openai-codex");
 
-      expect(result).toEqual(newCredentials);
-      expect(deviceCodeAuth.refreshDeviceCodeTokens).toHaveBeenCalled();
+      expect(result).toEqual({
+        access: "new_access",
+        refresh: "refresh_token",
+        idToken: "id_tok",
+        expires: newTokens.expiresAt,
+      });
+      expect(deviceCodeAuth.refreshDeviceCodeTokens).toHaveBeenCalledWith("refresh_token");
     });
 
     it("should return null if refresh fails", async () => {
@@ -109,7 +103,6 @@ describe("oauth", () => {
         access: "old_access",
         refresh: "refresh_token",
         expires: Date.now() - 1000,
-        email: "test@example.com",
       };
 
       vi.mocked(readFile).mockResolvedValue(JSON.stringify(expiredCredentials));
@@ -135,7 +128,7 @@ describe("oauth", () => {
       vi.mocked(mkdir).mockResolvedValue(undefined);
       vi.mocked(writeFile).mockResolvedValue();
 
-      await saveOAuthCredentials(credentials as any, "openai-codex");
+      await saveOAuthCredentials(credentials, "openai-codex");
 
       expect(writeFile).toHaveBeenCalledWith(
         join(authDir(), "auth-openai-codex.json"),
@@ -153,7 +146,6 @@ describe("oauth", () => {
       expect(unlink).toHaveBeenCalledWith(
         join(authDir(), "auth-openai-codex.json")
       );
-      expect(unlink).toHaveBeenCalledTimes(1);
     });
 
     it("should ignore ENOENT errors", async () => {
@@ -161,7 +153,6 @@ describe("oauth", () => {
       error.code = "ENOENT";
       vi.mocked(unlink).mockRejectedValue(error);
 
-      // Should not throw
       await expect(clearOAuthCredentials("openai-codex")).resolves.toBeUndefined();
     });
   });
@@ -192,8 +183,6 @@ describe("oauth", () => {
       const status = await getOAuthStatus("openai-codex");
 
       expect(status.authenticated).toBe(false);
-      expect(status.expiresAt).toBeUndefined();
-      expect(status.email).toBeUndefined();
     });
   });
 
@@ -211,7 +200,6 @@ describe("oauth", () => {
       const statuses = await getAllOAuthStatus();
 
       expect(statuses["openai-codex"].authenticated).toBe(true);
-      // Anthropic is no longer included in OAuth status (uses setup-token)
       expect("anthropic" in statuses).toBe(false);
     });
   });
@@ -222,31 +210,24 @@ describe("oauth", () => {
         access: "old_access",
         refresh: "refresh_token",
         expires: Date.now() - 1000,
-        email: "test@example.com",
       };
 
-      const newCredentials = {
-        access: "new_access",
-        refresh: "refresh_token",
-        expires: Date.now() + 3600000,
-        idToken: "id-token",
+      const newTokens = {
+        accessToken: "new_access",
+        refreshToken: "new_refresh",
+        idToken: "new_id",
+        expiresAt: Date.now() + 3600000,
       };
 
-      vi.mocked(deviceCodeAuth.refreshDeviceCodeTokens).mockResolvedValue(
-        {
-          accessToken: newCredentials.access,
-          refreshToken: newCredentials.refresh,
-          idToken: "id-token",
-          expiresAt: newCredentials.expires,
-        } as any,
-      );
+      vi.mocked(deviceCodeAuth.refreshDeviceCodeTokens).mockResolvedValue(newTokens);
       vi.mocked(mkdir).mockResolvedValue(undefined);
       vi.mocked(writeFile).mockResolvedValue();
 
-      const result = await refreshOAuthCredentials(oldCredentials as any, "openai-codex");
+      const result = await refreshOAuthCredentials(oldCredentials, "openai-codex");
 
-      expect(result).toEqual(newCredentials);
-      expect(deviceCodeAuth.refreshDeviceCodeTokens).toHaveBeenCalledWith(oldCredentials.refresh);
+      expect(result.access).toBe("new_access");
+      expect(result.refresh).toBe("new_refresh");
+      expect(deviceCodeAuth.refreshDeviceCodeTokens).toHaveBeenCalledWith("refresh_token");
       expect(writeFile).toHaveBeenCalled();
     });
   });

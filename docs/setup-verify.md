@@ -33,12 +33,12 @@ npx tsx src/entry.ts onboard
 
 引导流程会依次询问：
 - 启用的频道（discord / telegram）
-- Workspace 路径
+- 时区（自动检测，可在配置中覆盖）
 - Anthropic 模型（默认 `claude-sonnet-4-5`）
 - 是否立即执行 OAuth 认证
 - Discord / Telegram 的 Token 和频道配置
 
-完成后配置写入 `~/.owlia_dev/app.yaml`，敏感令牌存入 `~/.owlia_dev/secrets.yaml`。
+完成后配置写入 `$OWLIABOT_HOME/app.yaml`（默认：`~/.owliabot/app.yaml`），敏感令牌存入 `$OWLIABOT_HOME/secrets.yaml`。
 
 #### 方式 B：手动复制模板
 
@@ -215,4 +215,4 @@ OAuth Token 会自动刷新，但如果长时间未使用可能失效，需重�
 
 - 查看详细日志：Bot 使用 `tslog`，启动时会输出配置加载和连接状态信息。
 - 使用 `npm run dev` 启动（watch 模式），修改代码后自动重启，方便调试。
-- 令牌管理：可使用 `npx tsx src/entry.ts token set discord` / `npx tsx src/entry.ts token set telegram` 从环境变量写入 `~/.owlia_dev/secrets.yaml`。
+- 令牌管理：可使用 `npx tsx src/entry.ts token set discord` / `npx tsx src/entry.ts token set telegram` 从环境变量写入 `$OWLIABOT_HOME/secrets.yaml`。

@@ -17,7 +17,9 @@ import {
   ClawletError,
   type BalanceQuery,
   type TransferRequest,
+  type SendRawRequest,
   type ClawletClientConfig,
+  type ChainInfo,
 } from "../../../wallet/index.js";
 import { createLogger } from "../../../utils/logger.js";
 
@@ -36,6 +38,17 @@ export interface WalletToolsConfig {
   defaultChainId?: number;
   /** Whether wallet tools are enabled (check config.wallet.clawlet.enabled) */
   enabled?: boolean;
+  /** Supported chains fetched from Clawlet daemon */
+  supportedChains?: ChainInfo[];
+}
+
+/**
+ * Format supported chains for tool descriptions.
+ * Falls back to a generic message when chains are not available.
+ */
+export function formatChainList(chains?: ChainInfo[]): string {
+  if (!chains?.length) return "(query wallet service for current supported chains)";
+  return chains.map(c => `- ${c.chain_id}: ${c.name}${c.testnet ? " (testnet)" : ""}`).join("\n");
 }
 
 // ============================================================================
@@ -125,11 +138,7 @@ PARAMETERS:
 - chain_id: Chain ID (default: ${defaultChainId})
 
 SUPPORTED CHAINS:
-- 1: Ethereum Mainnet
-- 11155111: Ethereum Sepolia (testnet)
-- 8453: Base
-- 10: Optimism
-- 42161: Arbitrum One
+${formatChainList(config.supportedChains)}
 
 EXAMPLE:
 { "chain_id": 8453 }  // Uses wallet's own address
@@ -236,6 +245,9 @@ PARAMETERS:
   - Token symbol (e.g. "USDC") if configured
   - Contract address (0x-prefixed)
 - chain_id: Chain ID (default: ${defaultChainId})
+
+SUPPORTED CHAINS:
+${formatChainList(config.supportedChains)}
 
 POLICY LIMITS:
 - Daily transfer limits may apply
@@ -372,6 +384,169 @@ EXAMPLE:
 }
 
 // ============================================================================
+// wallet_send_tx Tool
+// ============================================================================
+
+const WalletSendTxParamsSchema = z.object({
+  to: z
+    .string()
+    .regex(/^0x[a-fA-F0-9]{40}$/, "Must be 0x-prefixed 40-character hex")
+    .describe("Recipient address (required)"),
+  value: z
+    .string()
+    .regex(/^(0x[a-fA-F0-9]+|\d+)$/, "Must be a decimal string or 0x-prefixed hex")
+    .optional()
+    .describe("Value in wei (hex or decimal string)"),
+  data: z
+    .string()
+    .regex(/^0x([a-fA-F0-9]{2})*$/, "Must be 0x-prefixed even-length hex string")
+    .optional()
+    .describe("Calldata (0x-prefixed hex)"),
+  chain_id: z
+    .number()
+    .int()
+    .positive()
+    .optional()
+    .describe("Chain ID (optional, defaults from config)"),
+  gas_limit: z
+    .number()
+    .int()
+    .positive()
+    .optional()
+    .describe("Gas limit (optional)"),
+});
+
+type WalletSendTxParams = z.infer<typeof WalletSendTxParamsSchema>;
+
+/**
+ * Create the wallet_send_tx tool
+ *
+ * Scope: trade (requires confirmation via WriteGate)
+ * Sends a raw transaction with arbitrary calldata via Clawlet.
+ */
+export function createWalletSendTxTool(config: WalletToolsConfig = {}): ToolDefinition {
+  const defaultChainId = config.defaultChainId ?? 8453;
+
+  return {
+    name: "wallet_send_tx",
+    description: `Send a raw transaction via the wallet service.
+
+⚠️ This is a SIGN-level operation that requires user confirmation.
+
+Unlike wallet_transfer (high-level transfer), this sends raw transaction data
+with arbitrary calldata — useful for contract interactions, approvals, swaps, etc.
+
+PARAMETERS:
+- to: Destination address (0x-prefixed, required)
+- value: Value in wei as string (optional, default "0")
+- data: Calldata hex string (optional)
+- chain_id: Chain ID (default: ${defaultChainId})
+- gas_limit: Gas limit (optional, estimated if omitted)
+
+SUPPORTED CHAINS:
+${formatChainList(config.supportedChains)}
+
+EXAMPLE:
+{ "to": "0xContract...", "data": "0xa9059cbb...", "chain_id": 8453 }
+{ "to": "0xRecipient...", "value": "1000000000000000000" }`,
+    parameters: {
+      type: "object",
+      properties: {
+        to: {
+          type: "string",
+          description: "Destination address (0x-prefixed)",
+        },
+        value: {
+          type: "string",
+          description: "Value in wei (hex or decimal string)",
+        },
+        data: {
+          type: "string",
+          description: "Calldata (0x-prefixed hex)",
+        },
+        chain_id: {
+          type: "number",
+          description: `Chain ID (default: ${defaultChainId})`,
+        },
+        gas_limit: {
+          type: "number",
+          description: "Gas limit (optional)",
+        },
+      },
+      required: ["to"],
+    },
+    security: {
+      level: "sign",
+      confirmRequired: true,
+    },
+    async execute(params: unknown, ctx: ToolContext): Promise<ToolResult> {
+      const parseResult = WalletSendTxParamsSchema.safeParse(params);
+      if (!parseResult.success) {
+        return {
+          success: false,
+          error: `Invalid parameters: ${parseResult.error.errors.map((e) => e.message).join(", ")}`,
+        };
+      }
+
+      const p = parseResult.data;
+      const chainId = p.chain_id ?? defaultChainId;
+
+      if (!ctx.requestConfirmation) {
+        return {
+          success: false,
+          error: "Transaction rejected: confirmation callback is required for signing operations",
+        };
+      }
+
+      const confirmed = await ctx.requestConfirmation({
+        type: "transaction",
+        title: "Confirm Transaction",
+        description: `Send transaction to ${p.to} on chain ${chainId}. Confirm? [y/n]`,
+        details: {
+          To: p.to,
+          Value: p.value ?? "0",
+          Data: p.data ?? "(none)",
+          "Chain ID": String(chainId),
+        },
+      });
+
+      if (!confirmed) {
+        log.info(`Transaction denied by user: to=${p.to}`);
+        return {
+          success: false,
+          error: "Transaction cancelled by user",
+        };
+      }
+
+      try {
+        const client = getClawletClient(config.clawletConfig);
+        const request: SendRawRequest = {
+          to: p.to,
+          chain_id: chainId,
+          ...(p.value !== undefined && { value: p.value }),
+          ...(p.data !== undefined && { data: p.data }),
+          ...(p.gas_limit !== undefined && { gas_limit: p.gas_limit }),
+        };
+
+        const result = await client.sendRaw(request);
+
+        log.info(`Transaction sent: ${result.tx_hash}`);
+        return {
+          success: true,
+          data: {
+            tx_hash: result.tx_hash,
+            audit_id: result.audit_id,
+            summary: `Transaction sent to ${p.to}. TX: ${result.tx_hash}`,
+          },
+        };
+      } catch (err) {
+        return handleClawletError(err, "send_raw");
+      }
+    },
+  };
+}
+
+// ============================================================================
 // Error Handling
 // ============================================================================
 
@@ -432,5 +607,6 @@ export function createWalletTools(config: WalletToolsConfig): ToolDefinition[] {
   return [
     createWalletBalanceTool(config),
     createWalletTransferTool(config),
+    createWalletSendTxTool(config),
   ];
 }

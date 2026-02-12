@@ -63,7 +63,7 @@ const mockWebSearchTool = {
 };
 
 vi.mock("../../agent/tools/builtin/index.js", () => ({
-  createBuiltinTools: vi.fn(() => [mockReadTool, mockWriteTool]),
+  createBuiltinTools: vi.fn(async () => [mockReadTool, mockWriteTool]),
   createHelpTool: vi.fn(() => mockHelpTool),
   createExecTool: vi.fn(() => mockExecTool),
   createWebFetchTool: vi.fn(() => mockWebFetchTool),
@@ -80,8 +80,8 @@ describe("tools-init", () => {
   });
 
   describe("initializeTools", () => {
-    it("registers builtin tools", () => {
-      const tools = initializeTools({
+    it("registers builtin tools", async () => {
+      const tools = await initializeTools({
         workspace: "/workspace",
         sessionStore: mockSessionStore,
         transcripts: mockTranscripts,
@@ -91,8 +91,8 @@ describe("tools-init", () => {
       expect(tools.get("write")).toBe(mockWriteTool);
     });
 
-    it("registers help tool last", () => {
-      const tools = initializeTools({
+    it("registers help tool last", async () => {
+      const tools = await initializeTools({
         workspace: "/workspace",
         sessionStore: mockSessionStore,
         transcripts: mockTranscripts,
@@ -104,7 +104,7 @@ describe("tools-init", () => {
     it("registers exec tool when system.exec is configured", async () => {
       const { createExecTool } = await import("../../agent/tools/builtin/index.js");
       
-      const tools = initializeTools({
+      const tools = await initializeTools({
         workspace: "/workspace",
         sessionStore: mockSessionStore,
         transcripts: mockTranscripts,
@@ -123,7 +123,7 @@ describe("tools-init", () => {
     it("does not register exec tool when system.exec is missing", async () => {
       const { createExecTool } = await import("../../agent/tools/builtin/index.js");
       
-      initializeTools({
+      await initializeTools({
         workspace: "/workspace",
         sessionStore: mockSessionStore,
         transcripts: mockTranscripts,
@@ -136,7 +136,7 @@ describe("tools-init", () => {
     it("registers web_fetch tool when system.web is configured", async () => {
       const { createWebFetchTool } = await import("../../agent/tools/builtin/index.js");
       
-      const tools = initializeTools({
+      const tools = await initializeTools({
         workspace: "/workspace",
         sessionStore: mockSessionStore,
         transcripts: mockTranscripts,
@@ -155,7 +155,7 @@ describe("tools-init", () => {
       const { createWebSearchTool } = await import("../../agent/tools/builtin/index.js");
       
       // Only web config - should NOT register web_search
-      initializeTools({
+      await initializeTools({
         workspace: "/workspace",
         sessionStore: mockSessionStore,
         transcripts: mockTranscripts,
@@ -168,7 +168,7 @@ describe("tools-init", () => {
       vi.clearAllMocks();
 
       // Both web and webSearch config - should register
-      const tools = initializeTools({
+      const tools = await initializeTools({
         workspace: "/workspace",
         sessionStore: mockSessionStore,
         transcripts: mockTranscripts,
@@ -190,7 +190,7 @@ describe("tools-init", () => {
     it("passes toolsConfig to createBuiltinTools", async () => {
       const { createBuiltinTools } = await import("../../agent/tools/builtin/index.js");
       
-      initializeTools({
+      await initializeTools({
         workspace: "/workspace",
         sessionStore: mockSessionStore,
         transcripts: mockTranscripts,
@@ -207,7 +207,7 @@ describe("tools-init", () => {
     it("passes walletConfig to createBuiltinTools", async () => {
       const { createBuiltinTools } = await import("../../agent/tools/builtin/index.js");
       
-      initializeTools({
+      await initializeTools({
         workspace: "/workspace",
         sessionStore: mockSessionStore,
         transcripts: mockTranscripts,
@@ -221,8 +221,8 @@ describe("tools-init", () => {
       );
     });
 
-    it("returns registry with correct tool count", () => {
-      const tools = initializeTools({
+    it("returns registry with correct tool count", async () => {
+      const tools = await initializeTools({
         workspace: "/workspace",
         sessionStore: mockSessionStore,
         transcripts: mockTranscripts,

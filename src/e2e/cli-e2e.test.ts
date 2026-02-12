@@ -21,6 +21,17 @@ describe.sequential("E2E: CLI onboard -> config/secrets -> gateway http", () => 
   beforeAll(async () => {
     await rm(tmpRoot, { recursive: true, force: true });
     await mkdir(dirname(appYamlPath), { recursive: true });
+    await mkdir(workspacePath, { recursive: true });
+    await writeFile(
+      join(workspacePath, "policy.yml"),
+      stringify({
+        version: "1",
+        defaults: {},
+        tools: {},
+        fallback: { tier: "none", requireConfirmation: false },
+      }),
+      "utf-8"
+    );
   }, 180_000);
 
   afterAll(async () => {

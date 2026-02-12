@@ -11,8 +11,9 @@ curl -sSL https://raw.githubusercontent.com/owliabot/owliabot/main/install.sh | 
 This will:
 1. Check Docker is installed and running
 2. Pull the latest OwliaBot image
-3. Run the interactive configuration wizard
-4. Generate `docker-compose.yml` for easy management
+3. Run the interactive onboard configuration wizard
+4. Generate `docker-compose.yml`
+5. Automatically start the container
 
 ## Manual Docker Setup
 
@@ -53,8 +54,8 @@ and no longer requires a local Go toolchain for most users.
 The wizard will prompt for:
 - AI provider (Anthropic/OpenAI/OpenAI-Codex/OpenAI-compatible)
 - Chat platform (Discord/Telegram)
-- Gateway HTTP port and token
-- Timezone
+- Timezone (auto-detected; edit `app.yaml` to override)
+- (Docker only) Host port to expose Gateway HTTP (default: 8787)
 
 ### Step 3: Start with Docker Compose
 
@@ -167,3 +168,14 @@ Common causes:
 - Missing or invalid API key
 - Missing channel token (Discord/Telegram)
 - Invalid config syntax
+
+### Playwright MCP (browser automation)
+
+Chromium is bundled in the Docker image and configured automatically:
+- `OWLIABOT_PLAYWRIGHT_CHROMIUM_PATH=/usr/bin/chromium` (pre-set)
+- `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1` (no extra download needed)
+- `PLAYWRIGHT_MCP_NO_SANDBOX=1` (required in containers)
+
+No manual configuration is needed. Playwright MCP will use the bundled Chromium out of the box.
+
+> **Security note:** `--no-sandbox` reduces browser isolation. For production deployments requiring stronger isolation, consider running the browser in a separate container or using CDP connection to an external browser service.

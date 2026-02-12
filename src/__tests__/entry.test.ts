@@ -10,9 +10,11 @@ describe("entry", () => {
 
     expect(content).toContain('.name("owliabot")');
     expect(content).toContain('.command("start")');
+    expect(content).toContain('.command("doctor")');
     expect(content).toContain('.command("onboard")');
     expect(content).toContain('.command("token")');
     expect(content).toContain('.command("auth")');
+    expect(content).toContain('.command("models")');
   });
 
   it("should check Node.js version requirements", () => {

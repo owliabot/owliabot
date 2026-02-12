@@ -1,10 +1,10 @@
 /**
  * OpenAI Device Code Authentication
  *
- * Implements OAuth 2.0 Device Authorization Grant for OpenAI,
- * replacing browser callback dependencies and working in headless environments.
+ * Implements the OAuth 2.0 Device Authorization Grant flow for OpenAI,
+ * replacing the browser-based pi-ai dependency. Works in headless/SSH environments.
  *
- * Flow: request user code -> user verifies in browser -> poll completion -> exchange tokens
+ * Flow: request user code → user visits URL & enters code → poll for completion → exchange for tokens
  *
  * @see https://auth.openai.com/codex/device
  */
@@ -13,13 +13,15 @@ import { createLogger } from "../utils/logger.js";
 
 const log = createLogger("device-code-auth");
 
-// Constants
+// ── Constants ──────────────────────────────────────────────────────────────────
+
 export const AUTH_BASE_URL = "https://auth.openai.com";
 export const CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann";
 export const VERIFICATION_URL = `${AUTH_BASE_URL}/codex/device`;
 export const DEFAULT_TIMEOUT_MS = 15 * 60 * 1000; // 15 minutes
 
-// Types
+// ── Types ──────────────────────────────────────────────────────────────────────
+
 export interface DeviceCodeResponse {
   verificationUrl: string;
   userCode: string;
@@ -40,7 +42,8 @@ export interface OAuthTokens {
   expiresAt: number;
 }
 
-// Step 1: request device code
+// ── Step 1: Request Device Code ────────────────────────────────────────────────
+
 export async function requestDeviceCode(): Promise<DeviceCodeResponse> {
   const res = await fetch(`${AUTH_BASE_URL}/api/accounts/deviceauth/usercode`, {
     method: "POST",
@@ -67,7 +70,8 @@ export async function requestDeviceCode(): Promise<DeviceCodeResponse> {
   };
 }
 
-// Step 2: poll for completion
+// ── Step 2: Poll for Completion ────────────────────────────────────────────────
+
 export async function pollForDeviceCodeCompletion(
   deviceAuthId: string,
   userCode: string,
@@ -78,20 +82,24 @@ export async function pollForDeviceCodeCompletion(
   let firstPoll = true;
 
   while (Date.now() < deadline) {
+    // Sleep between retries, but poll immediately on first attempt
     if (firstPoll) {
       firstPoll = false;
     } else {
       await sleep(interval * 1000);
     }
 
-    const res = await fetch(`${AUTH_BASE_URL}/api/accounts/deviceauth/token`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        device_auth_id: deviceAuthId,
-        user_code: userCode,
-      }),
-    });
+    const res = await fetch(
+      `${AUTH_BASE_URL}/api/accounts/deviceauth/token`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          device_auth_id: deviceAuthId,
+          user_code: userCode,
+        }),
+      },
+    );
 
     if (res.ok) {
       const data = (await res.json()) as {
@@ -106,13 +114,14 @@ export async function pollForDeviceCodeCompletion(
       };
     }
 
-    // 403 / 404 => pending authorization
+    // 403 or 404 means "still pending" — keep polling
     if (res.status === 403 || res.status === 404) {
       const body = await res.text().catch(() => "");
       log.debug(`Polling... (${res.status}${body ? `: ${body}` : ""})`);
       continue;
     }
 
+    // Unexpected error
     const text = await res.text().catch(() => "");
     throw new Error(`Unexpected polling response: ${res.status} ${text}`);
   }
@@ -120,7 +129,8 @@ export async function pollForDeviceCodeCompletion(
   throw new Error("Device code authentication timed out (15 minutes)");
 }
 
-// Step 3: exchange code for tokens
+// ── Step 3: Exchange Code for Tokens ───────────────────────────────────────────
+
 export async function exchangeDeviceCodeForTokens(
   authorizationCode: string,
   codeVerifier: string,
@@ -157,7 +167,8 @@ export async function exchangeDeviceCodeForTokens(
   };
 }
 
-// Refresh tokens
+// ── Refresh Tokens ─────────────────────────────────────────────────────────────
+
 export async function refreshDeviceCodeTokens(
   refreshToken: string,
 ): Promise<OAuthTokens> {
@@ -191,12 +202,23 @@ export async function refreshDeviceCodeTokens(
   };
 }
 
-// Full login flow
-export async function runDeviceCodeLogin(): Promise<OAuthTokens> {
-  const { verificationUrl, userCode, deviceAuthId, interval } = await requestDeviceCode();
+// ── Full Login Flow ────────────────────────────────────────────────────────────
 
+/**
+ * Run the complete device code login flow:
+ * 1. Request device code
+ * 2. Print user instructions
+ * 3. Poll for completion
+ * 4. Exchange for tokens
+ */
+export async function runDeviceCodeLogin(): Promise<OAuthTokens> {
+  // Step 1: Request code
+  const { verificationUrl, userCode, deviceAuthId, interval } =
+    await requestDeviceCode();
+
+  // Step 2: Show instructions
   console.log();
-  console.log("OpenAI Device Code Login");
+  console.log("🔐 OpenAI Device Code Login");
   console.log();
   console.log("Open this URL in your browser and sign in:");
   console.log(`  ${verificationUrl}`);
@@ -204,16 +226,15 @@ export async function runDeviceCodeLogin(): Promise<OAuthTokens> {
   console.log("Then enter this one-time code (valid for 15 minutes):");
   console.log(`  ${userCode}`);
   console.log();
-  console.log("Do not share this code.");
+  console.log("⚠️ Do not share this code.");
   console.log();
   console.log("Waiting for verification...");
 
-  const { authorizationCode, codeVerifier } = await pollForDeviceCodeCompletion(
-    deviceAuthId,
-    userCode,
-    interval,
-  );
+  // Step 3: Poll
+  const { authorizationCode, codeVerifier } =
+    await pollForDeviceCodeCompletion(deviceAuthId, userCode, interval);
 
+  // Step 4: Exchange
   const tokens = await exchangeDeviceCodeForTokens(
     authorizationCode,
     codeVerifier,
@@ -222,6 +243,8 @@ export async function runDeviceCodeLogin(): Promise<OAuthTokens> {
   log.info("Device code authentication successful");
   return tokens;
 }
+
+// ── Helpers ────────────────────────────────────────────────────────────────────
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));

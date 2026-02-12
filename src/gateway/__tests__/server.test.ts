@@ -31,6 +31,15 @@ vi.mock("../../skills/index.js", () => ({
   initializeSkills: vi.fn(async () => {}),
 }));
 
+vi.mock("../../mcp/manager.js", () => ({
+  createMCPManager: vi.fn(),
+  MCPManager: class {},
+}));
+
+vi.mock("../../mcp/index.js", () => ({
+  createMCPTools: vi.fn(),
+}));
+
 vi.mock("../http/server.js", () => ({
   startGatewayHttp: vi.fn(),
 }));
@@ -226,6 +235,220 @@ describe("gateway server", () => {
 
     // Gateway started without crashing
     await stopGateway();
+  });
+
+  it("does not initialize MCP twice when servers are configured", async () => {
+    const { createMCPManager } = await import("../../mcp/manager.js");
+    const { createMCPTools } = await import("../../mcp/index.js");
+
+    const addServer = vi.fn(async () => ["playwright__browser_navigate"]);
+    const getToolsAsync = vi.fn(async () => []);
+    const onToolsChanged = vi.fn();
+    const close = vi.fn(async () => {});
+    vi.mocked(createMCPManager).mockReturnValue({
+      addServer,
+      getToolsAsync,
+      onToolsChanged,
+      close,
+      serverCount: 1,
+    } as any);
+
+    vi.mocked(createMCPTools).mockResolvedValue({
+      tools: [],
+      clients: new Map(),
+      adapters: new Map(),
+      failed: [],
+      refreshTools: async () => [],
+      close: async () => {},
+    });
+
+    const config = configSchema.parse({
+      providers: [{ id: "test", model: "m", apiKey: "k", priority: 1 }],
+      workspace: "/tmp/workspace",
+      gateway: { http: { enabled: false } },
+      infra: { enabled: false },
+      skills: { enabled: false },
+      heartbeat: { enabled: false },
+      cron: { enabled: false },
+      mcp: {
+        servers: [
+          { name: "playwright", command: "npx", args: ["@playwright/mcp@latest"], transport: "stdio" },
+        ],
+        presets: [],
+        autoStart: true,
+      },
+    });
+
+    const stopGateway = await startGateway({
+      config,
+      workspace: {},
+      sessionsDir: "/tmp/sessions",
+    });
+
+    expect(createMCPManager).toHaveBeenCalledTimes(1);
+    expect(addServer).toHaveBeenCalledTimes(1);
+    expect(createMCPTools).not.toHaveBeenCalled();
+
+    await stopGateway();
+  });
+
+  it("injects system chromium env for explicit playwright server when OWLIABOT_PLAYWRIGHT_CHROMIUM_PATH is set", async () => {
+    const previous = process.env.OWLIABOT_PLAYWRIGHT_CHROMIUM_PATH;
+    const previousNoSandbox = process.env.PLAYWRIGHT_MCP_NO_SANDBOX;
+    process.env.OWLIABOT_PLAYWRIGHT_CHROMIUM_PATH = "/usr/bin/chromium";
+    process.env.PLAYWRIGHT_MCP_NO_SANDBOX = "1";
+
+    try {
+      const { createMCPManager } = await import("../../mcp/manager.js");
+
+      const addServer = vi.fn(async () => ["playwright__browser_navigate"]);
+      const getToolsAsync = vi.fn(async () => []);
+      const onToolsChanged = vi.fn();
+      const close = vi.fn(async () => {});
+      vi.mocked(createMCPManager).mockReturnValue({
+        addServer,
+        getToolsAsync,
+        onToolsChanged,
+        close,
+        serverCount: 1,
+      } as any);
+
+      const config = configSchema.parse({
+        providers: [{ id: "test", model: "m", apiKey: "k", priority: 1 }],
+        workspace: "/tmp/workspace",
+        gateway: { http: { enabled: false } },
+        infra: { enabled: false },
+        skills: { enabled: false },
+        heartbeat: { enabled: false },
+        cron: { enabled: false },
+        mcp: {
+          servers: [
+            {
+              name: "playwright",
+              command: "npx",
+              args: ["--yes", "@playwright/mcp@latest"],
+              transport: "stdio",
+              env: {},
+            },
+          ],
+          presets: [],
+          autoStart: true,
+        },
+      });
+
+      const stopGateway = await startGateway({
+        config,
+        workspace: {},
+        sessionsDir: "/tmp/sessions",
+      });
+
+      expect(addServer).toHaveBeenCalledTimes(1);
+      expect(addServer).toHaveBeenCalledWith(
+        expect.objectContaining({
+          name: "playwright",
+          args: expect.arrayContaining([
+            "--browser",
+            "chrome",
+            "--executable-path",
+            "/usr/bin/chromium",
+            "--no-sandbox",
+          ]),
+          env: expect.objectContaining({
+            PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH: "/usr/bin/chromium",
+            PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1",
+          }),
+        })
+      );
+
+      await stopGateway();
+    } finally {
+      if (previous === undefined) {
+        delete process.env.OWLIABOT_PLAYWRIGHT_CHROMIUM_PATH;
+      } else {
+        process.env.OWLIABOT_PLAYWRIGHT_CHROMIUM_PATH = previous;
+      }
+      if (previousNoSandbox === undefined) {
+        delete process.env.PLAYWRIGHT_MCP_NO_SANDBOX;
+      } else {
+        process.env.PLAYWRIGHT_MCP_NO_SANDBOX = previousNoSandbox;
+      }
+    }
+  });
+
+  it("adds --no-sandbox for explicit playwright server even without chromium path", async () => {
+    const previous = process.env.OWLIABOT_PLAYWRIGHT_CHROMIUM_PATH;
+    const previousNoSandbox = process.env.PLAYWRIGHT_MCP_NO_SANDBOX;
+    delete process.env.OWLIABOT_PLAYWRIGHT_CHROMIUM_PATH;
+    process.env.PLAYWRIGHT_MCP_NO_SANDBOX = "1";
+
+    try {
+      const { createMCPManager } = await import("../../mcp/manager.js");
+
+      const addServer = vi.fn(async () => ["playwright__browser_navigate"]);
+      const getToolsAsync = vi.fn(async () => []);
+      const onToolsChanged = vi.fn();
+      const close = vi.fn(async () => {});
+      vi.mocked(createMCPManager).mockReturnValue({
+        addServer,
+        getToolsAsync,
+        onToolsChanged,
+        close,
+        serverCount: 1,
+      } as any);
+
+      const config = configSchema.parse({
+        providers: [{ id: "test", model: "m", apiKey: "k", priority: 1 }],
+        workspace: "/tmp/workspace",
+        gateway: { http: { enabled: false } },
+        infra: { enabled: false },
+        skills: { enabled: false },
+        heartbeat: { enabled: false },
+        cron: { enabled: false },
+        mcp: {
+          servers: [
+            {
+              name: "playwright",
+              command: "npx",
+              args: ["--yes", "@playwright/mcp@latest"],
+              transport: "stdio",
+              env: {},
+            },
+          ],
+          presets: [],
+          autoStart: true,
+        },
+      });
+
+      const stopGateway = await startGateway({
+        config,
+        workspace: {},
+        sessionsDir: "/tmp/sessions",
+      });
+
+      expect(addServer).toHaveBeenCalledTimes(1);
+      expect(addServer).toHaveBeenCalledWith(
+        expect.objectContaining({
+          name: "playwright",
+          args: expect.arrayContaining(["--no-sandbox"]),
+          env: expect.objectContaining({
+            PLAYWRIGHT_MCP_NO_SANDBOX: "1",
+          }),
+        })
+      );
+
+      await stopGateway();
+    } finally {
+      if (previous === undefined) {
+        delete process.env.OWLIABOT_PLAYWRIGHT_CHROMIUM_PATH;
+      } else {
+        process.env.OWLIABOT_PLAYWRIGHT_CHROMIUM_PATH = previous;
+      }
+      if (previousNoSandbox === undefined) {
+        delete process.env.PLAYWRIGHT_MCP_NO_SANDBOX;
+      } else {
+        process.env.PLAYWRIGHT_MCP_NO_SANDBOX = previousNoSandbox;
+      }
+    }
   });
 
   it("does not start gateway HTTP when disabled", async () => {

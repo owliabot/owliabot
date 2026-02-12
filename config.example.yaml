@@ -110,7 +110,7 @@ heartbeat:
 #   http:
 #     host: 127.0.0.1
 #     port: 8787
-#     token: ${GATEWAY_TOKEN}
+#     token: ${OWLIABOT_GATEWAY_TOKEN}
 #     allowlist:
 #       - "127.0.0.1"
 #       - "10.0.0.0/8"
@@ -170,7 +170,7 @@ heartbeat:
 #     maxResults: 10
 
 # MCP (Model Context Protocol) servers - optional
-# Enables external tool servers (e.g. Playwright browser automation)
+# Enable MCP servers during onboarding (owliabot onboard) or add them here manually.
 # mcp:
 #   autoStart: true              # Start MCP servers on gateway boot (default: true)
 #   presets:                     # Named presets for common servers
@@ -188,16 +188,6 @@ heartbeat:
 #     connectTimeout: 10000
 #   securityOverrides:
 #     playwright__browser_navigate:
-#       level: write
+#       level: read
 #     playwright__browser_screenshot:
 #       level: read
-
-# Wallet Tools (Clawlet integration) - optional
-# Enables wallet_balance and wallet_transfer tools for on-chain operations
-# wallet:
-#   clawlet:
-#     enabled: false                          # Set to true to enable wallet tools
-#     baseUrl: http://127.0.0.1:9100          # Clawlet daemon HTTP endpoint
-#     token: ${CLAWLET_TOKEN}                 # Auth token from clawlet (required when enabled)
-#     requestTimeout: 30000                   # Request timeout in ms (default: 30s)
-#     defaultChainId: 8453                    # Default chain ID (8453 = Base, 1 = Ethereum)

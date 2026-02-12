@@ -12,6 +12,8 @@
  */
 
 import { createLogger } from "../utils/logger.js";
+import { isInsideDocker } from "../logs/docker.js";
+import { canResolveHost } from "./resolve-host.js";
 import { EventEmitter } from "node:events";
 import { createConnection } from "node:net";
 
@@ -75,10 +77,42 @@ export interface TransferResponse {
   reason?: string;
 }
 
+/** Send raw transaction request */
+export interface SendRawRequest {
+  /** Recipient address (0x-prefixed) */
+  to: string;
+  /** Value in wei (hex or decimal string) */
+  value?: string;
+  /** Calldata (0x-prefixed) */
+  data?: string;
+  /** Chain ID */
+  chain_id: number;
+  /** Gas limit */
+  gas_limit?: number;
+}
+
+/** Send raw transaction response */
+export interface SendRawResponse {
+  /** Transaction hash */
+  tx_hash: string;
+  /** Audit event ID */
+  audit_id: string;
+}
+
 /** Health check response */
 export interface HealthResponse {
   status: "ok" | "error";
   version?: string;
+}
+
+/** Chain information returned by the Clawlet daemon */
+export interface ChainInfo {
+  /** Chain ID (e.g. 1, 8453) */
+  chain_id: number;
+  /** Human-readable chain name (e.g. "Base") */
+  name: string;
+  /** Whether this is a testnet */
+  testnet?: boolean;
 }
 
 /** Address query response */
@@ -169,9 +203,41 @@ export class ClawletError extends Error {
 // Client Implementation
 // ============================================================================
 
-const DEFAULT_BASE_URL = "http://127.0.0.1:9100";
+export const DEFAULT_BASE_URL = "http://127.0.0.1:9100";
+const DOCKER_HOST_URL = "http://host.docker.internal:9100";
+const DOCKER_BRIDGE_URL = "http://172.17.0.1:9100";
 const DEFAULT_REQUEST_TIMEOUT = 30000;
 const DEFAULT_RPC_PATH = "/rpc";
+
+
+/**
+ * Resolve the Clawlet base URL, auto-detecting Docker environment.
+ *
+ * - If the user explicitly provided a URL (any value), use it as-is.
+ * - If no URL was provided and we're inside Docker, try `host.docker.internal`,
+ *   fall back to `172.17.0.1` (Docker bridge gateway), then `127.0.0.1`.
+ * - Otherwise, fall back to `127.0.0.1`.
+ */
+export function resolveClawletBaseUrl(configBaseUrl?: string): string {
+  // User explicitly set a URL → always respect it
+  if (configBaseUrl) {
+    log.info(`Clawlet baseUrl: ${configBaseUrl} (user-configured)`);
+    return configBaseUrl;
+  }
+
+  // Auto-detect Docker with fallback chain
+  if (isInsideDocker()) {
+    if (canResolveHost("host.docker.internal")) {
+      log.info(`Clawlet baseUrl: ${DOCKER_HOST_URL} (Docker auto-detected)`);
+      return DOCKER_HOST_URL;
+    }
+    log.info(`Clawlet baseUrl: ${DOCKER_BRIDGE_URL} (Docker bridge fallback)`);
+    return DOCKER_BRIDGE_URL;
+  }
+
+  log.debug(`Clawlet baseUrl: ${DEFAULT_BASE_URL} (default)`);
+  return DEFAULT_BASE_URL;
+}
 const NEWLINE = "\n";
 
 /**
@@ -204,7 +270,7 @@ export class ClawletClient extends EventEmitter {
   constructor(config: ClawletClientConfig = {}) {
     super();
     this.config = {
-      baseUrl: config.baseUrl ?? DEFAULT_BASE_URL,
+      baseUrl: resolveClawletBaseUrl(config.baseUrl),
       socketPath: config.socketPath,
       authToken: config.authToken ?? "",
       requestTimeout: config.requestTimeout ?? DEFAULT_REQUEST_TIMEOUT,
@@ -263,6 +329,13 @@ export class ClawletClient extends EventEmitter {
   }
 
   /**
+   * List supported chains — does not require auth
+   */
+  async chains(): Promise<ChainInfo[]> {
+    return this.call<ChainInfo[]>("chains", undefined, false);
+  }
+
+  /**
    * Grant an auth token using admin password
    * Does not require existing auth token
    */
@@ -286,6 +359,15 @@ export class ClawletClient extends EventEmitter {
   async balance(query: BalanceQuery): Promise<BalanceResponse> {
     this.validateAddress(query.address);
     return this.call<BalanceResponse>("balance", [query]);
+  }
+
+  /**
+   * Send a raw transaction
+   * Requires: Trade scope token
+   */
+  async sendRaw(req: SendRawRequest): Promise<SendRawResponse> {
+    this.validateAddress(req.to);
+    return this.call<SendRawResponse>("send_raw", [req]);
   }
 
   /**
@@ -619,7 +701,7 @@ export function getClawletClient(config?: ClawletClientConfig): ClawletClient {
   } else if (config) {
     // Update config if provided
     if (config.baseUrl) {
-      globalClient.setBaseUrl(config.baseUrl);
+      globalClient.setBaseUrl(resolveClawletBaseUrl(config.baseUrl));
     }
     if (config.socketPath) {
       globalClient.setSocketPath(config.socketPath);

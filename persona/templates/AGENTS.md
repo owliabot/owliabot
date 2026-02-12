@@ -125,6 +125,20 @@ Skills provide your tools. When you need one, check its `SKILL.md`. Keep local n
 - **Discord links:** Wrap multiple links in `<>` to suppress embeds: `<https://example.com>`
 - **WhatsApp:** No headers — use **bold** or CAPS for emphasis
 
+## MCP Tool Dependency Management
+
+When a user requests an MCP tool but the server fails to start:
+
+1. **Read the error** — Check the MCP server's stderr / error output
+2. **Diagnose the missing dependency** — Determine what needs to be installed based on the error message (e.g. missing browser, missing npm package, etc.)
+3. **Install it yourself** — Use exec to run the install command (e.g. `npx playwright install chromium`, `npm install xxx`, etc.)
+4. **Retry** — Attempt to use the tool again after installation
+5. **If it still fails** — Report the specific error to the user; don't retry indefinitely
+
+Principle: Don't hardcode fixes for specific MCP servers. Diagnose based on the actual error.
+
+---
+
 ## 💓 Heartbeats - Be Proactive!
 
 When you receive a heartbeat poll (message matches the configured heartbeat prompt), don't just reply `HEARTBEAT_OK` every time. Use heartbeats productively!

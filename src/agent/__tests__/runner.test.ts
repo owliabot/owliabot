@@ -54,7 +54,9 @@ vi.mock("../models.js", () => {
     };
   });
 
-  return { resolveModel };
+  const getContextWindow = vi.fn(() => 200_000);
+
+  return { resolveModel, getContextWindow };
 });
 vi.mock("../../utils/logger.js", () => ({
   createLogger: () => ({
@@ -147,6 +149,60 @@ describe("runner", () => {
       expect(result.toolCalls).toHaveLength(1);
       expect(result.toolCalls![0].name).toBe("echo");
       expect(result.toolCalls![0].id).toBe("call_123");
+    });
+
+    it("should retry on context overflow error", async () => {
+      const successResponse = {
+        role: "assistant" as const,
+        content: [{ type: "text" as const, text: "Success after retry" }],
+        api: "anthropic-messages" as const,
+        provider: "anthropic",
+        model: "claude-sonnet-4-5",
+        usage: {
+          input: 100,
+          output: 50,
+          cacheRead: 0,
+          cacheWrite: 0,
+          totalTokens: 150,
+          cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+        },
+        stopReason: "stop" as const,
+        timestamp: Date.now(),
+      };
+
+      vi.mocked(piAi.getEnvApiKey).mockReturnValue("test-key");
+      // First call fails with context overflow, second succeeds
+      vi.mocked(piAi.completeSimple)
+        .mockRejectedValueOnce(new Error("prompt is too long"))
+        .mockResolvedValueOnce(successResponse as any);
+
+      const messages = [
+        { role: "user" as const, content: "x".repeat(200_000), timestamp: Date.now() },
+      ];
+
+      const result = await runLLM({ model: "sonnet" }, messages);
+
+      expect(result.content).toBe("Success after retry");
+      expect(piAi.completeSimple).toHaveBeenCalledTimes(2);
+    });
+
+    it("should fail after max retries on persistent overflow", async () => {
+      vi.mocked(piAi.getEnvApiKey).mockReturnValue("test-key");
+      // Always fail with overflow
+      vi.mocked(piAi.completeSimple).mockRejectedValue(
+        new Error("context_length_exceeded")
+      );
+
+      const messages = [
+        { role: "user" as const, content: "x".repeat(500_000), timestamp: Date.now() },
+      ];
+
+      await expect(runLLM({ model: "sonnet" }, messages)).rejects.toThrow(
+        "context_length_exceeded"
+      );
+
+      // Should try: initial + 2 retries = 3 total
+      expect(piAi.completeSimple).toHaveBeenCalledTimes(3);
     });
 
     it("should handle truncated responses", async () => {
