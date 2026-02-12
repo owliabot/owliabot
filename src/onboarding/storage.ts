@@ -1,7 +1,7 @@
 import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { parse, stringify } from "yaml";
-import type { AppConfig } from "./types.js";
+import type { Config as AppConfig } from "../config/schema.js";
 import { ensureOwliabotHomeEnv, resolveHomeDir } from "../utils/paths.js";
 
 const HOME = resolveHomeDir();

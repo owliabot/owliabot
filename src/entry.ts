@@ -20,8 +20,7 @@ import {
   getAllOAuthStatus,
   type SupportedOAuthProvider,
 } from "./auth/oauth.js";
-import { runOnboarding } from "./onboarding/onboard.js";
-import { DEV_APP_CONFIG_PATH } from "./onboarding/storage.js";
+import { runGoOnboarding } from "./onboarding/go-runner.js";
 import type { Config } from "./config/schema.js";
 import { defaultConfigPath, ensureOwliabotHomeEnv, resolvePathLike } from "./utils/paths.js";
 import { createDefaultDoctorIO, runDoctorCli } from "./doctor/cli.js";
@@ -226,16 +225,20 @@ program
 
 program
   .command("onboard")
-  .description("Interactive onboarding: configure providers, channels, and generate config files")
-  .option("--path <path>", "App config output path (dev mode)", DEV_APP_CONFIG_PATH)
-  .option("--docker", "Docker-aware mode: generates docker-compose.yml and full secrets")
-  .option("--output-dir <path>", "Output directory for docker-compose.yml", ".")
+  .description("Launch the Go onboarding wizard")
+  .option("--docker", "Deprecated: Go onboarding is Docker-first by default")
+  .option("--path <path>", "Deprecated: use --config-dir instead")
+  .option("--config-dir <path>", "Config directory (default: ~/.owliabot)")
+  .option("--output-dir <path>", "Output directory for docker-compose.yml")
+  .option("--image <ref>", "OwliaBot Docker image reference")
+  .option("--channel <channel>", "Onboard binary channel: stable|preview")
   .action(async (options) => {
     try {
-      await runOnboarding({
-        docker: options.docker,
-        appConfigPath: options.path,
+      await runGoOnboarding({
+        configDir: options.configDir,
         outputDir: options.outputDir,
+        image: options.image,
+        channel: options.channel,
       });
     } catch (err) {
       log.error("Onboarding failed", err);

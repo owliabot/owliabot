@@ -110,10 +110,10 @@ export function adaptToolForAgent(
             executionPromise,
             new Promise<never>((_, reject) => {
               if (signal.aborted) {
-                reject(new DOMException("Tool execution aborted", "AbortError"));
+                reject(new Error("Tool execution aborted"));
               } else {
                 signal.addEventListener("abort", () => {
-                  reject(new DOMException("Tool execution aborted", "AbortError"));
+                  reject(new Error("Tool execution aborted"));
                 }, { once: true });
               }
             }),
