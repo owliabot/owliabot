@@ -1,7 +1,7 @@
 ---
 name: clawlet-wallet-connect
 description: Guide the user through installing Clawlet wallet daemon and connecting it to OwliaBot.
-version: 1.1.0
+version: 1.2.0
 ---
 
 # Wallet Connect (Clawlet)
@@ -78,36 +78,16 @@ Clawlet is a secure local wallet daemon that keeps private keys isolated from Ow
 
 The install script handles everything — install, init, and start — in one command. If Clawlet is already installed, it detects the existing installation and starts the daemon.
 
-Tell the user to run this single command (downloads, installs, and starts the daemon):
+Tell the user to run:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/owliabot/clawlet/main/scripts/install.sh -o /tmp/clawlet-install.sh && sudo bash /tmp/clawlet-install.sh --isolated && sudo -H -u clawlet /usr/local/bin/clawlet start --agent owliabot --daemon
+curl -fsSL https://raw.githubusercontent.com/owliabot/clawlet/main/scripts/install.sh | sudo bash -s -- --isolated
 ```
-
-> **Why download first?** The script is saved to `/tmp/` before execution — this avoids piping directly to `sudo bash`, which is safer and allows inspection before running.
->
-> **Note:** Paths match `install.sh` defaults: `CLAWLET_USER="clawlet"`, `BINARY_PATH="/usr/local/bin/clawlet"`（`DEFAULT_PREFIX="/usr/local"`）. If you used `--prefix` to customize the install path, adjust accordingly.
 
 After the script finishes, verify with the `exec` tool:
 
 ```bash
 clawlet --version
-```
-
-The install + start sequence will output useful commands at the end:
-
-```
-Useful commands:
-
-  # View logs:
-  sudo tail -f /home/clawlet/.clawlet/clawlet.log   # Linux
-  sudo tail -f /var/clawlet/.clawlet/clawlet.log     # macOS
-
-  # Stop daemon:
-  sudo -H -u clawlet clawlet stop
-
-  # Clear sudo cache (security best practice):
-  sudo -k
 ```
 
 The script walks through an interactive flow:
@@ -130,41 +110,39 @@ If "Create new wallet" is chosen, a 24-word mnemonic is shown on a secure altern
 
 If a keystore already exists, the user just enters the existing password to unlock.
 
-#### Token output
+#### Auto-connect
 
-After init, the command prints a token like:
+The install script automatically detects a running OwliaBot instance and connects to it. After the script completes, you should see:
 
 ```
-🎫 Token for "owliabot" (scope: read,trade, expires: 2027-02-11)
-   clwt_xxxxx
+✓ Connected to OwliaBot
+  Address: 0x1234...5678
+  Balance: 0.52 ETH
+  Scope:   trade
+  Tools:   wallet_balance, wallet_transfer, wallet_send_tx
 ```
 
-**Ask the user to copy and share the token** — it's needed in the next step.
+No manual token pasting is needed — the script handles token generation and connection in one step.
 
-## Step 4 — Connect to OwliaBot
+## Step 4 — Verify Connection
 
-Based on the running mode detected in Step 2, connect Clawlet to OwliaBot.
+After the install script completes, verify the connection is working:
 
-### Option A: Use `clawlet connect` (preferred)
+```bash
+clawlet status
+```
 
-The `clawlet connect` command handles the full connection flow — it detects OwliaBot, generates a token, and connects automatically. The user just needs to enter their wallet password when prompted.
-
-If the `exec` tool is available, run it directly:
+If auto-connect failed (e.g. OwliaBot was not running during install), run:
 
 ```bash
 clawlet connect --agent owliabot
 ```
 
-This will:
-1. Detect the running OwliaBot instance (gateway HTTP endpoint)
-2. Prompt the user for their wallet password
-3. Generate an auth token and send it to OwliaBot automatically
+This will detect OwliaBot, generate a token, and connect automatically. The user just enters their wallet password when prompted.
 
-If the `exec` tool is not available, provide the command above for the user to run in their terminal.
+### Fallback: Manual connect
 
-### Option B: Manual `wallet connect` (fallback)
-
-If `clawlet connect` is not available or fails, fall back to the manual flow using the token from Step 3.
+If `clawlet connect` also fails, use the manual flow with the token printed during install:
 
 **Docker mode:**
 ```bash
@@ -175,20 +153,6 @@ docker exec -it owliabot owliabot wallet connect --token clwt_xxxxx
 ```bash
 npx owliabot wallet connect --token clwt_xxxxx
 ```
-
-### Success output
-
-On success the user should see:
-
-```
-Wallet connected successfully!
-  Address: 0x1234...5678
-  Balance: 0.52 ETH
-  Scope:   trade
-  Tools:   wallet_balance, wallet_transfer, wallet_send_tx
-```
-
-Confirm the connection by showing the address and available tools.
 
 ## Important Notes
 
