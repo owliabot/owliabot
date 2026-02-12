@@ -540,6 +540,11 @@ func (w *wizardSession) askInputLineBuffered(title, question string, defaultValu
 			w.errorText = ""
 			return defaultValue, nil
 		}
+		// Check for back/esc keywords
+		lower := strings.ToLower(raw)
+		if lower == "esc" || lower == "back" {
+			return "", errBackRequested
+		}
 		w.errorText = ""
 		return raw, nil
 	}

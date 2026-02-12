@@ -178,6 +178,9 @@ func (w *wizardSession) runWizard(opts cliOptions) (Answers, error) {
 						[]string{"Model selection uses quick options. Choose Custom for manual input."},
 					)
 					if modelErr != nil {
+						if errors.Is(modelErr, errBackRequested) {
+							continue
+						}
 						if target, jump := asStepJumpRequested(modelErr); jump {
 							stage = clamp(0, target, maxSetupStage)
 							continue
@@ -213,6 +216,9 @@ func (w *wizardSession) runWizard(opts cliOptions) (Answers, error) {
 						[]string{"Model selection uses quick options. Choose Custom for manual input."},
 					)
 					if modelErr != nil {
+						if errors.Is(modelErr, errBackRequested) {
+							continue
+						}
 						if target, jump := asStepJumpRequested(modelErr); jump {
 							stage = clamp(0, target, maxSetupStage)
 							continue
@@ -231,6 +237,9 @@ func (w *wizardSession) runWizard(opts cliOptions) (Answers, error) {
 						[]string{"Model selection uses quick options. Choose Custom for manual input."},
 					)
 					if modelErr != nil {
+						if errors.Is(modelErr, errBackRequested) {
+							continue
+						}
 						if target, jump := asStepJumpRequested(modelErr); jump {
 							stage = clamp(0, target, maxSetupStage)
 							continue
@@ -291,6 +300,9 @@ func (w *wizardSession) runWizard(opts cliOptions) (Answers, error) {
 						[]string{"Model selection uses quick options. Choose Custom for manual input."},
 					)
 					if modelErr != nil {
+						if errors.Is(modelErr, errBackRequested) {
+							continue
+						}
 						if target, jump := asStepJumpRequested(modelErr); jump {
 							stage = clamp(0, target, maxSetupStage)
 							continue
@@ -408,16 +420,84 @@ func (w *wizardSession) runWizard(opts cliOptions) (Answers, error) {
 						answers.TelegramToken = telegramToken
 					}
 				}
+
+				// Allowlist configuration prompts
+				if hasDiscord(answers.ChannelChoice) {
+					discordChannelList, chListErr := w.askInput("Channels", "Discord channel IDs to allow (comma-separated, blank for all)", strings.Join(answers.DiscordChannelAllowList, ","), []string{"Leave blank to allow all channels."})
+					if chListErr != nil {
+						if target, jump := asStepJumpRequested(chListErr); jump {
+							stage = clamp(0, target, maxSetupStage)
+							continue
+						}
+						return Answers{}, chListErr
+					}
+					if strings.TrimSpace(discordChannelList) != "" {
+						answers.DiscordChannelAllowList = strings.Split(discordChannelList, ",")
+					} else {
+						answers.DiscordChannelAllowList = nil
+					}
+
+					discordMemberList, memListErr := w.askInput("Channels", "Discord member IDs to allow (comma-separated, blank for all)", strings.Join(answers.DiscordMemberAllowList, ","), []string{"Leave blank to allow all members."})
+					if memListErr != nil {
+						if target, jump := asStepJumpRequested(memListErr); jump {
+							stage = clamp(0, target, maxSetupStage)
+							continue
+						}
+						return Answers{}, memListErr
+					}
+					if strings.TrimSpace(discordMemberList) != "" {
+						answers.DiscordMemberAllowList = strings.Split(discordMemberList, ",")
+					} else {
+						answers.DiscordMemberAllowList = nil
+					}
+				}
+
+				if hasTelegram(answers.ChannelChoice) {
+					telegramList, tgListErr := w.askInput("Channels", "Telegram user allowlist (comma-separated, blank for all)", strings.Join(answers.TelegramAllowList, ","), []string{"Leave blank to allow all users."})
+					if tgListErr != nil {
+						if target, jump := asStepJumpRequested(tgListErr); jump {
+							stage = clamp(0, target, maxSetupStage)
+							continue
+						}
+						return Answers{}, tgListErr
+					}
+					if strings.TrimSpace(telegramList) != "" {
+						answers.TelegramAllowList = strings.Split(telegramList, ",")
+					} else {
+						answers.TelegramAllowList = nil
+					}
+				}
+
+				// Write tools prompt
+				writeToolsChoice, wtErr := w.askOption(
+					"Channels",
+					"Enable write tools for allowed users?",
+					[]string{"No", "Yes"},
+					0,
+					[]string{"Write tools include file operations like mkdir, rm, etc."},
+				)
+				if wtErr != nil {
+					if target, jump := asStepJumpRequested(wtErr); jump {
+						stage = clamp(0, target, maxSetupStage)
+						continue
+					}
+					return Answers{}, wtErr
+				}
+				answers.EnableWriteToolsForAllowlist = (writeToolsChoice == 1)
+			} else {
+				// If channels were reused, only clear allowlists when fresh setup (!reuseExisting)
+				if !reuseExisting {
+					answers.DiscordChannelAllowList = nil
+					answers.DiscordMemberAllowList = nil
+					answers.TelegramAllowList = nil
+					answers.AdditionalWriteToolAllowList = nil
+					answers.EnableWriteToolsForAllowlist = false
+				}
 			}
 			w.conversation = append(w.conversation, fmt.Sprintf("Assistant: Channels set to `%s`.", answers.ChannelChoice))
 			if reuseExisting && existing != nil && strings.TrimSpace(existing.GatewayToken) != "" {
 				answers.GatewayToken = existing.GatewayToken
 			}
-			answers.DiscordChannelAllowList = nil
-			answers.DiscordMemberAllowList = nil
-			answers.TelegramAllowList = nil
-			answers.AdditionalWriteToolAllowList = nil
-			answers.EnableWriteToolsForAllowlist = false
 			stage = 3
 
 		case 3:
@@ -477,6 +557,35 @@ func (w *wizardSession) runWizard(opts cliOptions) (Answers, error) {
 
 		case 4:
 			w.stepIndex = 4
+			// Advanced settings prompts
+			gatewayPort, portErr := w.askInput("Review", "Gateway port", answers.GatewayPort, []string{"Default: 8787. Gateway HTTP server port."})
+			if portErr != nil {
+				if errors.Is(portErr, errBackRequested) {
+					stage = 3
+					continue
+				}
+				if target, jump := asStepJumpRequested(portErr); jump {
+					stage = clamp(0, target, maxSetupStage)
+					continue
+				}
+				return Answers{}, portErr
+			}
+			answers.GatewayPort = gatewayPort
+
+			timezone, tzErr := w.askInput("Review", "Timezone", answers.Timezone, []string{"Default: UTC. Container timezone (e.g., America/New_York)."})
+			if tzErr != nil {
+				if errors.Is(tzErr, errBackRequested) {
+					stage = 3
+					continue
+				}
+				if target, jump := asStepJumpRequested(tzErr); jump {
+					stage = clamp(0, target, maxSetupStage)
+					continue
+				}
+				return Answers{}, tzErr
+			}
+			answers.Timezone = timezone
+
 			reviewLines := summarizeReview(answers, configDir, outputDir)
 			confirm, confirmErr := w.askOption(
 				"Review",

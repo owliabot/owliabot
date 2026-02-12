@@ -233,6 +233,9 @@ program
   .option("--image <ref>", "OwliaBot Docker image reference")
   .option("--channel <channel>", "Onboard binary channel: stable|preview")
   .action(async (options) => {
+    if (options.docker) {
+      console.warn("Warning: --docker is deprecated. Go onboarding is Docker-first by default.");
+    }
     try {
       await runGoOnboarding({
         configDir: options.configDir,

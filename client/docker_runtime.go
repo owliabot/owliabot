@@ -501,12 +501,20 @@ func splitDockerProgressLines(data []byte, atEOF bool) (advance int, token []byt
 }
 
 func startDockerCompose(outputDir, imageRef string) error {
+	// Try docker compose (V2) first
 	cmd := exec.Command("docker", "compose", "up", "-d")
 	cmd.Dir = outputDir
 	cmd.Env = append(os.Environ(), "OWLIABOT_IMAGE="+imageRef)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("docker compose up failed: %s", firstLine(string(out)))
+		// Fall back to docker-compose (V1)
+		cmd = exec.Command("docker-compose", "up", "-d")
+		cmd.Dir = outputDir
+		cmd.Env = append(os.Environ(), "OWLIABOT_IMAGE="+imageRef)
+		out, err = cmd.CombinedOutput()
+		if err != nil {
+			return fmt.Errorf("docker compose up failed: %s", firstLine(string(out)))
+		}
 	}
 	return nil
 }

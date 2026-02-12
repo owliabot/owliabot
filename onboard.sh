@@ -125,8 +125,26 @@ main() {
   binary_path="${tmp_dir}/${binary_name}"
 
   echo "onboard.sh: downloading ${binary_name} from ${release_tag}..."
-  curl -fsSL "$binary_url" -o "$binary_path"
-  chmod +x "$binary_path"
+  
+  # Try gh release download first (if gh is available and authenticated), fall back to curl
+  if command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; then
+    echo "onboard.sh: using gh CLI for authenticated download..." >&2
+    if gh release download "$release_tag" -p "$binary_name" -D "$tmp_dir" -R "$REPO" 2>/dev/null; then
+      chmod +x "$binary_path"
+      # Also download manifest using gh
+      local manifest_file="${tmp_dir}/onboard-manifest.json"
+      if gh release download "$release_tag" -p "onboard-manifest.json" -D "$tmp_dir" -R "$REPO" 2>/dev/null; then
+        manifest_url="$manifest_file"
+      fi
+    else
+      echo "onboard.sh: gh download failed, falling back to curl..." >&2
+      curl -fsSL "$binary_url" -o "$binary_path"
+      chmod +x "$binary_path"
+    fi
+  else
+    curl -fsSL "$binary_url" -o "$binary_path"
+    chmod +x "$binary_path"
+  fi
 
   verify_checksum_if_possible "$binary_path" "$manifest_url" "$runtime_key"
 

@@ -39,9 +39,14 @@ func TestRunWizardDiscordSelectionWithoutExistingConfig(t *testing.T) {
 	// 2) Provider -> Skip now
 	// 3) Channels -> Discord
 	// 4) Discord token -> blank
-	// 5) MCP -> Done
-	// 6) Review -> Start initialization
-	input := strings.NewReader("1\n6\n1\n\n2\n1\n")
+	// 5) Discord channel allowlist -> blank
+	// 6) Discord member allowlist -> blank
+	// 7) Write tools -> No (option 1)
+	// 8) MCP -> Done (option 2)
+	// 9) Gateway port -> blank (default)
+	// 10) Timezone -> blank (default)
+	// 11) Review -> Start initialization (option 1)
+	input := strings.NewReader("1\n6\n1\n\n\n\n1\n2\n\n\n1\n")
 	w := &wizardSession{
 		input:        nil,
 		ownsInput:    false,
@@ -97,8 +102,10 @@ func TestRunWizardCancelAtReviewReturnsWizardCancelledError(t *testing.T) {
 	// 2) Provider -> Skip now
 	// 3) Channels -> Skip now
 	// 4) MCP -> Done
-	// 5) Review -> Cancel
-	input := strings.NewReader("1\n6\n4\n2\n2\n")
+	// 5) Gateway port -> blank (default)
+	// 6) Timezone -> blank (default)
+	// 7) Review -> Cancel
+	input := strings.NewReader("1\n6\n4\n2\n\n\n2\n")
 	w := &wizardSession{
 		input:        nil,
 		ownsInput:    false,

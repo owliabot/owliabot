@@ -698,6 +698,20 @@ func (w *wizardSession) runSpinner(title string, highlights []string, action fun
 	}
 }
 
+func backupFileIfExists(path string) error {
+	if _, err := os.Stat(path); err == nil {
+		backupPath := path + ".bak"
+		input, err := os.ReadFile(path)
+		if err != nil {
+			return fmt.Errorf("failed to read %s for backup: %w", path, err)
+		}
+		if err := os.WriteFile(backupPath, input, 0o644); err != nil {
+			return fmt.Errorf("failed to write backup %s: %w", backupPath, err)
+		}
+	}
+	return nil
+}
+
 func applyAnswers(a Answers, opts cliOptions) (applyResult, error) {
 	configDir := expandHome(strings.TrimSpace(opts.ConfigDir))
 	outputDir := expandHome(strings.TrimSpace(opts.OutputDir))
@@ -735,14 +749,23 @@ func applyAnswers(a Answers, opts cliOptions) (applyResult, error) {
 	}
 
 	appPath := filepath.Join(configDir, "app.yaml")
+	if err := backupFileIfExists(appPath); err != nil {
+		return applyResult{}, err
+	}
 	if err := os.WriteFile(appPath, []byte(appYAML), 0o644); err != nil {
 		return applyResult{}, err
 	}
 	secretsPath := filepath.Join(configDir, "secrets.yaml")
+	if err := backupFileIfExists(secretsPath); err != nil {
+		return applyResult{}, err
+	}
 	if err := os.WriteFile(secretsPath, []byte(secretsYAML), 0o600); err != nil {
 		return applyResult{}, err
 	}
 	composePath := filepath.Join(outputDir, "docker-compose.yml")
+	if err := backupFileIfExists(composePath); err != nil {
+		return applyResult{}, err
+	}
 	if err := os.WriteFile(composePath, []byte(composeYAML), 0o644); err != nil {
 		return applyResult{}, err
 	}
@@ -765,6 +788,7 @@ func reuseProviders(existing *ExistingConfig, answers *Answers) bool {
 	useAnthropic := existing.AnthropicAPIKey != "" || existing.AnthropicToken != "" || existing.HasOAuthAnthropic
 	useOpenAI := existing.OpenAIKey != ""
 	useCodex := existing.HasOAuthCodex
+	useCompatible := existing.OpenAICompatibleKey != ""
 
 	count := 0
 	if useAnthropic {
@@ -774,6 +798,9 @@ func reuseProviders(existing *ExistingConfig, answers *Answers) bool {
 		count++
 	}
 	if useCodex {
+		count++
+	}
+	if useCompatible {
 		count++
 	}
 	if count == 0 {
@@ -789,6 +816,8 @@ func reuseProviders(existing *ExistingConfig, answers *Answers) bool {
 		answers.ProviderChoice = "openai"
 	case useCodex:
 		answers.ProviderChoice = "openai-codex"
+	case useCompatible:
+		answers.ProviderChoice = "openai-compatible"
 	}
 
 	if existing.AnthropicToken != "" {
@@ -798,6 +827,10 @@ func reuseProviders(existing *ExistingConfig, answers *Answers) bool {
 	}
 	if existing.OpenAIKey != "" {
 		answers.OpenAIKey = existing.OpenAIKey
+	}
+	if existing.OpenAICompatibleKey != "" {
+		answers.OpenAICompatibleKey = existing.OpenAICompatibleKey
+		// TODO: Parse OpenAICompatibleBaseURL from app.yaml
 	}
 	return true
 }
@@ -999,7 +1032,7 @@ func parseCSV(v string) []string {
 func randomHex(n int) string {
 	b := make([]byte, n)
 	if _, err := rand.Read(b); err != nil {
-		return "0123456789abcdef0123456789abcdef"
+		panic("crypto/rand failed")
 	}
 	return hex.EncodeToString(b)
 }
@@ -1118,6 +1151,8 @@ func recommendedProviderFromIndex(index int) string {
 	switch index {
 	case 0:
 		return "anthropic"
+	case 1:
+		return "openai"
 	case 2:
 		return "openai-codex"
 	case 3:

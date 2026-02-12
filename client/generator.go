@@ -465,17 +465,17 @@ func cloneSlice(values []string) []string {
 
 func RenderAppYAML(cfg AppConfig) string {
 	var b strings.Builder
-	b.WriteString("workspace: " + cfg.Workspace + "\n")
+	b.WriteString("workspace: " + quoteYAMLScalar(cfg.Workspace) + "\n")
 	if cfg.Timezone != "" {
-		b.WriteString("timezone: " + cfg.Timezone + "\n")
+		b.WriteString("timezone: " + quoteYAMLScalar(cfg.Timezone) + "\n")
 	}
 
 	b.WriteString("providers:\n")
 	for _, p := range cfg.Providers {
 		b.WriteString("  - id: " + p.ID + "\n")
-		b.WriteString("    model: " + p.Model + "\n")
+		b.WriteString("    model: " + quoteYAMLScalar(p.Model) + "\n")
 		if p.BaseURL != "" {
-			b.WriteString("    baseUrl: " + p.BaseURL + "\n")
+			b.WriteString("    baseUrl: " + quoteYAMLScalar(p.BaseURL) + "\n")
 		}
 		b.WriteString("    apiKey: " + p.APIKey + "\n")
 		b.WriteString(fmt.Sprintf("    priority: %d\n", p.Priority))
@@ -487,13 +487,13 @@ func RenderAppYAML(cfg AppConfig) string {
 		if len(cfg.Discord.ChannelAllowList) > 0 {
 			b.WriteString("  channelAllowList:\n")
 			for _, v := range cfg.Discord.ChannelAllowList {
-				b.WriteString("    - \"" + v + "\"\n")
+				b.WriteString("    - " + quoteYAMLScalar(v) + "\n")
 			}
 		}
 		if len(cfg.Discord.MemberAllowList) > 0 {
 			b.WriteString("  memberAllowList:\n")
 			for _, v := range cfg.Discord.MemberAllowList {
-				b.WriteString("    - \"" + v + "\"\n")
+				b.WriteString("    - " + quoteYAMLScalar(v) + "\n")
 			}
 		}
 	}
@@ -503,7 +503,7 @@ func RenderAppYAML(cfg AppConfig) string {
 		if len(cfg.Telegram.AllowList) > 0 {
 			b.WriteString("  allowList:\n")
 			for _, v := range cfg.Telegram.AllowList {
-				b.WriteString("    - \"" + v + "\"\n")
+				b.WriteString("    - " + quoteYAMLScalar(v) + "\n")
 			}
 		}
 	}
@@ -514,7 +514,7 @@ func RenderAppYAML(cfg AppConfig) string {
 		b.WriteString("    host: " + cfg.Gateway.HTTP.Host + "\n")
 		b.WriteString(fmt.Sprintf("    port: %d\n", cfg.Gateway.HTTP.Port))
 		if cfg.Gateway.HTTP.Token != "" {
-			b.WriteString("    token: " + cfg.Gateway.HTTP.Token + "\n")
+			b.WriteString("    token: " + quoteYAMLScalar(cfg.Gateway.HTTP.Token) + "\n")
 		}
 	}
 
@@ -523,7 +523,7 @@ func RenderAppYAML(cfg AppConfig) string {
 	b.WriteString("  provider: " + cfg.MemorySearch.Provider + "\n")
 	b.WriteString("  fallback: " + cfg.MemorySearch.Fallback + "\n")
 	b.WriteString("  store:\n")
-	b.WriteString("    path: " + cfg.MemorySearch.Store.Path + "\n")
+	b.WriteString("    path: " + quoteYAMLScalar(cfg.MemorySearch.Store.Path) + "\n")
 	b.WriteString("  extraPaths: []\n")
 	b.WriteString("  sources:\n")
 	for _, src := range cfg.MemorySearch.Sources {
@@ -578,7 +578,7 @@ func RenderAppYAML(cfg AppConfig) string {
 		b.WriteString(fmt.Sprintf("  writeGateEnabled: %t\n", cfg.Security.WriteGateEnabled))
 		b.WriteString("  writeToolAllowList:\n")
 		for _, v := range cfg.Security.WriteToolAllowList {
-			b.WriteString("    - \"" + v + "\"\n")
+			b.WriteString("    - " + quoteYAMLScalar(v) + "\n")
 		}
 		b.WriteString(fmt.Sprintf("  writeToolConfirmation: %t\n", cfg.Security.WriteToolConfirmation))
 		if cfg.Security.WriteToolConfirmationTimeout > 0 {
@@ -594,31 +594,31 @@ func RenderSecretsYAML(sec SecretsConfig) string {
 	if sec.Anthropic != nil {
 		b.WriteString("anthropic:\n")
 		if sec.Anthropic.APIKey != "" {
-			b.WriteString("  apiKey: \"" + sec.Anthropic.APIKey + "\"\n")
+			b.WriteString("  apiKey: " + quoteYAMLScalar(sec.Anthropic.APIKey) + "\n")
 		}
 		if sec.Anthropic.Token != "" {
-			b.WriteString("  token: \"" + sec.Anthropic.Token + "\"\n")
+			b.WriteString("  token: " + quoteYAMLScalar(sec.Anthropic.Token) + "\n")
 		}
 	}
 	if sec.OpenAI != nil && sec.OpenAI.APIKey != "" {
 		b.WriteString("openai:\n")
-		b.WriteString("  apiKey: \"" + sec.OpenAI.APIKey + "\"\n")
+		b.WriteString("  apiKey: " + quoteYAMLScalar(sec.OpenAI.APIKey) + "\n")
 	}
 	if sec.OpenAICompatible != nil && sec.OpenAICompatible.APIKey != "" {
 		b.WriteString("openai-compatible:\n")
-		b.WriteString("  apiKey: \"" + sec.OpenAICompatible.APIKey + "\"\n")
+		b.WriteString("  apiKey: " + quoteYAMLScalar(sec.OpenAICompatible.APIKey) + "\n")
 	}
 	if sec.Discord != nil && sec.Discord.Token != "" {
 		b.WriteString("discord:\n")
-		b.WriteString("  token: \"" + sec.Discord.Token + "\"\n")
+		b.WriteString("  token: " + quoteYAMLScalar(sec.Discord.Token) + "\n")
 	}
 	if sec.Telegram != nil && sec.Telegram.Token != "" {
 		b.WriteString("telegram:\n")
-		b.WriteString("  token: \"" + sec.Telegram.Token + "\"\n")
+		b.WriteString("  token: " + quoteYAMLScalar(sec.Telegram.Token) + "\n")
 	}
 	if sec.Gateway != nil && sec.Gateway.Token != "" {
 		b.WriteString("gateway:\n")
-		b.WriteString("  token: \"" + sec.Gateway.Token + "\"\n")
+		b.WriteString("  token: " + quoteYAMLScalar(sec.Gateway.Token) + "\n")
 	}
 	if b.Len() == 0 {
 		return "{}\n"
