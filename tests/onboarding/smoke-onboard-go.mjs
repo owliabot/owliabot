@@ -45,6 +45,7 @@ async function main() {
   let transcript = "";
   let plainTranscript = "";
   let reachedStepTwo = false;
+  let usedDockerExitFallback = false;
   let lastConfirmAt = 0;
   let timedOut = false;
   let exitCode = 1;
@@ -79,8 +80,12 @@ async function main() {
         const now = Date.now();
         if (now-lastConfirmAt >= 700) {
           // Step 1 can appear multiple times (for example Docker preflight retries on CI runners).
-          // Always pick the first option to keep smoke flow moving toward Step 2.
-          child.stdin.write("1\r\n");
+          // Prefer progressing toward Step 2, but fall back to graceful exit when Docker is unavailable.
+          const response = shouldExitWhenDockerUnavailable(plainTranscript) ? "3" : "1";
+          if (response === "3") {
+            usedDockerExitFallback = true;
+          }
+          child.stdin.write(`${response}\r\n`);
           lastConfirmAt = now;
         }
       }
@@ -113,6 +118,11 @@ async function main() {
     return 0;
   }
 
+  if (usedDockerExitFallback && exitCode === 0) {
+    console.log("onboard-go smoke passed (docker unavailable graceful-exit path)");
+    return 0;
+  }
+
   const tail = plainTranscript.slice(-4000);
   console.error("onboard-go smoke failed: did not reach Step 2");
   if (timedOut) {
@@ -135,4 +145,15 @@ function normalizeTerminalText(value) {
   // Normalize carriage-return updates into plain stream text.
   output = output.replace(/\r/g, "");
   return output;
+}
+
+function shouldExitWhenDockerUnavailable(text) {
+  const hasExitOption = /\bExit onboarding\b/i.test(text);
+  const needsDockerPrompt = /Docker is required for initialization/i.test(text) ||
+    /Docker is installed, but the Docker engine is not running/i.test(text);
+  const dockerUnavailable = /Docker CLI:\s*not installed/i.test(text) ||
+    /Docker check:\s*Docker CLI not found/i.test(text) ||
+    /Docker engine is not running/i.test(text) ||
+    /Docker check:\s*.*(daemon|not running|not reachable)/i.test(text);
+  return hasExitOption && (needsDockerPrompt || dockerUnavailable);
 }
