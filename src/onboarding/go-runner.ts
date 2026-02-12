@@ -1,4 +1,3 @@
-import { existsSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { constants as fsConstants } from "node:fs";
 import { access, chmod, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
@@ -33,9 +32,7 @@ export interface OnboardBinaryManifest {
 }
 
 interface ResolveCommandOptions {
-  platform: NodeJS.Platform;
   rootDir: string;
-  scriptExists: boolean;
 }
 
 interface ResolveBinaryCommandOptions {
@@ -56,7 +53,6 @@ interface RunnerDeps {
   platform: NodeJS.Platform;
   arch: string;
   rootDir: string;
-  scriptExists: boolean;
   resolveBinaryCommand: (
     options: ResolveBinaryCommandOptions,
     deps: ResolveBinaryDeps,
@@ -90,15 +86,9 @@ export function buildGoOnboardArgs(options: GoOnboardOptions): string[] {
 }
 
 export function resolveGoOnboardCommand(options: ResolveCommandOptions): ResolvedGoOnboardCommand {
-  if (options.platform !== "win32" && options.scriptExists) {
-    return {
-      cmd: "bash",
-      args: [join(options.rootDir, "scripts", "onboard-go.sh")],
-    };
-  }
   return {
     cmd: "go",
-    args: ["run", "./go-onboard"],
+    args: ["-C", join(options.rootDir, "go-onboard"), "run", "."],
   };
 }
 
@@ -308,13 +298,11 @@ function canUseGoToolchain(): boolean {
 
 function defaultDeps(): RunnerDeps {
   const rootDir = defaultRootDir();
-  const scriptPath = join(rootDir, "scripts", "onboard-go.sh");
   return {
     spawn: nodeSpawn,
     platform: process.platform,
     arch: process.arch,
     rootDir,
-    scriptExists: existsSync(scriptPath),
     resolveBinaryCommand: resolveOnboardBinaryCommand,
     fetchImpl: fetch,
     repository: process.env.OWLIABOT_ONBOARD_REPOSITORY,
@@ -359,9 +347,7 @@ export async function runGoOnboarding(
       );
     }
     resolved = resolveGoOnboardCommand({
-      platform: deps.platform,
       rootDir: deps.rootDir,
-      scriptExists: deps.scriptExists,
     });
   }
 
