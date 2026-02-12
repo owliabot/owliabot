@@ -71,13 +71,7 @@ git clone https://github.com/owliabot/owliabot.git
 cd owliabot
 bun install
 bun run build
-node dist/entry.js onboard
-```
-
-Use preview onboard binaries when testing `develop` changes:
-
-```bash
-node dist/entry.js onboard --channel preview
+bun run onboard:preview
 ```
 
 ---
