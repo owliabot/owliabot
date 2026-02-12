@@ -75,14 +75,66 @@ func TestRenderAppYAMLIncludesMCPSectionWhenEnabled(t *testing.T) {
 }
 
 func TestBuildDockerComposeYAML(t *testing.T) {
-	compose := BuildDockerComposeYAML("/Users/demo/.owliabot", "Asia/Shanghai", "8789", "ghcr.io/owliabot/owliabot:latest")
+	compose, err := BuildDockerComposeYAML("/Users/demo/.owliabot", "Asia/Shanghai", "8789", "ghcr.io/owliabot/owliabot:latest")
+	if err != nil {
+		t.Fatalf("unexpected compose error: %v", err)
+	}
 	if !strings.Contains(compose, "127.0.0.1:8789:8787") {
 		t.Fatalf("expected mapped gateway port, got:\n%s", compose)
 	}
-	if !strings.Contains(compose, "TZ=Asia/Shanghai") {
+	if !strings.Contains(compose, "TZ: 'Asia/Shanghai'") {
 		t.Fatalf("expected timezone env, got:\n%s", compose)
 	}
-	if !strings.Contains(compose, "/Users/demo/.owliabot:/home/owliabot/.owliabot") {
+	if !strings.Contains(compose, "source: '/Users/demo/.owliabot'") {
 		t.Fatalf("expected config mount, got:\n%s", compose)
 	}
+}
+
+func TestBuildDockerComposeYAMLRejectsInvalidGatewayPort(t *testing.T) {
+	_, err := BuildDockerComposeYAML("/Users/demo/.owliabot", "UTC", "0", "")
+	if err == nil {
+		t.Fatal("expected validation error for invalid gateway port")
+	}
+}
+
+func TestBuildDockerComposeYAMLEscapesQuotedPaths(t *testing.T) {
+	compose, err := BuildDockerComposeYAML("/Users/demo/Owlia's Bot", "UTC", "8787", "")
+	if err != nil {
+		t.Fatalf("unexpected compose error: %v", err)
+	}
+	if !strings.Contains(compose, "source: '/Users/demo/Owlia''s Bot'") {
+		t.Fatalf("expected escaped host path in compose, got:\n%s", compose)
+	}
+}
+
+func TestBuildAppConfigExecAllowListIsReadOnlyByDefault(t *testing.T) {
+	cfg := BuildAppConfig(Answers{ProviderChoice: "anthropic"})
+
+	if containsCommand(cfg.System.Exec.CommandAllowList, "rm") {
+		t.Fatalf("rm should not be allowed by default: %+v", cfg.System.Exec.CommandAllowList)
+	}
+	if containsCommand(cfg.System.Exec.CommandAllowList, "curl") {
+		t.Fatalf("curl should not be allowed by default: %+v", cfg.System.Exec.CommandAllowList)
+	}
+}
+
+func TestBuildAppConfigExecAllowListIncludesWriteCommandsWhenWriteEnabled(t *testing.T) {
+	cfg := BuildAppConfig(Answers{
+		ProviderChoice:               "anthropic",
+		EnableWriteToolsForAllowlist: true,
+		DiscordMemberAllowList:       []string{"123456"},
+	})
+
+	if !containsCommand(cfg.System.Exec.CommandAllowList, "rm") {
+		t.Fatalf("expected write commands when write tools are enabled: %+v", cfg.System.Exec.CommandAllowList)
+	}
+}
+
+func containsCommand(commands []string, needle string) bool {
+	for _, command := range commands {
+		if command == needle {
+			return true
+		}
+	}
+	return false
 }

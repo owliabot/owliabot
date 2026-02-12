@@ -188,6 +188,17 @@ function sha256Hex(content: Buffer): string {
   return createHash("sha256").update(content).digest("hex");
 }
 
+function parseOnboardManifest(raw: unknown): OnboardBinaryManifest {
+  if (!raw || typeof raw !== "object") {
+    throw new Error("invalid onboard manifest format");
+  }
+  const parsed = raw as OnboardBinaryManifest;
+  if (!parsed.assets || typeof parsed.assets !== "object") {
+    throw new Error("invalid onboard manifest format");
+  }
+  return parsed;
+}
+
 async function fileExists(pathname: string): Promise<boolean> {
   try {
     await access(pathname, fsConstants.F_OK);
@@ -217,11 +228,28 @@ async function fetchManifest(
   if (!response.ok) {
     throw new Error(`failed to fetch onboard manifest (${response.status})`);
   }
-  const parsed = (await response.json()) as OnboardBinaryManifest;
-  if (!parsed || typeof parsed !== "object" || !parsed.assets || typeof parsed.assets !== "object") {
-    throw new Error("invalid onboard manifest format");
+  return parseOnboardManifest(await response.json());
+}
+
+async function readCachedManifest(manifestPath: string): Promise<OnboardBinaryManifest | null> {
+  try {
+    const raw = await readFile(manifestPath, "utf8");
+    return parseOnboardManifest(JSON.parse(raw));
+  } catch {
+    return null;
   }
-  return parsed;
+}
+
+async function writeCachedManifest(
+  manifestPath: string,
+  manifest: OnboardBinaryManifest,
+): Promise<void> {
+  await mkdir(dirname(manifestPath), { recursive: true });
+  await writeFile(manifestPath, JSON.stringify(manifest), "utf8");
+}
+
+function messageFromError(err: unknown): string {
+  return err instanceof Error ? err.message : String(err ?? "unknown error");
 }
 
 async function downloadBinaryAsset(
@@ -314,22 +342,37 @@ export async function resolveOnboardBinaryCommand(
     channelDir,
     defaultBinaryFileName(options.platform, options.arch),
   );
+  const manifestCachePath = join(channelDir, "onboard-manifest.json");
 
   let manifest: OnboardBinaryManifest | null = null;
   try {
     manifest = await fetchManifest(manifestURL, fetchImpl);
+    await writeCachedManifest(manifestCachePath, manifest).catch(() => undefined);
   } catch (err) {
-    if (await fileExists(fallbackPath)) {
-      return { cmd: fallbackPath, args: [] };
+    const cachedManifest = await readCachedManifest(manifestCachePath);
+    const cachedAsset = cachedManifest?.assets?.[runtimeKey];
+    if (cachedAsset) {
+      const safeName = trimValue(cachedAsset.fileName) || defaultBinaryFileName(options.platform, options.arch);
+      const cachedPath = join(channelDir, safeName.replace(/[\\/]/g, ""));
+      const candidates = new Set([cachedPath, fallbackPath]);
+      for (const candidate of candidates) {
+        if (!(await fileExists(candidate))) continue;
+        if (await binaryMatchesChecksum(candidate, cachedAsset.sha256)) {
+          if (options.platform !== "win32") {
+            await chmod(candidate, 0o755).catch(() => undefined);
+          }
+          return { cmd: candidate, args: [] };
+        }
+      }
+      throw new Error(
+        `failed to fetch onboard manifest (${messageFromError(err)}); cached binary verification failed`,
+      );
     }
     throw err;
   }
 
   const asset = manifest.assets[runtimeKey];
   if (!asset) {
-    if (await fileExists(fallbackPath)) {
-      return { cmd: fallbackPath, args: [] };
-    }
     return null;
   }
 
