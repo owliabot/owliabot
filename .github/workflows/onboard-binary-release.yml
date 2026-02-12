@@ -1,0 +1,145 @@
+name: Onboard Binary Release
+
+on:
+  push:
+    branches: [main, develop]
+    paths:
+      - "client/**"
+      - "src/onboarding/go-runner.ts"
+      - "scripts/build-onboard-manifest.mjs"
+      - ".github/workflows/onboard-binary-release.yml"
+  pull_request:
+    paths:
+      - "client/**"
+      - "src/onboarding/go-runner.ts"
+      - "scripts/build-onboard-manifest.mjs"
+      - ".github/workflows/onboard-binary-release.yml"
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.21.x"
+          cache-dependency-path: client/go.mod
+
+      - name: Build onboard binaries
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          for goos in linux darwin windows; do
+            for goarch in amd64 arm64; do
+              if [ "$goarch" = "amd64" ]; then
+                node_arch="x64"
+              else
+                node_arch="arm64"
+              fi
+
+              if [ "$goos" = "windows" ]; then
+                platform="win32"
+                ext=".exe"
+              else
+                platform="$goos"
+                ext=""
+              fi
+
+              out="dist/owliabot-onboard-${platform}-${node_arch}${ext}"
+              echo "Building ${out}"
+              GOOS="$goos" GOARCH="$goarch" CGO_ENABLED=0 go -C client build -trimpath -ldflags="-s -w" -o "../$out" .
+            done
+          done
+
+      - name: Generate checksums
+        run: |
+          set -euo pipefail
+          sha256sum dist/owliabot-onboard-* > dist/onboard-checksums.txt
+
+      - name: Build manifest (dry-run for CI)
+        run: |
+          set -euo pipefail
+          node scripts/build-onboard-manifest.mjs \
+            --channel preview \
+            --tag onboard-preview \
+            --repo "${{ github.repository }}" \
+            --checksums dist/onboard-checksums.txt \
+            --output dist/onboard-manifest.json \
+            --commit "${{ github.sha }}"
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: onboard-binaries
+          path: dist/*
+          if-no-files-found: error
+
+  release:
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop')
+    runs-on: ubuntu-latest
+    needs: build
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: onboard-binaries
+          path: dist
+
+      - name: Resolve channel and tag
+        id: meta
+        run: |
+          set -euo pipefail
+          if [ "${GITHUB_REF}" = "refs/heads/develop" ]; then
+            echo "channel=preview" >> "$GITHUB_OUTPUT"
+            echo "tag=onboard-preview" >> "$GITHUB_OUTPUT"
+            echo "prerelease=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "channel=stable" >> "$GITHUB_OUTPUT"
+            echo "tag=onboard-stable" >> "$GITHUB_OUTPUT"
+            echo "prerelease=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build channel manifest
+        run: |
+          set -euo pipefail
+          node scripts/build-onboard-manifest.mjs \
+            --channel "${{ steps.meta.outputs.channel }}" \
+            --tag "${{ steps.meta.outputs.tag }}" \
+            --repo "${{ github.repository }}" \
+            --checksums dist/onboard-checksums.txt \
+            --output dist/onboard-manifest.json \
+            --commit "${{ github.sha }}"
+
+      - name: Delete previous rolling release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release delete "${{ steps.meta.outputs.tag }}" --cleanup-tag --yes || true
+
+      - name: Publish rolling release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          PRERELEASE_FLAG=""
+          if [ "${{ steps.meta.outputs.prerelease }}" = "true" ]; then
+            PRERELEASE_FLAG="--prerelease"
+          fi
+          gh release create "${{ steps.meta.outputs.tag }}" dist/* \
+            --title "OwliaBot onboard (${{ steps.meta.outputs.channel }})" \
+            --notes "Rolling onboard binaries for ${{ steps.meta.outputs.channel }} (${GITHUB_SHA})." \
+            ${PRERELEASE_FLAG}

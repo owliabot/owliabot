@@ -1,0 +1,51 @@
+name: Onboard Go
+
+on:
+  push:
+    branches: [main, develop]
+    paths:
+      - "client/**"
+      - "src/onboarding/go-runner.ts"
+      - "tests/onboarding/smoke-onboard-go.mjs"
+      - "package.json"
+      - ".github/workflows/onboard-go.yml"
+  pull_request:
+    paths:
+      - "client/**"
+      - "src/onboarding/go-runner.ts"
+      - "tests/onboarding/smoke-onboard-go.mjs"
+      - "package.json"
+      - ".github/workflows/onboard-go.yml"
+  workflow_dispatch:
+
+jobs:
+  onboard-go:
+    name: ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.21.x"
+          cache-dependency-path: client/go.mod
+
+      - name: Go unit tests
+        working-directory: client
+        run: go test ./...
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Verify onboard command entrypoint
+        run: go -C client run . --help
+
+      - name: Smoke test onboarding
+        run: bun tests/onboarding/smoke-onboard-go.mjs
