@@ -72,6 +72,7 @@ var defaultWizardSteps = []string{
 }
 
 var errBackRequested = errors.New("back requested")
+var errWizardCancelled = errors.New("wizard cancelled by user")
 
 type modelPreset struct {
 	Value       string
@@ -199,6 +200,10 @@ func main() {
 
 	answers, err := session.runWizard(opts)
 	if err != nil {
+		if errors.Is(err, errWizardCancelled) {
+			fmt.Fprintln(os.Stdout, "onboard-go cancelled.")
+			return
+		}
 		fmt.Fprintf(os.Stderr, "onboard-go cancelled: %v\n", err)
 		os.Exit(1)
 	}
