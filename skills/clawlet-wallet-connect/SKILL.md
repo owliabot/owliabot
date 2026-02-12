@@ -94,10 +94,10 @@ docker exec -it owliabot owliabot wallet connect
 ### npm mode (Node.js)
 
 ```bash
-npx tsx src/entry.ts wallet connect --token clwt_xxxxx
+npx owliabot wallet connect --token clwt_xxxxx
 
 # Or interactive
-npx tsx src/entry.ts wallet connect
+npx owliabot wallet connect
 ```
 
 On success you'll see:
