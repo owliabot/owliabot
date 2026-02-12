@@ -185,7 +185,9 @@ export async function runAgenticLoop(
   const timeoutMs = config.timeoutMs ?? 600_000; // 10 minutes default
 
   // Check if using CLI providers - fallback to old path
-  const primaryProvider = config.providers[0];
+    // Check CLI provider using priority-sorted order (consistent with model selection below)
+  const sortedForCliCheck = [...config.providers].sort((a, b) => a.priority - b.priority);
+  const primaryProvider = sortedForCliCheck[0];
   if (
     primaryProvider &&
     isCliProvider(primaryProvider.id, config.cliBackends)
@@ -294,6 +296,24 @@ export async function runAgenticLoop(
       getFollowUpMessages: config.getFollowUpMessages,
     };
 
+    // Diagnostic: log LLM input summary
+    {
+      const inputMsgCount = chatMessages.length;
+      const inputTotalLen = chatMessages.reduce((sum, m) => {
+        if (typeof m.content === "string") return sum + m.content.length;
+        if (Array.isArray(m.content)) return sum + (m.content as Array<{ text?: string }>).reduce((s: number, c) => s + (c.text?.length ?? 0), 0);
+        return sum;
+      }, 0);
+      const lastUserMsg = [...chatMessages].reverse().find(m => m.role === "user");
+      const lastUserText = lastUserMsg
+        ? (typeof lastUserMsg.content === "string"
+            ? lastUserMsg.content
+            : (lastUserMsg.content as Array<{ type: string; text?: string }>).filter(c => c.type === "text").map(c => c.text ?? "").join(""))
+        : "";
+      const inputSummary = lastUserText.length > 50 ? lastUserText.slice(0, 50) + "…" : lastUserText;
+      log.info(`[LLM-in] msgs=${inputMsgCount} totalChars=${inputTotalLen} systemLen=${systemPrompt.length} lastUser="${inputSummary}"`);
+    }
+
     // Run agent loop
     const stream = agentLoop([], agentContext, loopConfig, combinedSignal);
 
@@ -342,6 +362,13 @@ export async function runAgenticLoop(
         ? extractTextContent(lastMessage)
         : "";
     // Fallback when the LLM's last turn was tool-only (no text block)
+    if (extracted.trim().length === 0) {
+      const lastRole = lastMessage?.role ?? "none";
+      const lastContentTypes = Array.isArray(lastMessage?.content) ? (lastMessage.content as Array<{ type: string }>).map(c => c.type) : [typeof lastMessage?.content];
+      log.warn(
+        `[LLM-final] empty text — lastRole=${lastRole} contentTypes=[${lastContentTypes}] iterations=${iterations} toolCalls=${toolCallsCount}. Falling back to apology.`
+      );
+    }
     const finalContent =
       extracted.trim().length > 0
         ? extracted
@@ -436,6 +463,22 @@ function handleAgentEvent(
       onIteration();
       log.debug("Agent turn started");
       break;
+    case "turn_end": {
+      // Diagnostic: log LLM output length + summary
+      if (event.message) {
+        const contentArr = Array.isArray(event.message.content) ? event.message.content as Array<{ type: string; text?: string }> : [];
+        const outText = contentArr
+          .filter(c => c.type === "text")
+          .map(c => c.text ?? "")
+          .join("");
+        const toolUseCount = contentArr.filter(c => c.type === "tool_use").length;
+        const outSummary = outText.length > 50 ? outText.slice(0, 50) + "…" : (outText || "(no text, tool-only)");
+        log.info(
+          `[LLM-out] textLen=${outText.length} toolCalls=${toolUseCount} summary="${outSummary}"`
+        );
+      }
+      break;
+    }
     case "tool_execution_start":
       onToolCall();
       const argsStr = JSON.stringify(event.args);
@@ -488,6 +531,15 @@ async function runLegacyLoop(
       iteration++;
       log.debug(`Legacy agentic loop iteration ${iteration}`);
 
+      // Diagnostic: log input
+      {
+        const inputLen = conversationMessages.reduce((sum, m) => sum + (typeof m.content === "string" ? m.content.length : JSON.stringify(m.content).length), 0);
+        const lastUser = [...conversationMessages].reverse().find(m => m.role === "user");
+        const lastUserText = typeof lastUser?.content === "string" ? lastUser.content : "";
+        const summary = lastUserText.length > 50 ? lastUserText.slice(0, 50) + "…" : lastUserText;
+        log.info(`[LLM-in] legacy iter=${iteration} msgs=${conversationMessages.length} totalChars=${inputLen} lastUser="${summary}"`);
+      }
+
       // Call LLM with tools
       const response = await callWithFailover(
         config.providers,
@@ -495,6 +547,13 @@ async function runLegacyLoop(
         { tools: config.tools.getAll() },
         config.cliBackends
       );
+
+      // Diagnostic: log output
+      {
+        const outLen = response.content?.length ?? 0;
+        const outSummary = response.content ? (response.content.length > 50 ? response.content.slice(0, 50) + "…" : response.content) : "(empty)";
+        log.info(`[LLM-out] legacy contentLen=${outLen} toolCalls=${response.toolCalls?.length ?? 0} summary="${outSummary}"`);
+      }
 
       // If no tool calls, we're done
       if (!response.toolCalls || response.toolCalls.length === 0) {
