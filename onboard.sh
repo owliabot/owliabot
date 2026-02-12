@@ -63,21 +63,32 @@ verify_checksum_if_possible() {
     return 0
   fi
 
+  # Download manifest to a temp file to avoid stdin conflict with heredoc/inline script
+  local manifest_file
+  manifest_file="$(mktemp)"
+  if ! curl -fsSL "$manifest_url" -o "$manifest_file" 2>/dev/null; then
+    rm -f "$manifest_file"
+    echo "onboard.sh: checksum verification skipped (could not download manifest)." >&2
+    return 0
+  fi
+
   local expected
   expected="$(
-    curl -fsSL "$manifest_url" | python3 - "$runtime_key" <<'PY'
-import json
-import sys
-
+    python3 -c "
+import json, sys
 runtime_key = sys.argv[1]
-manifest = json.load(sys.stdin)
-asset = (manifest.get("assets") or {}).get(runtime_key)
-if not asset:
-    print("")
+try:
+    with open(sys.argv[2]) as f:
+        manifest = json.load(f)
+except (json.JSONDecodeError, ValueError, FileNotFoundError):
     sys.exit(0)
-print((asset.get("sha256") or "").strip().lower())
-PY
+asset = (manifest.get('assets') or {}).get(runtime_key)
+if not asset:
+    sys.exit(0)
+print((asset.get('sha256') or '').strip().lower())
+" "$runtime_key" "$manifest_file"
   )"
+  rm -f "$manifest_file"
 
   if [ -z "$expected" ]; then
     echo "onboard.sh: checksum verification skipped (runtime not present in manifest)." >&2
@@ -89,6 +100,8 @@ PY
   if [ "$actual" != "$expected" ]; then
     die "checksum mismatch for onboard binary"
   fi
+
+  echo "onboard.sh: checksum verified ✓" >&2
 }
 
 main() {
