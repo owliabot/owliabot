@@ -4,13 +4,22 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "${ROOT_DIR}/go-onboard"
 
+# Help/version flags should work in non-interactive CI without tty rebinding.
+for arg in "$@"; do
+  case "$arg" in
+    -h|--help|-v|--version)
+      exec go run . "$@"
+      ;;
+  esac
+done
+
 # Normal interactive terminal: run directly.
 if [[ -t 0 && -t 1 ]]; then
   exec go run . "$@"
 fi
 
 # If stdin/stdout were wrapped by the package manager, rebind to terminal.
-if [[ -r /dev/tty && -w /dev/tty ]]; then
+if [[ -r /dev/tty && -w /dev/tty ]] && (: </dev/tty >/dev/tty) 2>/dev/null; then
   exec go run . "$@" </dev/tty >/dev/tty
 fi
 
