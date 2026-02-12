@@ -83,13 +83,16 @@ export function adaptToolForAgent(
     execute: async (toolCallId, params, signal) => {
       log.debug(`Executing tool ${tool.name} via pi-agent-core adapter`);
 
-      // Note: executeToolCall doesn't accept AbortSignal yet.
-      // Tool cancellation support requires changes to the executor interface.
-      // For now, long-running tools cannot be cancelled via signal.
-      // TODO: Add signal support to executeToolCall for proper cancellation
+      // Check if already aborted before starting execution
+      if (signal?.aborted) {
+        return {
+          content: [{ type: "text", text: "Error: Tool execution aborted" }],
+          details: { success: false, toolCallId, error: "Aborted" },
+        };
+      }
 
-      // Use the existing executor which handles all security checks
-      const result = await executeToolCall(
+      // Race the tool execution against the abort signal
+      const executionPromise = executeToolCall(
         { id: toolCallId, name: tool.name, arguments: params },
         {
           registry,
@@ -100,6 +103,22 @@ export function adaptToolForAgent(
           userId: options.userId,
         }
       );
+
+      // If signal is provided, race against abort
+      const result = signal
+        ? await Promise.race([
+            executionPromise,
+            new Promise<never>((_, reject) => {
+              if (signal.aborted) {
+                reject(new DOMException("Tool execution aborted", "AbortError"));
+              } else {
+                signal.addEventListener("abort", () => {
+                  reject(new DOMException("Tool execution aborted", "AbortError"));
+                }, { once: true });
+              }
+            }),
+          ])
+        : await executionPromise;
 
       // Convert ToolResult to AgentToolResult
       const text = result.success

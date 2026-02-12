@@ -108,22 +108,42 @@ export interface AgenticLoopResult {
  * Runtime validation: Ensures messages have required fields before casting.
  */
 function convertToLlm(messages: AgentMessage[]): PiAiMessage[] {
-  // Validate that messages have required fields
+  const result: PiAiMessage[] = [];
+
   for (const msg of messages) {
     const m = msg as any;
     if (!m.role) {
       throw new Error("Message missing required 'role' field");
     }
+
+    // Handle legacy user messages with toolResults array → convert to tool_result messages
+    if (m.role === "user" && Array.isArray(m.toolResults) && m.toolResults.length > 0) {
+      for (const tr of m.toolResults) {
+        const text = tr.success
+          ? typeof tr.data === "string"
+            ? tr.data
+            : JSON.stringify(tr.data ?? "OK", null, 2)
+          : `Error: ${tr.error ?? "Unknown error"}`;
+        result.push({
+          role: "tool",
+          content: [{ type: "text", text }],
+          tool_use_id: tr.toolCallId,
+        } as any);
+      }
+      continue;
+    }
+
     if (m.role === "user" || m.role === "assistant") {
       if (!("content" in m)) {
         throw new Error(`${m.role} message missing 'content' field`);
       }
     }
+
+    // AgentMessage is structurally compatible with pi-ai Message
+    result.push(m as PiAiMessage);
   }
-  
-  // AgentMessage is structurally compatible with pi-ai Message
-  // If we had custom message types, we'd transform them here
-  return messages as PiAiMessage[];
+
+  return result;
 }
 
 /**
@@ -175,6 +195,7 @@ export async function runAgenticLoop(
   }
 
   let iterations = 0;
+  let turnCount = 0; // Track turns locally (not from context history)
   let toolCallsCount = 0;
   let timedOut = false;
   let maxIterationsReached = false;
@@ -219,11 +240,17 @@ export async function runAgenticLoop(
       userId: context.userId,
     });
 
-    // Resolve primary model config
+    // Sort providers by priority for failover
+    const sortedProviders = [...config.providers].sort((a, b) => a.priority - b.priority);
+
+    // Resolve primary model config (used as default; failover rotates on error)
+    let currentProviderIndex = 0;
+    const getCurrentProvider = () => sortedProviders[currentProviderIndex];
+
     const modelConfig = {
-      provider: primaryProvider.id,
-      model: primaryProvider.model,
-      apiKey: primaryProvider.apiKey,
+      provider: getCurrentProvider().id,
+      model: getCurrentProvider().model,
+      apiKey: getCurrentProvider().apiKey,
     };
 
     const model = resolveModel(modelConfig);
@@ -240,12 +267,23 @@ export async function runAgenticLoop(
       model,
       convertToLlm,
       getApiKey: async (provider: string) => {
+        // Try current provider first, then failover to others
+        for (let i = 0; i < sortedProviders.length; i++) {
+          const idx = (currentProviderIndex + i) % sortedProviders.length;
+          const p = sortedProviders[idx];
+          try {
+            const key = await resolveApiKey(p.id, p.apiKey);
+            currentProviderIndex = idx; // stick with working provider
+            return key;
+          } catch {
+            log.warn(`Provider ${p.id} key resolution failed, trying next`);
+          }
+        }
+        // Fallback: try the requested provider name directly
         return await resolveApiKey(provider, modelConfig.apiKey);
       },
-      // Inject max iterations check via transformContext
+      // Inject max iterations check via transformContext (uses local turnCount)
       transformContext: async (messages: AgentMessage[]) => {
-        // Count assistant messages as turns/iterations
-        const turnCount = messages.filter((m) => m.role === "assistant").length;
         if (turnCount >= maxIterations) {
           maxIterationsReached = true;
           throw new Error(`Max iterations (${maxIterations}) reached`);
@@ -265,6 +303,7 @@ export async function runAgenticLoop(
         event,
         () => {
           iterations++;
+          turnCount++;
         },
         () => {
           toolCallsCount++;

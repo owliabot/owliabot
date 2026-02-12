@@ -686,13 +686,6 @@ async function handleMessage(
     return;
   }
 
-  // Steering: if a loop is already active for this session, queue and return early
-  if (steeringManager?.isActive(sessionKey)) {
-    log.info(`Session ${sessionKey} active, queuing as steering message`);
-    steeringManager.pushSteering(sessionKey, ctx.body, ctx.timestamp);
-    return;
-  }
-
   // Group mention ack UX + per-session concurrency limiting.
   const isGroupMention = ctx.chatType === "group" && !!ctx.mentioned;
   const channelForReactions = channels.get(ctx.channel);
@@ -787,6 +780,15 @@ async function handleMessage(
     }
 
     log.debug(`Rate limit check passed: ${remaining} remaining for ${ctx.from}`);
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Steering: if a loop is already active for this session, queue and return early
+  // ─────────────────────────────────────────────────────────────────────────
+  if (steeringManager?.isActive(sessionKey)) {
+    log.info(`Session ${sessionKey} active, queuing as steering message`);
+    steeringManager.pushSteering(sessionKey, ctx.body, ctx.timestamp);
+    return;
   }
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -976,13 +978,20 @@ async function handleMessage(
 
   log.info(`Final response: ${finalContent.slice(0, 50)}...`);
 
-  // Append assistant response to session (final message already in loopResult.messages)
-  const assistantMessage: Message = {
-    role: "assistant",
-    content: finalContent,
-    timestamp: Date.now(),
-  };
-  await transcripts.append(entry.sessionId, assistantMessage);
+  // Persist all messages from the agentic loop (tool calls, results, assistant responses)
+  if (loopResult.messages.length > 0) {
+    for (const msg of loopResult.messages) {
+      await transcripts.append(entry.sessionId, msg);
+    }
+  } else {
+    // Fallback: persist synthetic assistant message if loop returned no messages
+    const assistantMessage: Message = {
+      role: "assistant",
+      content: finalContent,
+      timestamp: Date.now(),
+    };
+    await transcripts.append(entry.sessionId, assistantMessage);
+  }
 
   // Send response
   const channel = channels.get(ctx.channel);

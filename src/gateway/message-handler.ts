@@ -270,15 +270,6 @@ export async function handleMessage(
   const infraConfig = config.infra;
 
   // ─────────────────────────────────────────────────────────────────────────
-  // Steering: if a loop is already active for this session, queue the message
-  // ─────────────────────────────────────────────────────────────────────────
-  if (steeringManager?.isActive(sessionKey)) {
-    log.info(`Session ${sessionKey} active, queuing as steering message`);
-    steeringManager.pushSteering(sessionKey, ctx.body, ctx.timestamp);
-    return;
-  }
-
-  // ─────────────────────────────────────────────────────────────────────────
   // Infrastructure: Idempotency Check
   // ─────────────────────────────────────────────────────────────────────────
   const idempotencyResult = checkIdempotency(ctx, infraStore, infraConfig, now);
@@ -300,6 +291,15 @@ export async function handleMessage(
     const rateLimitResult = checkRateLimit(ctx, infraStore, infraConfig, now);
     if (!rateLimitResult.allowed) {
       await sendRateLimitWarning(ctx, channels, rateLimitResult.waitSeconds!);
+      return;
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Steering: if a loop is already active for this session, queue the message
+    // ─────────────────────────────────────────────────────────────────────────
+    if (steeringManager?.isActive(sessionKey)) {
+      log.info(`Session ${sessionKey} active, queuing as steering message`);
+      steeringManager.pushSteering(sessionKey, ctx.body, ctx.timestamp);
       return;
     }
 
@@ -438,13 +438,20 @@ export async function handleMessage(
 
     log.info(`Final response: ${finalContent.slice(0, 50)}...`);
 
-    // Append assistant response to session
-    const assistantMessage: Message = {
-      role: "assistant",
-      content: finalContent,
-      timestamp: Date.now(),
-    };
-    await transcripts.append(entry.sessionId, assistantMessage);
+    // Persist all messages from the agentic loop (tool calls, results, assistant responses)
+    if (loopResult.messages.length > 0) {
+      for (const msg of loopResult.messages) {
+        await transcripts.append(entry.sessionId, msg);
+      }
+    } else {
+      // Fallback: persist synthetic assistant message if loop returned no messages
+      const assistantMessage: Message = {
+        role: "assistant",
+        content: finalContent,
+        timestamp: Date.now(),
+      };
+      await transcripts.append(entry.sessionId, assistantMessage);
+    }
 
     // ─────────────────────────────────────────────────────────────────────────
     // Send Response
