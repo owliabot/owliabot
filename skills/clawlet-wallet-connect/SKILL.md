@@ -81,13 +81,14 @@ The install script handles everything — install, init, and start — in one co
 Tell the user to run:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/owliabot/clawlet/main/scripts/install.sh -o /tmp/clawlet-install.sh && sudo bash /tmp/clawlet-install.sh --isolated && sudo -H -u clawlet /usr/local/bin/clawlet start --agent owliabot --daemon
+curl -fsSL https://raw.githubusercontent.com/owliabot/clawlet/main/scripts/install.sh -o /tmp/clawlet-install.sh && sudo bash /tmp/clawlet-install.sh --isolated && sudo -H -u clawlet /usr/local/bin/clawlet start --agent owliabot --daemon && clawlet connect --agent owliabot
 ```
 
-This single command chain does three things:
+This single command chain does four things:
 1. Downloads the install script
 2. Runs installation in isolated mode (dedicated `clawlet` user)
-3. Starts the daemon as the `clawlet` user with OwliaBot agent auto-connect
+3. Starts the daemon as the `clawlet` user
+4. Connects to OwliaBot（`connect` 不需要 sudo）
 
 After the script finishes, verify with the `exec` tool:
 
