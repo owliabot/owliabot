@@ -123,7 +123,7 @@ export async function runClawletOnboarding(
   if (!hasToken) {
     // Show instructions for granting a token
     log.info("\nTo grant a token, run on the clawlet host:");
-    log.info("  clawlet auth grant --agent owliabot --scope trade");
+    log.info("  clawlet auth grant --scope trade --label owliabot");
     log.info("\nThen re-run: owliabot onboard");
     return { enabled: false };
   }
