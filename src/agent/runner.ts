@@ -337,13 +337,24 @@ export async function runLLM(
 
     log.info(`Using OpenAI-compatible endpoint: ${provider.baseUrl}`);
 
+    // Apply context guard to openai-compatible path too
+    const guardConfig = options?.contextGuard;
+    const contextWindow = guardConfig?.contextWindowOverride ?? getContextWindow(modelConfig);
+    const { messages: guardedMessages } = guardContext(messages, {
+      contextWindow,
+      reserveTokens: guardConfig?.reserveTokens ?? options?.maxTokens ?? DEFAULT_RESERVE_TOKENS,
+      maxToolResultChars: guardConfig?.maxToolResultChars,
+      truncateHeadChars: guardConfig?.truncateHeadChars,
+      truncateTailChars: guardConfig?.truncateTailChars,
+    });
+
     const config: OpenAICompatibleConfig = {
       baseUrl: provider.baseUrl,
       model: modelConfig.model,
       apiKey: provider.apiKey,
     };
 
-    return openAICompatibleComplete(config, messages, options);
+    return openAICompatibleComplete(config, guardedMessages, options);
   }
 
   // Standard pi-ai path
@@ -352,6 +363,7 @@ export async function runLLM(
 
   // L2: Context window guard — prune history if needed
   const guardConfig = options?.contextGuard;
+  const guardEnabled = guardConfig?.enabled !== false; // enabled by default
   const baseContextWindow = guardConfig?.contextWindowOverride ?? getContextWindow(modelConfig);
   
   // Apply more aggressive limits on retry (both context window and tool result chars)
@@ -361,13 +373,15 @@ export async function runLLM(
     ? Math.floor(guardConfig.maxToolResultChars * retryMultiplier)
     : undefined;
   
-  const { messages: guardedMessages, dropped } = guardContext(messages, {
-    contextWindow: effectiveContextWindow,
-    reserveTokens: guardConfig?.reserveTokens ?? options?.maxTokens ?? DEFAULT_RESERVE_TOKENS,
-    maxToolResultChars: effectiveMaxToolResultChars,
-    truncateHeadChars: guardConfig?.truncateHeadChars,
-    truncateTailChars: guardConfig?.truncateTailChars,
-  });
+  const { messages: guardedMessages, dropped } = guardEnabled
+    ? guardContext(messages, {
+        contextWindow: effectiveContextWindow,
+        reserveTokens: guardConfig?.reserveTokens ?? options?.maxTokens ?? DEFAULT_RESERVE_TOKENS,
+        maxToolResultChars: effectiveMaxToolResultChars,
+        truncateHeadChars: guardConfig?.truncateHeadChars,
+        truncateTailChars: guardConfig?.truncateTailChars,
+      })
+    : { messages, dropped: 0 };
 
   // Skip double truncation: guardContext already handled truncation, so pass Infinity to toContext
   const context = toContext(guardedMessages, options?.tools, model, {

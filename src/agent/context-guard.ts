@@ -131,10 +131,16 @@ function truncateMessageToolResults(
   return {
     ...msg,
     toolResults: msg.toolResults.map((tr) => {
-      if (!tr.success) return tr;
+      if (!tr.success) {
+        // Also truncate large error payloads
+        const errorText = tr.error ?? "";
+        if (errorText.length > max) {
+          return { ...tr, error: truncateToolResult(errorText, max, head, tail) };
+        }
+        return tr;
+      }
       const serialized = JSON.stringify(tr.data, null, 2);
       if (serialized.length <= max) return tr;
-      // Truncate by replacing data with the truncated string
       return {
         ...tr,
         data: truncateToolResult(serialized, max, head, tail),
