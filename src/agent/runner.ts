@@ -26,7 +26,13 @@ import {
   isOpenAICompatible,
   type OpenAICompatibleConfig,
 } from "./openai-compatible.js";
-import { resolveModel, type ModelConfig } from "./models.js";
+import { resolveModel, getContextWindow, type ModelConfig } from "./models.js";
+import {
+  guardContext,
+  truncateToolResult,
+  DEFAULT_TOOL_RESULT_MAX_CHARS,
+  DEFAULT_RESERVE_TOKENS,
+} from "./context-guard.js";
 import { isCliProvider, parseCliModelString, type ConfigWithCliBackends } from "./cli/cli-provider.js";
 import { runCliAgent, type CliAgentResult } from "./cli/cli-runner.js";
 import {
@@ -52,6 +58,14 @@ export interface RunnerOptions {
   temperature?: number;
   tools?: ToolDefinition[];
   reasoning?: "minimal" | "low" | "medium" | "high";
+  contextGuard?: {
+    enabled?: boolean;
+    maxToolResultChars?: number;
+    reserveTokens?: number;
+    truncateHeadChars?: number;
+    truncateTailChars?: number;
+    contextWindowOverride?: number;
+  };
 }
 
 export interface LLMResponse {
@@ -134,6 +148,13 @@ export async function resolveApiKey(provider: string, configApiKey?: string): Pr
   );
 }
 
+/** Options for toContext L1 safety net truncation */
+interface ToContextOptions {
+  maxToolResultChars?: number;
+  truncateHeadChars?: number;
+  truncateTailChars?: number;
+}
+
 /**
  * Convert internal messages to pi-ai context
  * Critical fix #1: Properly handle tool results
@@ -142,7 +163,8 @@ export async function resolveApiKey(provider: string, configApiKey?: string): Pr
 function toContext(
   messages: Message[],
   tools?: ToolDefinition[],
-  currentModel?: Model<Api>
+  currentModel?: Model<Api>,
+  truncateOptions?: ToContextOptions,
 ): Context {
   const systemMessage = messages.find((m) => m.role === "system");
   const chatMessages = messages.filter((m) => m.role !== "system");
@@ -155,6 +177,16 @@ function toContext(
       if (m.toolResults && m.toolResults.length > 0) {
         // Convert to proper ToolResultMessage format
         for (const tr of m.toolResults) {
+          const rawText = tr.success
+            ? JSON.stringify(tr.data, null, 2)
+            : `Error: ${tr.error}`;
+          // L1 safety net: truncate oversized tool results
+          const resultText = truncateToolResult(
+            rawText,
+            truncateOptions?.maxToolResultChars ?? DEFAULT_TOOL_RESULT_MAX_CHARS,
+            truncateOptions?.truncateHeadChars,
+            truncateOptions?.truncateTailChars,
+          );
           const toolResultMsg: ToolResultMessage = {
             role: "toolResult",
             toolCallId: tr.toolCallId ?? "",
@@ -162,9 +194,7 @@ function toContext(
             content: [
               {
                 type: "text",
-                text: tr.success
-                  ? JSON.stringify(tr.data, null, 2)
-                  : `Error: ${tr.error}`,
+                text: resultText,
               },
             ],
             isError: !tr.success,
@@ -268,16 +298,33 @@ function fromAssistantMessage(msg: AssistantMessage): LLMResponse {
 }
 
 /**
+ * Check if an error is a context window overflow error
+ */
+function isContextOverflowError(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  const msg = error.message.toLowerCase();
+  return (
+    msg.includes("context_length_exceeded") ||
+    msg.includes("prompt is too long") ||
+    msg.includes("maximum context length") ||
+    msg.includes("request too large") ||
+    msg.includes("token limit")
+  );
+}
+
+/**
  * Call LLM with a specific model configuration
  * Supports both pi-ai providers and openai-compatible endpoints
  * Important fix #4: Handle all stopReasons
  * Important fix #6: Pass reasoning option
+ * Enhancement: Auto-retry on context overflow with more aggressive pruning
  */
 export async function runLLM(
   modelConfig: ModelConfig,
   messages: Message[],
   options?: RunnerOptions,
-  provider?: LLMProvider
+  provider?: LLMProvider,
+  _retryCount: number = 0,
 ): Promise<LLMResponse> {
   // Check if this is an openai-compatible provider
   if (provider && isOpenAICompatible(provider.id)) {
@@ -290,47 +337,101 @@ export async function runLLM(
 
     log.info(`Using OpenAI-compatible endpoint: ${provider.baseUrl}`);
 
+    // Apply context guard to openai-compatible path too
+    const guardConfig = options?.contextGuard;
+    const guardEnabled = guardConfig?.enabled !== false;
+    // For openai-compatible, use contextWindowOverride or safe default (not pi-ai resolveModel)
+    const contextWindow = guardConfig?.contextWindowOverride ?? 128_000;
+    const { messages: guardedMessages } = guardEnabled
+      ? guardContext(messages, {
+          contextWindow,
+          reserveTokens: guardConfig?.reserveTokens ?? options?.maxTokens ?? DEFAULT_RESERVE_TOKENS,
+          maxToolResultChars: guardConfig?.maxToolResultChars,
+          truncateHeadChars: guardConfig?.truncateHeadChars,
+          truncateTailChars: guardConfig?.truncateTailChars,
+        })
+      : { messages };
+
     const config: OpenAICompatibleConfig = {
       baseUrl: provider.baseUrl,
       model: modelConfig.model,
       apiKey: provider.apiKey,
     };
 
-    return openAICompatibleComplete(config, messages, options);
+    return openAICompatibleComplete(config, guardedMessages, options);
   }
 
   // Standard pi-ai path
   const model = resolveModel(modelConfig);
   const apiKey = await resolveApiKey(model.provider, modelConfig.apiKey);
-  const context = toContext(messages, options?.tools, model);
 
-  log.info(`Calling ${model.provider}/${model.id}`);
+  // L2: Context window guard — prune history if needed
+  const guardConfig = options?.contextGuard;
+  const guardEnabled = guardConfig?.enabled !== false; // enabled by default
+  const baseContextWindow = guardConfig?.contextWindowOverride ?? getContextWindow(modelConfig);
+  
+  // Apply more aggressive limits on retry (both context window and tool result chars)
+  const retryMultiplier = _retryCount === 0 ? 1.0 : _retryCount === 1 ? 0.8 : 0.6;
+  const effectiveContextWindow = Math.floor(baseContextWindow * retryMultiplier);
+  const effectiveMaxToolResultChars = guardConfig?.maxToolResultChars 
+    ? Math.floor(guardConfig.maxToolResultChars * retryMultiplier)
+    : undefined;
+  
+  const { messages: guardedMessages, dropped } = guardEnabled
+    ? guardContext(messages, {
+        contextWindow: effectiveContextWindow,
+        reserveTokens: guardConfig?.reserveTokens ?? options?.maxTokens ?? DEFAULT_RESERVE_TOKENS,
+        maxToolResultChars: effectiveMaxToolResultChars,
+        truncateHeadChars: guardConfig?.truncateHeadChars,
+        truncateTailChars: guardConfig?.truncateTailChars,
+      })
+    : { messages, dropped: 0 };
 
-  const response = await completeSimple(model, context, {
-    apiKey,
-    maxTokens: options?.maxTokens ?? 4096,
-    temperature: options?.temperature,
-    reasoning: options?.reasoning,
-  } as Parameters<typeof completeSimple>[2]);
+  // Skip double truncation: guardContext already handled truncation, so pass Infinity to toContext
+  const context = toContext(guardedMessages, options?.tools, model, {
+    maxToolResultChars: Infinity,
+    truncateHeadChars: guardConfig?.truncateHeadChars,
+    truncateTailChars: guardConfig?.truncateTailChars,
+  });
 
-  // Handle different stop reasons
-  switch (response.stopReason) {
-    case "stop":
-    case "toolUse":
-      // Normal completion
-      break;
-    case "length":
-      log.warn("Response truncated due to max tokens limit");
-      break;
-    case "aborted":
-      throw new Error("Request was aborted");
-    case "error":
-      throw new Error(response.errorMessage ?? "LLM error");
-    default:
-      log.warn(`Unknown stop reason: ${response.stopReason}`);
+  log.info(`Calling ${model.provider}/${model.id}${_retryCount > 0 ? ` (retry ${_retryCount})` : ""}`);
+
+  try {
+    const response = await completeSimple(model, context, {
+      apiKey,
+      maxTokens: options?.maxTokens ?? 4096,
+      temperature: options?.temperature,
+      reasoning: options?.reasoning,
+    } as Parameters<typeof completeSimple>[2]);
+
+    // Handle different stop reasons
+    switch (response.stopReason) {
+      case "stop":
+      case "toolUse":
+        // Normal completion
+        break;
+      case "length":
+        log.warn("Response truncated due to max tokens limit");
+        break;
+      case "aborted":
+        throw new Error("Request was aborted");
+      case "error":
+        throw new Error(response.errorMessage ?? "LLM error");
+      default:
+        log.warn(`Unknown stop reason: ${response.stopReason}`);
+    }
+
+    return fromAssistantMessage(response);
+  } catch (error) {
+    // Retry on context overflow (max 2 retries)
+    if (isContextOverflowError(error) && _retryCount < 2) {
+      log.warn(
+        `Context overflow detected, retrying with more aggressive pruning (attempt ${_retryCount + 1}/2)`
+      );
+      return runLLM(modelConfig, messages, options, provider, _retryCount + 1);
+    }
+    throw error;
   }
-
-  return fromAssistantMessage(response);
 }
 
 /**
