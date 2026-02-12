@@ -31,11 +31,11 @@ gateway:
 	if err := os.MkdirAll(filepath.Join(tmp, "auth"), 0o755); err != nil {
 		t.Fatalf("mkdir auth: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(tmp, "auth", "anthropic.json"), []byte("{}"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(tmp, "auth", "anthropic.json"), []byte("{}"), 0o600); err != nil {
 		t.Fatalf("write anthropic oauth: %v", err)
 	}
 	codexAuth := []byte(`{"expires":` + fmt.Sprintf("%d", expires) + `,"email":"demo@example.com"}`)
-	if err := os.WriteFile(filepath.Join(tmp, "auth", "auth-openai-codex.json"), codexAuth, 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(tmp, "auth", "auth-openai-codex.json"), codexAuth, 0o600); err != nil {
 		t.Fatalf("write codex oauth: %v", err)
 	}
 

@@ -3,7 +3,7 @@
 # OwliaBot onboard launcher (release binary)
 # - Default channel: preview
 # - Downloads the correct binary for current OS/arch from GitHub releases
-# - Verifies checksum when python3 + shasum are available
+# - Verifies checksum (requires sha256sum or shasum; aborts if neither found)
 #
 
 set -euo pipefail
@@ -48,8 +48,18 @@ verify_checksum_if_possible() {
   local manifest_url="$2"
   local runtime_key="$3"
 
-  if ! command -v python3 >/dev/null 2>&1 || ! command -v shasum >/dev/null 2>&1; then
-    echo "onboard.sh: checksum verification skipped (requires python3 + shasum)." >&2
+  # Require at least one checksum tool
+  local sha_cmd=""
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha_cmd="sha256sum"
+  elif command -v shasum >/dev/null 2>&1; then
+    sha_cmd="shasum -a 256"
+  else
+    die "checksum verification requires sha256sum or shasum — please install one and retry"
+  fi
+
+  if ! command -v python3 >/dev/null 2>&1; then
+    echo "onboard.sh: manifest parsing skipped (python3 not found); binary checksum not verified." >&2
     return 0
   fi
 
@@ -75,7 +85,7 @@ PY
   fi
 
   local actual
-  actual="$(shasum -a 256 "$binary_path" | awk '{print tolower($1)}')"
+  actual="$($sha_cmd "$binary_path" | awk '{print tolower($1)}')"
   if [ "$actual" != "$expected" ]; then
     die "checksum mismatch for onboard binary"
   fi
