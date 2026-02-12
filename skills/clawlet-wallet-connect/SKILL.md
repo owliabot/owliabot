@@ -34,26 +34,35 @@ clawlet --version
 
 ## Step 3 — Start Clawlet
 
-`clawlet start` does init + auth grant + start server all-in-one:
+`clawlet start` initializes the wallet and starts the HTTP server:
 
 ```bash
 # Isolated mode (recommended)
-sudo -H -u clawlet clawlet start --agent owliabot --daemon
+sudo -H -u clawlet clawlet start --daemon
 
 # Or under current user
-clawlet start --agent owliabot
+clawlet start
 ```
 
 This will:
 1. Initialize a new wallet (if not already initialized)
-2. Grant an auth token with `read,trade` scope
-3. Start the HTTP server on `http://127.0.0.1:9100`
+2. Start the HTTP server on `http://127.0.0.1:9100`
+
+Then generate an auth token separately:
+
+```bash
+# Isolated mode
+sudo -H -u clawlet clawlet auth grant --scope read,trade --label owliabot
+
+# Or under current user
+clawlet auth grant --scope read,trade --label owliabot
+```
 
 The token (`clwt_xxxxx`) is printed to stdout — **save it** for the next step.
 
 ## Step 4 — Connect to OwliaBot
 
-With the token from Step 3, run the connect command matching your OwliaBot setup:
+With the token from the `auth grant` step, run the connect command matching your OwliaBot setup:
 
 ### Docker mode (recommended)
 
@@ -95,7 +104,7 @@ Wallet connected successfully!
 |---------|----------|
 | `clawlet: command not found` | Re-run the install script or check your PATH |
 | Health check fails | Make sure `clawlet start` is running |
-| `Invalid token format` | Token must start with `clwt_` — re-run `clawlet start --agent owliabot` |
+| `Invalid token format` | Token must start with `clwt_` — re-run `clawlet auth grant --scope read,trade --label owliabot` |
 | `gateway.http is not configured` | Add `gateway.http` section to `app.yaml` and restart OwliaBot |
 | Docker can't reach Clawlet | Clawlet must listen on `0.0.0.0:9100` (not just 127.0.0.1) or use host networking |
 
