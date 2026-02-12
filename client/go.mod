@@ -1,4 +1,4 @@
-module github.com/owliabot/owliabot/go-onboard
+module github.com/owliabot/owliabot/client
 
 go 1.21
 

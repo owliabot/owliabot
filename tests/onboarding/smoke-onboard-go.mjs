@@ -9,7 +9,7 @@ import { fileURLToPath } from "node:url";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const rootDir = path.resolve(__dirname, "..", "..");
-const goOnboardDir = path.join(rootDir, "go-onboard");
+const goOnboardDir = path.join(rootDir, "client");
 
 function terminate(child) {
   if (!child || child.killed) return;

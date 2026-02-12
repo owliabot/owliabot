@@ -27,14 +27,14 @@ describe("go-runner", () => {
     ]);
   });
 
-  it("resolveGoOnboardCommand uses go run in go-onboard module", () => {
+  it("resolveGoOnboardCommand uses go run in client module", () => {
     const command = resolveGoOnboardCommand({
       rootDir: "C:\\repo",
     });
 
     expect(command).toEqual({
       cmd: "go",
-      args: ["-C", "C:\\repo/go-onboard", "run", "."],
+      args: ["-C", "C:\\repo/client", "run", "."],
     });
   });
 
@@ -62,7 +62,7 @@ describe("go-runner", () => {
       "go",
       [
         "-C",
-        "/repo/go-onboard",
+        "/repo/client",
         "run",
         ".",
         "--config-dir",
