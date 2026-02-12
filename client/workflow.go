@@ -331,6 +331,12 @@ func (w *wizardSession) runWizard(opts cliOptions) (Answers, error) {
 			}
 			if !reusedChannels {
 				resetChannelAnswers(&answers)
+				existingDiscordToken := ""
+				existingTelegramToken := ""
+				if existing != nil {
+					existingDiscordToken = existing.DiscordToken
+					existingTelegramToken = existing.TelegramToken
+				}
 				channelOptions, channelDetails := channelStageMenu()
 				channelChoice, chErr := w.askOptionWithDetails(
 					"Channels",
@@ -371,8 +377,8 @@ func (w *wizardSession) runWizard(opts cliOptions) (Answers, error) {
 				}
 
 				if hasDiscord(answers.ChannelChoice) {
-					if shouldReuseChannelTokenWithoutPrompt(reuseExisting, existing, existing.DiscordToken) {
-						answers.DiscordToken = existing.DiscordToken
+					if shouldReuseChannelTokenWithoutPrompt(reuseExisting, existing, existingDiscordToken) {
+						answers.DiscordToken = existingDiscordToken
 						w.conversation = append(w.conversation, "Assistant: Reusing saved Discord connection.")
 					} else {
 						discordToken, tokenErr := w.askInput("Channels", "Discord bot token (optional)", answers.DiscordToken, []string{"Message Content Intent must be enabled in Discord developer portal."})
@@ -387,8 +393,8 @@ func (w *wizardSession) runWizard(opts cliOptions) (Answers, error) {
 					}
 				}
 				if hasTelegram(answers.ChannelChoice) {
-					if shouldReuseChannelTokenWithoutPrompt(reuseExisting, existing, existing.TelegramToken) {
-						answers.TelegramToken = existing.TelegramToken
+					if shouldReuseChannelTokenWithoutPrompt(reuseExisting, existing, existingTelegramToken) {
+						answers.TelegramToken = existingTelegramToken
 						w.conversation = append(w.conversation, "Assistant: Reusing saved Telegram connection.")
 					} else {
 						telegramToken, tokenErr := w.askInput("Channels", "Telegram bot token (optional)", answers.TelegramToken, []string{"Create a Telegram bot token with @BotFather."})
