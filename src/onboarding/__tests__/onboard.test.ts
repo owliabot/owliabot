@@ -138,8 +138,6 @@ describe("onboarding", () => {
       "",                  // Workspace path: default
       "",                  // Enable Gateway HTTP: default yes
       "",                  // Gateway port: default 8787
-      "111,222",           // Discord channelAllowList
-      "123456789",         // Discord memberAllowList
       "539066683",         // Telegram allowList
       "",                  // Enable Playwright MCP: default yes
       "",                  // Additional write-tool user IDs (empty = use only channel users)
@@ -162,13 +160,13 @@ describe("onboarding", () => {
     });
     expect(config?.gateway?.http?.token).toBeTruthy();
     expect(config?.discord?.requireMentionInGuild).toBe(true);
-    expect(config?.discord?.channelAllowList).toEqual(["111", "222"]);
-    expect(config?.discord?.memberAllowList).toEqual(["123456789"]);
+    expect(config?.discord?.channelAllowList).toEqual([]);
+    expect(config?.discord?.memberAllowList).toBeUndefined();
     expect(config?.discord && "token" in config.discord).toBe(false);
     expect(config?.telegram?.allowList).toEqual(["539066683"]);
     expect(config?.telegram && "token" in config.telegram).toBe(false);
     expect(config?.tools?.allowWrite).toBe(true);
-    expect(config?.security?.writeToolAllowList).toEqual(["123456789", "539066683"]);
+    expect(config?.security?.writeToolAllowList).toEqual(["539066683"]);
     expect(config?.security?.writeGateEnabled).toBe(false);
     expect(config?.security?.writeToolConfirmation).toBe(false);
 
@@ -407,7 +405,7 @@ describe("onboarding", () => {
     expect(config?.telegram?.allowList).toBeUndefined();
   });
 
-  it("prompts for write-tool allowlist when Playwright is enabled without channel allowlists", async () => {
+  it("uses default empty allowlists when Playwright is enabled", async () => {
     const appConfigPath = join(dir, "app.yaml");
 
     answers = [
@@ -418,22 +416,16 @@ describe("onboarding", () => {
       "",                  // Discord token (skip)
       "",                  // Workspace path: default
       "",                  // Enable Gateway HTTP: default yes
-      "",                  // Gateway port: default 8787
-      "",                  // Discord channelAllowList (empty)
-      "123456789",         // Discord memberAllowList
       "",                  // Enable Playwright MCP: default yes
-      "",                  // Additional write-tool user IDs (empty = use only channel users)
+      "",                  // Additional write-tool user IDs (empty)
     ];
 
     await runOnboarding({ appConfigPath });
 
     const config = await loadAppConfig(appConfigPath);
-    const prompts = promptLog.join("\n");
 
-    expect(prompts.toLowerCase()).toContain("member allowlist");
-    expect(config?.security?.writeToolAllowList).toEqual(["123456789"]);
-    expect(config?.security?.writeGateEnabled).toBe(false);
-    expect(config?.security?.writeToolConfirmation).toBe(false);
+    expect(config?.discord?.channelAllowList).toEqual([]);
+    expect(config?.discord?.memberAllowList).toBeUndefined();
   });
 
   it("prompts to reuse existing Telegram config and preserves allowList/groups when reused", async () => {

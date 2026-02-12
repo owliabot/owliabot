@@ -1,10 +1,30 @@
 // src/agent/tools/builtin/__tests__/factory.test.ts
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import { createBuiltinTools } from "../factory.js";
 import type { SessionStore } from "../../../session-store.js";
 import type { SessionTranscriptStore } from "../../../session-transcript.js";
+import * as walletModule from "../../../../wallet/index.js";
+
+// Mock the wallet module for chains() calls
+vi.mock("../../../../wallet/index.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof walletModule>();
+  return {
+    ...actual,
+    getClawletClient: vi.fn(),
+  };
+});
 
 describe("createBuiltinTools", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    // Default: mock chains() to return empty (no daemon running)
+    vi.mocked(walletModule.getClawletClient).mockReturnValue({
+      chains: vi.fn().mockResolvedValue([
+        { chain_id: 8453, name: "Base" },
+        { chain_id: 1, name: "Ethereum Mainnet" },
+      ]),
+    } as any);
+  });
   const mockSessionStore = {
     get: vi.fn(),
     getOrCreate: vi.fn(),
@@ -17,8 +37,8 @@ describe("createBuiltinTools", () => {
     getHistory: vi.fn(),
   } as unknown as SessionTranscriptStore;
 
-  it("returns core tools by default", () => {
-    const tools = createBuiltinTools({
+  it("returns core tools by default", async () => {
+    const tools = await createBuiltinTools({
       workspace: "/tmp/workspace",
       sessionStore: mockSessionStore,
       transcripts: mockTranscripts,
@@ -36,8 +56,8 @@ describe("createBuiltinTools", () => {
     expect(names).not.toContain("edit_file");
   });
 
-  it("excludes write tools when allowWrite is false", () => {
-    const tools = createBuiltinTools({
+  it("excludes write tools when allowWrite is false", async () => {
+    const tools = await createBuiltinTools({
       workspace: "/tmp/workspace",
       sessionStore: mockSessionStore,
       transcripts: mockTranscripts,
@@ -48,8 +68,8 @@ describe("createBuiltinTools", () => {
     expect(names).not.toContain("edit_file");
   });
 
-  it("includes write tools when allowWrite is true", () => {
-    const tools = createBuiltinTools({
+  it("includes write tools when allowWrite is true", async () => {
+    const tools = await createBuiltinTools({
       workspace: "/tmp/workspace",
       sessionStore: mockSessionStore,
       transcripts: mockTranscripts,
@@ -63,8 +83,8 @@ describe("createBuiltinTools", () => {
     expect(names).toContain("delete_file");
   });
 
-  it("does not include help or cron tools (registered separately)", () => {
-    const tools = createBuiltinTools({
+  it("does not include help or cron tools (registered separately)", async () => {
+    const tools = await createBuiltinTools({
       workspace: "/tmp/workspace",
       sessionStore: mockSessionStore,
       transcripts: mockTranscripts,
@@ -76,8 +96,8 @@ describe("createBuiltinTools", () => {
     expect(names).not.toContain("cron");
   });
 
-  it("returns valid tool definitions", () => {
-    const tools = createBuiltinTools({
+  it("returns valid tool definitions", async () => {
+    const tools = await createBuiltinTools({
       workspace: "/tmp/workspace",
       sessionStore: mockSessionStore,
       transcripts: mockTranscripts,
@@ -92,8 +112,8 @@ describe("createBuiltinTools", () => {
   });
 
   describe("policy filtering", () => {
-    it("filters tools with allowList policy", () => {
-      const tools = createBuiltinTools({
+    it("filters tools with allowList policy", async () => {
+      const tools = await createBuiltinTools({
         workspace: "/tmp/workspace",
         sessionStore: mockSessionStore,
         transcripts: mockTranscripts,
@@ -107,8 +127,8 @@ describe("createBuiltinTools", () => {
       expect(names).toEqual(["echo", "memory_search"]);
     });
 
-    it("filters tools with denyList policy", () => {
-      const tools = createBuiltinTools({
+    it("filters tools with denyList policy", async () => {
+      const tools = await createBuiltinTools({
         workspace: "/tmp/workspace",
         sessionStore: mockSessionStore,
         transcripts: mockTranscripts,
@@ -125,8 +145,8 @@ describe("createBuiltinTools", () => {
       expect(names).toContain("memory_search");
     });
 
-    it("allowList takes precedence over denyList", () => {
-      const tools = createBuiltinTools({
+    it("allowList takes precedence over denyList", async () => {
+      const tools = await createBuiltinTools({
         workspace: "/tmp/workspace",
         sessionStore: mockSessionStore,
         transcripts: mockTranscripts,
@@ -143,15 +163,15 @@ describe("createBuiltinTools", () => {
       expect(names).toEqual(["echo", "edit_file"]);
     });
 
-    it("returns all tools when policy is undefined", () => {
-      const toolsWithPolicy = createBuiltinTools({
+    it("returns all tools when policy is undefined", async () => {
+      const toolsWithPolicy = await createBuiltinTools({
         workspace: "/tmp/workspace",
         sessionStore: mockSessionStore,
         transcripts: mockTranscripts,
         tools: { allowWrite: true, policy: undefined },
       });
 
-      const toolsWithoutPolicy = createBuiltinTools({
+      const toolsWithoutPolicy = await createBuiltinTools({
         workspace: "/tmp/workspace",
         sessionStore: mockSessionStore,
         transcripts: mockTranscripts,
@@ -163,10 +183,10 @@ describe("createBuiltinTools", () => {
       );
     });
 
-    it("policy filtering applies after allowWrite filtering", () => {
+    it("policy filtering applies after allowWrite filtering", async () => {
       // With allowWrite: false, edit_file is never created
       // So even if policy allows it, it won't be in the result
-      const tools = createBuiltinTools({
+      const tools = await createBuiltinTools({
         workspace: "/tmp/workspace",
         sessionStore: mockSessionStore,
         transcripts: mockTranscripts,
@@ -183,8 +203,8 @@ describe("createBuiltinTools", () => {
   });
 
   describe("wallet tools", () => {
-    it("excludes wallet tools when wallet is not configured", () => {
-      const tools = createBuiltinTools({
+    it("excludes wallet tools when wallet is not configured", async () => {
+      const tools = await createBuiltinTools({
         workspace: "/tmp/workspace",
         sessionStore: mockSessionStore,
         transcripts: mockTranscripts,
@@ -195,8 +215,8 @@ describe("createBuiltinTools", () => {
       expect(names).not.toContain("wallet_transfer");
     });
 
-    it("excludes wallet tools when wallet.clawlet.enabled is false", () => {
-      const tools = createBuiltinTools({
+    it("excludes wallet tools when wallet.clawlet.enabled is false", async () => {
+      const tools = await createBuiltinTools({
         workspace: "/tmp/workspace",
         sessionStore: mockSessionStore,
         transcripts: mockTranscripts,
@@ -212,8 +232,8 @@ describe("createBuiltinTools", () => {
       expect(names).not.toContain("wallet_transfer");
     });
 
-    it("excludes wallet tools when clawlet config is missing", () => {
-      const tools = createBuiltinTools({
+    it("excludes wallet tools when clawlet config is missing", async () => {
+      const tools = await createBuiltinTools({
         workspace: "/tmp/workspace",
         sessionStore: mockSessionStore,
         transcripts: mockTranscripts,
@@ -225,8 +245,8 @@ describe("createBuiltinTools", () => {
       expect(names).not.toContain("wallet_transfer");
     });
 
-    it("includes wallet tools when wallet.clawlet.enabled is true", () => {
-      const tools = createBuiltinTools({
+    it("includes wallet tools when wallet.clawlet.enabled is true", async () => {
+      const tools = await createBuiltinTools({
         workspace: "/tmp/workspace",
         sessionStore: mockSessionStore,
         transcripts: mockTranscripts,
@@ -242,8 +262,8 @@ describe("createBuiltinTools", () => {
       expect(names).toContain("wallet_transfer");
     });
 
-    it("includes wallet tools with custom clawlet config", () => {
-      const tools = createBuiltinTools({
+    it("includes wallet tools with custom clawlet config", async () => {
+      const tools = await createBuiltinTools({
         workspace: "/tmp/workspace",
         sessionStore: mockSessionStore,
         transcripts: mockTranscripts,
@@ -264,8 +284,8 @@ describe("createBuiltinTools", () => {
       expect(names).toContain("wallet_transfer");
     });
 
-    it("wallet tools are valid tool definitions", () => {
-      const tools = createBuiltinTools({
+    it("wallet tools are valid tool definitions", async () => {
+      const tools = await createBuiltinTools({
         workspace: "/tmp/workspace",
         sessionStore: mockSessionStore,
         transcripts: mockTranscripts,
@@ -277,10 +297,10 @@ describe("createBuiltinTools", () => {
       });
 
       const walletTools = tools.filter((t) =>
-        ["wallet_balance", "wallet_transfer"].includes(t.name)
+        ["wallet_balance", "wallet_transfer", "wallet_send_tx"].includes(t.name)
       );
 
-      expect(walletTools).toHaveLength(2);
+      expect(walletTools).toHaveLength(3);
       for (const tool of walletTools) {
         expect(tool.name).toBeTruthy();
         expect(tool.description).toBeTruthy();
@@ -289,8 +309,8 @@ describe("createBuiltinTools", () => {
       }
     });
 
-    it("wallet tools can be filtered by policy", () => {
-      const tools = createBuiltinTools({
+    it("wallet tools can be filtered by policy", async () => {
+      const tools = await createBuiltinTools({
         workspace: "/tmp/workspace",
         sessionStore: mockSessionStore,
         transcripts: mockTranscripts,
@@ -308,10 +328,11 @@ describe("createBuiltinTools", () => {
       expect(names).toContain("echo");
       expect(names).toContain("wallet_balance");
       expect(names).not.toContain("wallet_transfer");
+      expect(names).not.toContain("wallet_send_tx");
     });
 
-    it("wallet tools can be denied by policy", () => {
-      const tools = createBuiltinTools({
+    it("wallet tools can be denied by policy", async () => {
+      const tools = await createBuiltinTools({
         workspace: "/tmp/workspace",
         sessionStore: mockSessionStore,
         transcripts: mockTranscripts,
@@ -328,6 +349,49 @@ describe("createBuiltinTools", () => {
       const names = tools.map((t) => t.name);
       expect(names).toContain("wallet_balance");
       expect(names).not.toContain("wallet_transfer");
+      expect(names).toContain("wallet_send_tx");
+    });
+
+    it("wallet_send_tx can be filtered by allowList policy", async () => {
+      const tools = await createBuiltinTools({
+        workspace: "/tmp/workspace",
+        sessionStore: mockSessionStore,
+        transcripts: mockTranscripts,
+        wallet: {
+          clawlet: {
+            enabled: true,
+          },
+        },
+        tools: {
+          policy: { allowList: ["wallet_send_tx"] },
+        },
+      });
+
+      const names = tools.map((t) => t.name);
+      expect(names).toContain("wallet_send_tx");
+      expect(names).not.toContain("wallet_balance");
+      expect(names).not.toContain("wallet_transfer");
+    });
+
+    it("wallet_send_tx can be denied by denyList policy", async () => {
+      const tools = await createBuiltinTools({
+        workspace: "/tmp/workspace",
+        sessionStore: mockSessionStore,
+        transcripts: mockTranscripts,
+        wallet: {
+          clawlet: {
+            enabled: true,
+          },
+        },
+        tools: {
+          policy: { denyList: ["wallet_send_tx"] },
+        },
+      });
+
+      const names = tools.map((t) => t.name);
+      expect(names).toContain("wallet_balance");
+      expect(names).toContain("wallet_transfer");
+      expect(names).not.toContain("wallet_send_tx");
     });
   });
 });

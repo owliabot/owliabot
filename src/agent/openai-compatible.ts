@@ -20,6 +20,8 @@ export interface OpenAICompatibleConfig {
   baseUrl: string;
   model: string;
   apiKey?: string;
+  authType?: "bearer" | "api-key" | "header" | "none";
+  authHeader?: string;
   timeoutMs?: number;
 }
 
@@ -218,7 +220,7 @@ export async function openAICompatibleComplete(
   messages: Message[],
   options?: RunnerOptions
 ): Promise<LLMResponse> {
-  const { baseUrl, model, apiKey, timeoutMs = 120_000 } = config;
+  const { baseUrl, model, apiKey, authType, authHeader, timeoutMs = 120_000 } = config;
 
   // Normalize baseUrl - remove trailing slash, ensure /chat/completions path
   const normalizedBaseUrl = baseUrl.replace(/\/+$/, "");
@@ -252,9 +254,29 @@ export async function openAICompatibleComplete(
     "Content-Type": "application/json",
   };
 
-  // Add Authorization header if API key is provided and not empty
+  // Warn on suspicious auth configurations
+  if (authType === "none" && apiKey && apiKey.trim() !== "") {
+    log.warn("authType is 'none' but apiKey is set — apiKey will be ignored");
+  }
+  if (authType === "header" && (!authHeader || authHeader.trim() === "")) {
+    log.warn("authType is 'header' but authHeader is empty");
+  }
+
+  // Add auth header if API key is provided and not empty
   if (apiKey && apiKey.trim() !== "") {
-    headers["Authorization"] = `Bearer ${apiKey}`;
+    switch (authType ?? "bearer") {
+      case "bearer":
+        headers["Authorization"] = `Bearer ${apiKey}`;
+        break;
+      case "api-key":
+        headers["Authorization"] = `ApiKey ${apiKey}`;
+        break;
+      case "header":
+        if (authHeader) headers[authHeader] = apiKey;
+        break;
+      case "none":
+        break;
+    }
   }
 
   const controller = new AbortController();

@@ -105,6 +105,16 @@ export interface HealthResponse {
   version?: string;
 }
 
+/** Chain information returned by the Clawlet daemon */
+export interface ChainInfo {
+  /** Chain ID (e.g. 1, 8453) */
+  chain_id: number;
+  /** Human-readable chain name (e.g. "Base") */
+  name: string;
+  /** Whether this is a testnet */
+  testnet?: boolean;
+}
+
 /** Address query response */
 export interface AddressResponse {
   /** Wallet address managed by Clawlet (0x-prefixed) */
@@ -316,6 +326,13 @@ export class ClawletClient extends EventEmitter {
    */
   async address(): Promise<AddressResponse> {
     return this.call<AddressResponse>("address", undefined, false);
+  }
+
+  /**
+   * List supported chains — does not require auth
+   */
+  async chains(): Promise<ChainInfo[]> {
+    return this.call<ChainInfo[]>("chains", undefined, false);
   }
 
   /**

@@ -5,8 +5,9 @@
 
 import { program } from "commander";
 import { join, dirname } from "node:path";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+import updateNotifier from "update-notifier";
 import { loadConfig } from "./config/loader.js";
 import { ensureWorkspaceInitialized } from "./workspace/init.js";
 import { loadWorkspace } from "./workspace/loader.js";
@@ -33,6 +34,12 @@ import { diagnoseDoctor } from "./doctor/index.js";
 
 const log = logger;
 
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const pkg = JSON.parse(readFileSync(join(__dirname, "..", "package.json"), "utf-8")) as {
+  name: string;
+  version: string;
+};
+
 const nodeMajor = Number.parseInt(process.versions.node.split(".")[0] ?? "0", 10);
 if (Number.isNaN(nodeMajor) || nodeMajor < 22) {
   log.error(
@@ -41,10 +48,17 @@ if (Number.isNaN(nodeMajor) || nodeMajor < 22) {
   process.exit(1);
 }
 
+const isDocker = process.env.OWLIABOT_DOCKER === "1" || existsSync("/.dockerenv");
+if (!isDocker) {
+  updateNotifier({ pkg }).notify({
+    message: "Update available {currentVersion} → {latestVersion}\nRun `npx owliabot@latest` to update",
+  });
+}
+
 program
   .name("owliabot")
   .description("Crypto-native AI agent for Telegram and Discord")
-  .version("0.1.0");
+  .version(pkg.version);
 
 /**
  * Check if any OAuth providers are configured but lack credentials.
@@ -149,9 +163,7 @@ program
       process.on("SIGTERM", shutdown);
 
       // ASCII art banner
-      const __dirname = dirname(fileURLToPath(import.meta.url));
-      const pkg = JSON.parse(readFileSync(join(__dirname, "..", "package.json"), "utf-8"));
-      const version = pkg.version as string;
+      const version = pkg.version;
       const banner = [
         "",
         "   ___           _ _       ____        _   ",
@@ -845,7 +857,32 @@ wallet
           const baseUrlAns = await ask(`Clawlet base URL [${baseUrl}]: `);
           if (baseUrlAns) baseUrl = baseUrlAns;
 
-          const tokenAns = await ask("Paste Clawlet token: ");
+          const tokenAns = await new Promise<string>((resolve) => {
+            process.stdout.write("Paste Clawlet token: ");
+            const stdin = process.stdin;
+            const wasRaw = stdin.isRaw;
+            if (typeof stdin.setRawMode === "function") stdin.setRawMode(true);
+            let buf = "";
+            const onData = (ch: Buffer) => {
+              const c = ch.toString();
+              if (c === "\n" || c === "\r") {
+                stdin.removeListener("data", onData);
+                if (typeof stdin.setRawMode === "function") stdin.setRawMode(wasRaw ?? false);
+                process.stdout.write("\n");
+                resolve(buf.trim());
+              } else if (c === "\x7f" || c === "\b") {
+                buf = buf.slice(0, -1);
+              } else if (c === "\x03") {
+                // Ctrl+C
+                stdin.removeListener("data", onData);
+                if (typeof stdin.setRawMode === "function") stdin.setRawMode(wasRaw ?? false);
+                resolve("");
+              } else {
+                buf += c;
+              }
+            };
+            stdin.on("data", onData);
+          });
           if (!isValidClawletToken(tokenAns)) {
             throw new Error("Invalid token format (should start with 'clwt_')");
           }
@@ -978,6 +1015,63 @@ program
         process.exit(0);
       }
       log.error("Failed to read logs", err);
+      process.exit(1);
+    }
+  });
+
+// Security command group
+const security = program.command("security").description("Manage WriteGate and security configuration");
+
+security
+  .command("show")
+  .description("Display current security configuration")
+  .action(async () => {
+    try {
+      const { securityShow } = await import("./security/cli.js");
+      await securityShow();
+    } catch (err) {
+      log.error("Failed to show security config", err);
+      process.exit(1);
+    }
+  });
+
+security
+  .command("setup")
+  .description("Interactive security configuration")
+  .action(async () => {
+    try {
+      const { securitySetup } = await import("./security/cli.js");
+      await securitySetup();
+    } catch (err) {
+      log.error("Security setup failed", err);
+      process.exit(1);
+    }
+  });
+
+security
+  .command("add-user")
+  .description("Add a user to the writeToolAllowList")
+  .argument("<userId>", "Discord or Telegram user ID")
+  .action(async (userId: string) => {
+    try {
+      const { securityAddUser } = await import("./security/cli.js");
+      await securityAddUser(userId);
+    } catch (err) {
+      log.error("Failed to add user", err);
+      process.exit(1);
+    }
+  });
+
+security
+  .command("remove-user")
+  .description("Remove a user from the writeToolAllowList")
+  .argument("<userId>", "Discord or Telegram user ID")
+  .action(async (userId: string) => {
+    try {
+      const { securityRemoveUser } = await import("./security/cli.js");
+      await securityRemoveUser(userId);
+    } catch (err) {
+      log.error("Failed to remove user", err);
       process.exit(1);
     }
   });

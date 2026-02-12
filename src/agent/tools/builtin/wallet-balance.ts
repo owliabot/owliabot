@@ -10,13 +10,17 @@ import {
   ClawletError,
   type BalanceQuery,
   type ClawletClientConfig,
+  type ChainInfo,
 } from "../../../wallet/index.js";
+import { formatChainList } from "./wallet.js";
 
 export interface WalletBalanceToolDeps {
   /** Clawlet client configuration */
   clawletConfig?: ClawletClientConfig;
   /** Default chain ID if not specified */
   defaultChainId?: number;
+  /** Supported chains fetched from Clawlet daemon */
+  supportedChains?: ChainInfo[];
 }
 
 /**
@@ -36,11 +40,7 @@ PARAMETERS:
 - chain_id: Chain ID (optional, default: ${defaultChainId})
 
 SUPPORTED CHAINS:
-- 1: Ethereum Mainnet
-- 11155111: Ethereum Sepolia (testnet)
-- 8453: Base
-- 10: Optimism
-- 42161: Arbitrum One
+${formatChainList(deps.supportedChains)}
 
 EXAMPLE:
 { "address": "0x1234...5678", "chain_id": 8453 }`,

@@ -10,7 +10,7 @@
 
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-}")" 2>/dev/null && pwd)"
 
 if [ -f "${SCRIPT_DIR}/install.sh" ]; then
   exec bash "${SCRIPT_DIR}/install.sh" --channel develop "$@"

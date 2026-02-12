@@ -622,6 +622,126 @@ describe("openAICompatibleComplete", () => {
   });
 });
 
+describe("auth type support", () => {
+  const mockResponse = {
+    id: "chatcmpl-123",
+    object: "chat.completion",
+    created: 1234567890,
+    model: "test-model",
+    choices: [
+      {
+        index: 0,
+        message: { role: "assistant", content: "Hello!" },
+        finish_reason: "stop",
+      },
+    ],
+  };
+
+  const messages: Message[] = [
+    { role: "user", content: "Hi", timestamp: Date.now() },
+  ];
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve(mockResponse),
+    });
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("defaults to Bearer header when no authType specified", async () => {
+    await openAICompatibleComplete(
+      { baseUrl: "http://localhost/v1", model: "m", apiKey: "sk-test" },
+      messages,
+    );
+
+    const [, options] = mockFetch.mock.calls[0];
+    expect(options.headers["Authorization"]).toBe("Bearer sk-test");
+  });
+
+  it("uses Bearer header when authType='bearer'", async () => {
+    await openAICompatibleComplete(
+      { baseUrl: "http://localhost/v1", model: "m", apiKey: "sk-test", authType: "bearer" },
+      messages,
+    );
+
+    const [, options] = mockFetch.mock.calls[0];
+    expect(options.headers["Authorization"]).toBe("Bearer sk-test");
+  });
+
+  it("uses ApiKey header when authType='api-key'", async () => {
+    await openAICompatibleComplete(
+      { baseUrl: "http://localhost/v1", model: "m", apiKey: "sk-test", authType: "api-key" },
+      messages,
+    );
+
+    const [, options] = mockFetch.mock.calls[0];
+    expect(options.headers["Authorization"]).toBe("ApiKey sk-test");
+  });
+
+  it("uses custom header when authType='header'", async () => {
+    await openAICompatibleComplete(
+      {
+        baseUrl: "http://localhost/v1",
+        model: "m",
+        apiKey: "sk-test",
+        authType: "header",
+        authHeader: "X-API-Key",
+      },
+      messages,
+    );
+
+    const [, options] = mockFetch.mock.calls[0];
+    expect(options.headers["X-API-Key"]).toBe("sk-test");
+    expect(options.headers["Authorization"]).toBeUndefined();
+  });
+
+  it("sends no auth header when authType='none'", async () => {
+    await openAICompatibleComplete(
+      { baseUrl: "http://localhost/v1", model: "m", apiKey: "sk-test", authType: "none" },
+      messages,
+    );
+
+    const [, options] = mockFetch.mock.calls[0];
+    expect(options.headers["Authorization"]).toBeUndefined();
+  });
+});
+
+describe("auth type schema validation", () => {
+  it("rejects authType='header' without authHeader", async () => {
+    const { providerSchema } = await import("../config/schema.js");
+    const result = providerSchema.safeParse({
+      id: "openai-compatible",
+      model: "test",
+      apiKey: "sk-test",
+      priority: 1,
+      baseUrl: "http://localhost/v1",
+      authType: "header",
+    });
+
+    expect(result.success).toBe(false);
+  });
+
+  it("accepts authType='header' with authHeader", async () => {
+    const { providerSchema } = await import("../config/schema.js");
+    const result = providerSchema.safeParse({
+      id: "openai-compatible",
+      model: "test",
+      apiKey: "sk-test",
+      priority: 1,
+      baseUrl: "http://localhost/v1",
+      authType: "header",
+      authHeader: "X-API-Key",
+    });
+
+    expect(result.success).toBe(true);
+  });
+});
+
 describe("isOpenAICompatible", () => {
   it("returns true for openai-compatible", () => {
     expect(isOpenAICompatible("openai-compatible")).toBe(true);

@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { mkdirSync, writeFileSync, readdirSync, lstatSync, chmodSync } from "node:fs";
 import type { AppConfig } from "../types.js";
 import type { SecretsConfig } from "../secrets.js";
-import { ask, header, info, success } from "../shared.js";
+import { header, info, success, COLORS } from "../shared.js";
 import type { createInterface } from "node:readline";
 
 type RL = ReturnType<typeof createInterface>;
@@ -51,13 +51,12 @@ export function initDockerPaths(outputDir?: string): DockerPaths {
  * Prompt for Docker Compose-specific settings.
  */
 export async function promptDockerComposeSetup(
-  rl: RL,
+  _rl: RL,
   gatewayToken: string,
 ): Promise<DockerComposeSetup> {
   header("Docker");
-  info("Which port should I use on your machine for Gateway HTTP? (The container listens on 8787)");
-  const gatewayPort = await ask(rl, "Host port [8787]: ") || "8787";
-  return { gatewayToken, gatewayPort };
+  info("Using default Gateway port: 8787");
+  return { gatewayToken, gatewayPort: "8787" };
 }
 
 /**
@@ -200,18 +199,62 @@ export function printDockerNextSteps(
   useOpenaiCodex: boolean,
   secrets: SecretsConfig,
 ): void {
-  header("You're ready");
+  const C = COLORS;
 
-  console.log("Here's what I saved:");
-  console.log("  - ~/.owliabot/auth/          (saved sign-in tokens)");
-  console.log("  - ~/.owliabot/app.yaml       (settings)");
-  console.log("  - ~/.owliabot/secrets.yaml   (private values)");
-  console.log("  - ~/.owliabot/workspace/     (workspace, skills, bootstrap)");
-  console.log(`  - ${join(paths.outputDir, "docker-compose.yml")}       (Docker Compose file)`);
+  // Strip ANSI escape codes to get visible character count
+  const stripAnsi = (s: string) => s.replace(/\x1b\[[0-9;]*m/g, "");
+  // Visible width: emoji generally occupy 2 columns in terminals
+  const visWidth = (s: string) => {
+    const plain = stripAnsi(s);
+    let w = 0;
+    for (const ch of plain) {
+      // Emoji and wide CJK chars take 2 columns; basic check via code point
+      const cp = ch.codePointAt(0)!;
+      w += cp > 0x1f600 || (cp >= 0x2600 && cp <= 0x27bf) || (cp >= 0x1f300 && cp <= 0x1faff) ? 2 : 1;
+    }
+    return w;
+  };
+
+  const composePath = join(paths.outputDir, "docker-compose.yml");
+  const tokenShort = gatewayToken.slice(0, 8) + "...";
+
+  // Build content lines first, then compute box width
+  const rows: string[] = [
+    "📁 Config     ~/.owliabot/app.yaml",
+    "🔐 Secrets    ~/.owliabot/secrets.yaml",
+    "🔑 Auth       ~/.owliabot/auth/",
+    "📂 Workspace  ~/.owliabot/workspace/",
+    `🐳 Compose    ${composePath}`,
+    "",
+    `${C.CYAN}🌐 Gateway${C.NC}`,
+    `   URL:   ${C.GREEN}http://localhost:${gatewayPort}${C.NC}`,
+    `   Token: ${C.YELLOW}${tokenShort}${C.NC}`,
+  ];
+  const titleRow = `${C.GREEN}✅  Setup Complete${C.NC}`;
+
+  // Box inner width = max visible width of any row + 4 (2 padding each side)
+  const maxVis = Math.max(visWidth(titleRow), ...rows.map(visWidth));
+  const W = maxVis + 4;
+
+  const border = (ch: string) => `${C.CYAN}${ch}${C.NC}`;
+  const line = (content: string) => {
+    const pad = W - visWidth(content) - 2;
+    return `${border("│")}  ${content}${" ".repeat(Math.max(0, pad))}${border("│")}`;
+  };
+  const top   = `${C.CYAN}┌${"─".repeat(W)}┐${C.NC}`;
+  const mid   = `${C.CYAN}├${"─".repeat(W)}┤${C.NC}`;
+  const bot   = `${C.CYAN}└${"─".repeat(W)}┘${C.NC}`;
+  const empty = line("");
+
   console.log("");
-
-  console.log("Gateway endpoint:");
-  console.log(`  - URL:   http://localhost:${gatewayPort}`);
-  console.log(`  - Token: ${gatewayToken.slice(0, 8)}...`);
+  console.log(top);
+  console.log(line(titleRow));
+  console.log(mid);
+  console.log(empty);
+  for (const row of rows) {
+    console.log(row === "" ? empty : line(row));
+  }
+  console.log(empty);
+  console.log(bot);
   console.log("");
 }

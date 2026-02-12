@@ -88,6 +88,12 @@ tools:
     cooldown:
       maxPerHour: 10
 
+  "wallet_send_tx":
+    tier: none
+    requireConfirmation: false  # TODO: enable when confirmation implemented
+    cooldown:
+      maxPerHour: 10
+
 # Wildcard patterns (first match wins)
 wildcards:
   - pattern: "*_get_*"

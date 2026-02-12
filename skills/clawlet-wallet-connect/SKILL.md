@@ -1,108 +1,99 @@
 ---
 name: clawlet-wallet-connect
 description: Guide the user through installing Clawlet wallet daemon and connecting it to OwliaBot.
-version: 1.0.0
+version: 2.3.0
 ---
 
 # Wallet Connect (Clawlet)
 
-Guide the user step-by-step to install the Clawlet wallet daemon and connect it to OwliaBot.
+Help the user install and connect the Clawlet wallet daemon to OwliaBot.
 
-## Step 1 — Check Prerequisites
+## Step 1 — Detect Environment
 
-Before starting, confirm:
-- OwliaBot is already running (`owliabot start` or Docker container is up)
-- Gateway HTTP is enabled in `app.yaml` (section `gateway.http`)
-
-If the user hasn't started OwliaBot yet, tell them to do that first.
-
-## Step 2 — Install Clawlet
-
-Clawlet is a secure local wallet daemon that keeps private keys isolated from OwliaBot.
+**Run silently before talking to the user:**
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/owliabot/clawlet/main/scripts/install.sh | sudo bash -s -- --isolated
+command -v clawlet >/dev/null 2>&1 && echo "CLAWLET_INSTALLED=yes" || echo "CLAWLET_INSTALLED=no"
+ps aux | grep -v grep | grep clawlet >/dev/null 2>&1 && echo "CLAWLET_RUNNING=yes" || echo "CLAWLET_RUNNING=no"
+ps aux | grep -v grep | grep -E "owliabot" >/dev/null 2>&1 && echo "OWLIABOT_RUNNING=yes" || echo "OWLIABOT_RUNNING=no"
 ```
 
-This creates a dedicated system user for key isolation.
+## Step 2 — Execute (check in this order)
 
-After install, verify:
+**Priority order — check top to bottom, take the first match:**
+
+### 1. OwliaBot not running?
+
+If `OWLIABOT_RUNNING=no` → **Stop.** Tell user to start OwliaBot first.
+
+### 2. Clawlet not installed?
+
+If `CLAWLET_INSTALLED=no` → Full chain (install + start + auth grant + connect):
 
 ```bash
-clawlet --version
+curl -fsSL https://raw.githubusercontent.com/owliabot/clawlet/main/scripts/install.sh -o /tmp/clawlet-install.sh && sudo bash /tmp/clawlet-install.sh --isolated
 ```
 
-## Step 3 — Start Clawlet
+> Creating a new wallet will show a mnemonic — **remind the user to save it**, it won't be shown again.
 
-`clawlet start` initializes the wallet and starts the HTTP server:
+Then start and generate an auth token:
 
 ```bash
-# Isolated mode (recommended)
 sudo -H -u clawlet clawlet start --daemon
-
-# Or under current user
-clawlet start
-```
-
-This will:
-1. Initialize a new wallet (if not already initialized)
-2. Start the HTTP server on `http://127.0.0.1:9100`
-
-Then generate an auth token separately:
-
-```bash
-# Isolated mode
 sudo -H -u clawlet clawlet auth grant --scope read,trade --label owliabot
-
-# Or under current user
-clawlet auth grant --scope read,trade --label owliabot
 ```
 
 The token (`clwt_xxxxx`) is printed to stdout — **save it** for the next step.
 
-## Step 4 — Connect to OwliaBot
-
-With the token from the `auth grant` step, run the connect command matching your OwliaBot setup:
-
-### Docker mode (recommended)
+Then connect:
 
 ```bash
-docker exec -it owliabot owliabot wallet connect --token clwt_xxxxx
-
-# Or interactive (auto-detects daemon, prompts for token)
-docker exec -it owliabot owliabot wallet connect
+clawlet connect --agent owliabot
 ```
 
-### npm mode (Node.js)
+### 3. Installed but not running?
+
+If `CLAWLET_INSTALLED=yes` and `CLAWLET_RUNNING=no` → Start + auth grant + connect:
 
 ```bash
-npx tsx src/entry.ts wallet connect --token clwt_xxxxx
-
-# Or interactive
-npx tsx src/entry.ts wallet connect
+sudo -H -u clawlet clawlet start --daemon
+sudo -H -u clawlet clawlet auth grant --scope read,trade --label owliabot
+clawlet connect --agent owliabot
 ```
 
-On success you'll see:
+### 4. Running?
+
+If `CLAWLET_RUNNING=yes` → Connect (idempotent, safe to re-run):
+
+```bash
+clawlet connect --agent owliabot
+```
+
+## Step 3 — Verify
+
+```bash
+clawlet connect --agent owliabot
+```
+
+Success output:
 
 ```
-Wallet connected successfully!
+✓ Connected to OwliaBot
   Address: 0x1234...5678
   Balance: 0.52 ETH
-  Scope:   trade
-  Tools:   wallet_balance, wallet_transfer
+  Tools:   wallet_balance, wallet_transfer, wallet_send_tx
 ```
 
-## Important Notes
+## Reconnect After Restart
 
-- Wallet config is stored **in memory only**. If the gateway restarts, run `wallet connect` again.
-- To disconnect: `owliabot wallet disconnect`
-- Private keys never enter the OwliaBot process — all signing happens inside Clawlet.
+Wallet config is in-memory. After OwliaBot restarts: `clawlet connect --agent owliabot`
 
 ## Troubleshooting
 
 | Problem | Solution |
 |---------|----------|
 | `clawlet: command not found` | Re-run the install script or check your PATH |
+| Daemon not running | `sudo -H -u clawlet clawlet start --daemon` |
 | Health check fails | Make sure `clawlet start` is running |
 | `Invalid token format` | Token must start with `clwt_` — re-run `clawlet auth grant --scope read,trade --label owliabot` |
 | `gateway.http is not configured` | Add `gateway.http` section to `app.yaml` and restart OwliaBot |
@@ -110,10 +101,4 @@ Wallet connected successfully!
 
 ## Supported Chains
 
-| Chain ID | Network |
-|----------|---------|
-| 1 | Ethereum Mainnet |
-| 8453 | Base (default) |
-| 10 | Optimism |
-| 42161 | Arbitrum One |
-| 11155111 | Sepolia (testnet) |
+Base (8453, default) · Ethereum (1) · Optimism (10) · Arbitrum (42161) · Sepolia (11155111)

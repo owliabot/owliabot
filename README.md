@@ -72,39 +72,47 @@ See [Docker Installation Guide](docs/docker-install.md) for details.
 - A Telegram Bot token (from @BotFather) or a Discord Bot token
 - An AI provider API key (Anthropic, OpenAI) — or use OAuth with Claude subscription
 
-### 1. Clone and install
+### Option A: Install from npm (Recommended)
+
+```bash
+npx owliabot onboard
+```
+
+### Option B: Install from source
 
 ```bash
 git clone https://github.com/owliabot/owliabot.git
 cd owliabot
-npm install
+npm install && npm run build
 ```
 
-### 2. Run interactive setup (recommended)
+> **From source?** Replace `npx owliabot` with `npx tsx src/entry.ts` in all commands below.
+
+### 1. Run interactive setup
 
 ```bash
-npx tsx src/entry.ts onboard
+npx owliabot onboard
 ```
 
-    The wizard will guide you through:
-    - Choosing channels (Discord / Telegram)
-    - Auto-detecting timezone (editable in config)
-    - Selecting AI model
-    - Optional OAuth authentication
-    - Channel token configuration
+The wizard will guide you through:
+- Choosing channels (Discord / Telegram)
+- Auto-detecting timezone (editable in config)
+- Selecting AI model
+- Optional OAuth authentication
+- Channel token configuration
 
 Config is saved to `$OWLIABOT_HOME/app.yaml` (default: `~/.owliabot/app.yaml`), secrets to `$OWLIABOT_HOME/secrets.yaml`.
 
-### 3. Start the bot
+### 2. Start the bot
 
 ```bash
-npx tsx src/entry.ts start
+npx owliabot start
 ```
 
 Or with a custom config path:
 
 ```bash
-npx tsx src/entry.ts start -c /path/to/config.yaml
+npx owliabot start -c /path/to/config.yaml
 ```
 
 Send a message to your bot — you should get a response!
@@ -116,12 +124,12 @@ If you prefer manual setup:
 ```bash
 cp config.example.yaml config.yaml
 # Edit config.yaml with your API keys and tokens
-npx tsx src/entry.ts start -c config.yaml
+npx owliabot start -c config.yaml
 ```
 
 ## CLI Commands
 
-All commands use `npx tsx src/entry.ts <command>`:
+All commands use `npx owliabot <command>`:
 
 | Command | Description |
 |---------|-------------|
@@ -138,28 +146,28 @@ All commands use `npx tsx src/entry.ts <command>`:
 
 ```bash
 # Interactive onboarding
-npx tsx src/entry.ts onboard
+npx owliabot onboard
 
 # Diagnose startup issues (config errors / malformed tokens)
-npx tsx src/entry.ts doctor
+npx owliabot doctor
 
 # Start with default config ($OWLIABOT_HOME/app.yaml; default: ~/.owliabot/app.yaml)
-npx tsx src/entry.ts start
+npx owliabot start
 
 # Start with custom config
-npx tsx src/entry.ts start -c config.yaml
+npx owliabot start -c config.yaml
 
 # Setup Claude OAuth
-npx tsx src/entry.ts auth setup anthropic
+npx owliabot auth setup anthropic
 
 # Check auth status
-npx tsx src/entry.ts auth status
+npx owliabot auth status
 
 # Set Discord token from environment
-DISCORD_BOT_TOKEN=xxx npx tsx src/entry.ts token set discord
+DISCORD_BOT_TOKEN=xxx npx owliabot token set discord
 
 # Pair a device with gateway
-OWLIABOT_GATEWAY_TOKEN=xxx npx tsx src/entry.ts pair --device-id my-device
+OWLIABOT_GATEWAY_TOKEN=xxx npx owliabot pair --device-id my-device
 ```
 
 ## Gateway HTTP Server
@@ -196,32 +204,26 @@ OwliaBot integrates with [Clawlet](https://github.com/owliabot/clawlet), a secur
 
 ### Quick Setup
 
-1. **Install Clawlet**:
+1. **Install and start Clawlet**:
 
 ```bash
-# Recommended: isolated install with key isolation (creates dedicated system user)
-curl -fsSL https://raw.githubusercontent.com/owliabot/clawlet/main/scripts/install.sh | sudo bash -s -- --isolated
-
-# Or quick install (dev mode) — runs under your own user
-curl -fsSL https://raw.githubusercontent.com/owliabot/clawlet/main/scripts/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/owliabot/clawlet/main/scripts/install.sh -o /tmp/clawlet-install.sh && \
+  sudo bash /tmp/clawlet-install.sh && \
+  sudo clawlet start --agent owliabot --daemon && \
+  clawlet connect --agent owliabot
 ```
 
-2. **Initialize wallet and create auth token**:
+2. **Reconnect after restart** (wallet daemon or bot restart):
 
 ```bash
-clawlet init
-clawlet auth grant --scope read,trade --label "owliabot"
-# Save the returned token: clwt_xxxxx
+# Only need connect — no reinstall or sudo required
+clawlet connect --agent owliabot
 ```
 
-3. **Start the daemon**:
+> **npm 运行模式**：bot 启动时可自动发起 connect（见下方配置）。
+> **Docker 运行模式**：需要在宿主机命令行手动执行 `clawlet connect --agent owliabot`。
 
-```bash
-clawlet serve
-# Listens on http://127.0.0.1:9100
-```
-
-4. **Start the OwliaBot gateway**:
+3. **Start the OwliaBot gateway**:
 
 ```bash
 owliabot start
@@ -392,7 +394,7 @@ src/
 | Bot fails on startup | Validate config YAML syntax and required fields |
 | "Node.js version" error | Upgrade to Node.js >= 22 |
 | Bot doesn't respond | Check allowList includes your user ID |
-| OAuth expired | Run `npx tsx src/entry.ts auth setup` again |
+| OAuth expired | Run `npx owliabot auth setup` again |
 | Discord bot silent in guild | Ensure `requireMentionInGuild` settings and channel allowlist. See [Discord Setup Guide](docs/discord-setup.md) |
 | Discord bot not receiving messages | Enable MESSAGE CONTENT INTENT in Discord Developer Portal. See [Discord Setup Guide](docs/discord-setup.md) |
 | Discord bot can't reply in threads | Enable "Send Messages in Threads" permission. See [Discord Setup Guide](docs/discord-setup.md) |

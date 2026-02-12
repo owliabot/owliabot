@@ -290,10 +290,22 @@ describe("wallet_balance tool", () => {
       expect(tool.parameters.properties).toHaveProperty("chain_id");
     });
 
-    it("should include supported chains in description", () => {
+    it("should show fallback text when no chains provided", () => {
       const tool = createWalletBalanceTool();
-      expect(tool.description).toContain("8453");
-      expect(tool.description).toContain("Base");
+      expect(tool.description).toContain("query wallet service for current supported chains");
+    });
+
+    it("should include dynamic chain list when chains are provided", () => {
+      const tool = createWalletBalanceTool({
+        supportedChains: [
+          { chain_id: 8453, name: "Base" },
+          { chain_id: 1, name: "Ethereum Mainnet" },
+          { chain_id: 11155111, name: "Sepolia", testnet: true },
+        ],
+      });
+      expect(tool.description).toContain("8453: Base");
+      expect(tool.description).toContain("1: Ethereum Mainnet");
+      expect(tool.description).toContain("11155111: Sepolia (testnet)");
     });
   });
 });
