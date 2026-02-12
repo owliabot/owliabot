@@ -1,275 +1,285 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import {
+  AUTH_BASE_URL,
+  CLIENT_ID,
+  VERIFICATION_URL,
   requestDeviceCode,
   pollForDeviceCodeCompletion,
   exchangeDeviceCodeForTokens,
   refreshDeviceCodeTokens,
   runDeviceCodeLogin,
-  AUTH_BASE_URL,
-  CLIENT_ID,
-  VERIFICATION_URL,
 } from "../device-code-auth.js";
 
-// Mock global fetch
 const mockFetch = vi.fn();
 vi.stubGlobal("fetch", mockFetch);
 
-// Suppress console.log in tests
-vi.spyOn(console, "log").mockImplementation(() => {});
+const { mockLogger } = vi.hoisted(() => ({
+  mockLogger: {
+    debug: vi.fn(),
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+  },
+}));
 
-beforeEach(() => {
-  mockFetch.mockReset();
-  vi.useFakeTimers({ shouldAdvanceTime: true });
-});
+vi.mock("../../utils/logger.js", () => ({
+  createLogger: () => mockLogger,
+}));
 
-afterEach(() => {
-  vi.useRealTimers();
-});
+function createMockResponse(body: unknown, status = 200): Response {
+  return {
+    ok: status >= 200 && status < 300,
+    status,
+    statusText: status === 200 ? "OK" : "Error",
+    json: async () => body,
+    headers: new Headers(),
+    redirected: false,
+    type: "basic",
+    url: "https://auth.openai.com",
+    clone: () => createMockResponse(body, status),
+    body: null,
+    bodyUsed: false,
+    arrayBuffer: async () => new ArrayBuffer(0),
+    blob: async () => new Blob(),
+    formData: async () => new FormData(),
+    text: async () => typeof body === "string" ? body : JSON.stringify(body),
+    bytes: async () => new Uint8Array(),
+  } as Response;
+}
 
-describe("requestDeviceCode", () => {
-  it("should request and return device code info", async () => {
-    mockFetch.mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({
-        device_auth_id: "daid_123",
-        user_code: "ABCD-1234",
-        interval: "5",
-      }),
-    });
-
-    const result = await requestDeviceCode();
-
-    expect(mockFetch).toHaveBeenCalledWith(
-      `${AUTH_BASE_URL}/api/accounts/deviceauth/usercode`,
-      expect.objectContaining({
-        method: "POST",
-        body: JSON.stringify({ client_id: CLIENT_ID }),
-      }),
-    );
-    expect(result).toEqual({
-      verificationUrl: VERIFICATION_URL,
-      userCode: "ABCD-1234",
-      deviceAuthId: "daid_123",
-      interval: 5,
-    });
+describe("device-code-auth", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.useRealTimers();
   });
 
-  it("should throw on HTTP error", async () => {
-    mockFetch.mockResolvedValueOnce({
-      ok: false,
-      status: 500,
-      text: async () => "Internal Server Error",
-    });
-
-    await expect(requestDeviceCode()).rejects.toThrow("Failed to request device code: 500");
-  });
-});
-
-describe("pollForDeviceCodeCompletion", () => {
-  it("should retry on 403 and succeed", async () => {
-    // First call: 403 (pending)
-    mockFetch.mockResolvedValueOnce({
-      ok: false,
-      status: 403,
-      text: async () => "pending",
-    });
-    // Second call: success
-    mockFetch.mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({
-        authorization_code: "auth_code_123",
-        code_challenge: "challenge_abc",
-        code_verifier: "verifier_xyz",
-      }),
-    });
-
-    const result = await pollForDeviceCodeCompletion("daid_123", "ABCD-1234", 1, 30000);
-
-    expect(result).toEqual({
-      authorizationCode: "auth_code_123",
-      codeChallenge: "challenge_abc",
-      codeVerifier: "verifier_xyz",
-    });
-    expect(mockFetch).toHaveBeenCalledTimes(2);
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
-  it("should retry on 404 and succeed", async () => {
-    mockFetch.mockResolvedValueOnce({
-      ok: false,
-      status: 404,
-      text: async () => "not found",
-    });
-    mockFetch.mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({
-        authorization_code: "code",
-        code_challenge: "ch",
-        code_verifier: "cv",
-      }),
-    });
-
-    const result = await pollForDeviceCodeCompletion("d", "U", 1, 30000);
-    expect(result.authorizationCode).toBe("code");
-  });
-
-  it("should throw on unexpected error status", async () => {
-    mockFetch.mockResolvedValueOnce({
-      ok: false,
-      status: 500,
-      text: async () => "server error",
-    });
-
-    await expect(
-      pollForDeviceCodeCompletion("d", "U", 1, 30000),
-    ).rejects.toThrow("Unexpected polling response: 500");
-  });
-
-  it("should timeout after specified duration", async () => {
-    // Always return 403
-    mockFetch.mockResolvedValue({
-      ok: false,
-      status: 403,
-      text: async () => "pending",
-    });
-
-    // Use a very short timeout and interval
-    const promise = pollForDeviceCodeCompletion("d", "U", 1, 100);
-
-    await expect(promise).rejects.toThrow("timed out");
-  });
-});
-
-describe("exchangeDeviceCodeForTokens", () => {
-  it("should exchange authorization code for tokens", async () => {
-    const now = Date.now();
-    mockFetch.mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({
-        access_token: "at_123",
-        refresh_token: "rt_456",
-        id_token: "id_789",
-        expires_in: 3600,
-      }),
-    });
-
-    const result = await exchangeDeviceCodeForTokens("auth_code", "verifier");
-
-    expect(mockFetch).toHaveBeenCalledWith(
-      `${AUTH_BASE_URL}/oauth/token`,
-      expect.objectContaining({
-        method: "POST",
-        body: JSON.stringify({
-          grant_type: "authorization_code",
-          client_id: CLIENT_ID,
-          code: "auth_code",
-          code_verifier: "verifier",
-          redirect_uri: `${AUTH_BASE_URL}/deviceauth/callback`,
+  describe("requestDeviceCode", () => {
+    it("requests user code and maps response", async () => {
+      mockFetch.mockResolvedValueOnce(
+        createMockResponse({
+          device_auth_id: "device-auth-1",
+          user_code: "WXYZ-9876",
+          interval: "7",
         }),
-      }),
-    );
-    expect(result.accessToken).toBe("at_123");
-    expect(result.refreshToken).toBe("rt_456");
-    expect(result.idToken).toBe("id_789");
-    expect(result.expiresAt).toBeGreaterThanOrEqual(now + 3600 * 1000 - 1000);
-  });
+      );
 
-  it("should throw on HTTP error", async () => {
-    mockFetch.mockResolvedValueOnce({
-      ok: false,
-      status: 400,
-      text: async () => "Bad Request",
-    });
+      const result = await requestDeviceCode();
 
-    await expect(
-      exchangeDeviceCodeForTokens("bad", "bad"),
-    ).rejects.toThrow("Failed to exchange code for tokens: 400");
-  });
-});
-
-describe("refreshDeviceCodeTokens", () => {
-  it("should refresh tokens using refresh_token grant", async () => {
-    mockFetch.mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({
-        access_token: "new_at",
-        refresh_token: "new_rt",
-        id_token: "new_id",
-        expires_in: 3600,
-      }),
-    });
-
-    const result = await refreshDeviceCodeTokens("old_rt");
-
-    expect(mockFetch).toHaveBeenCalledWith(
-      `${AUTH_BASE_URL}/oauth/token`,
-      expect.objectContaining({
-        body: JSON.stringify({
-          grant_type: "refresh_token",
-          client_id: CLIENT_ID,
-          refresh_token: "old_rt",
+      expect(result).toEqual({
+        verificationUrl: VERIFICATION_URL,
+        userCode: "WXYZ-9876",
+        deviceAuthId: "device-auth-1",
+        interval: 7,
+      });
+      expect(mockFetch).toHaveBeenCalledWith(
+        `${AUTH_BASE_URL}/api/accounts/deviceauth/usercode`,
+        expect.objectContaining({
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ client_id: CLIENT_ID }),
         }),
-      }),
-    );
-    expect(result.accessToken).toBe("new_at");
-    expect(result.refreshToken).toBe("new_rt");
+      );
+    });
+
+    it("falls back to default poll interval when interval is invalid", async () => {
+      mockFetch.mockResolvedValueOnce(
+        createMockResponse({
+          device_auth_id: "device-auth-1",
+          user_code: "WXYZ-9876",
+          interval: "invalid",
+        }),
+      );
+
+      const result = await requestDeviceCode();
+      expect(result.interval).toBe(5);
+    });
+
+    it("throws response details when request fails", async () => {
+      mockFetch.mockResolvedValueOnce(createMockResponse("boom", 500));
+
+      await expect(requestDeviceCode()).rejects.toThrow(
+        "Failed to request device code: 500 boom",
+      );
+    });
   });
 
-  it("should throw on HTTP error", async () => {
-    mockFetch.mockResolvedValueOnce({
-      ok: false,
-      status: 401,
-      text: async () => "Unauthorized",
+  describe("pollForDeviceCodeCompletion", () => {
+    it("returns completion payload after pending responses", async () => {
+      mockFetch
+        .mockResolvedValueOnce(createMockResponse("pending", 403))
+        .mockResolvedValueOnce(createMockResponse("still pending", 404))
+        .mockResolvedValueOnce(
+          createMockResponse({
+            authorization_code: "auth-code",
+            code_challenge: "challenge",
+            code_verifier: "verifier",
+          }),
+        );
+
+      const result = await pollForDeviceCodeCompletion("device-auth-1", "WXYZ-9876", 0, 1000);
+
+      expect(result).toEqual({
+        authorizationCode: "auth-code",
+        codeChallenge: "challenge",
+        codeVerifier: "verifier",
+      });
+      expect(mockFetch).toHaveBeenCalledTimes(3);
+      expect(mockLogger.debug).toHaveBeenCalled();
     });
 
-    await expect(refreshDeviceCodeTokens("bad_rt")).rejects.toThrow(
-      "Failed to refresh token: 401",
-    );
+    it("throws when polling returns unexpected status", async () => {
+      mockFetch.mockResolvedValueOnce(createMockResponse("bad request", 400));
+
+      await expect(
+        pollForDeviceCodeCompletion("device-auth-1", "WXYZ-9876", 0, 1000),
+      ).rejects.toThrow("Unexpected polling response: 400 bad request");
+    });
+
+    it("throws timeout when deadline is exceeded", async () => {
+      await expect(
+        pollForDeviceCodeCompletion("device-auth-1", "WXYZ-9876", 0, 0),
+      ).rejects.toThrow("Device code authentication timed out (15 minutes)");
+      expect(mockFetch).not.toHaveBeenCalled();
+    });
   });
-});
 
-describe("runDeviceCodeLogin (end-to-end)", () => {
-  it("should run the complete flow", async () => {
-    // Step 1: request device code
-    mockFetch.mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({
-        device_auth_id: "daid_e2e",
-        user_code: "TEST-CODE",
-        interval: "1",
-      }),
+  describe("token exchange", () => {
+    it("exchanges authorization code for oauth tokens", async () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date("2026-02-12T00:00:00Z"));
+      mockFetch.mockResolvedValueOnce(
+        createMockResponse({
+          access_token: "access-1",
+          refresh_token: "refresh-1",
+          id_token: "id-1",
+          expires_in: 3600,
+        }),
+      );
+
+      const result = await exchangeDeviceCodeForTokens("auth-code", "verifier");
+
+      expect(result).toEqual({
+        accessToken: "access-1",
+        refreshToken: "refresh-1",
+        idToken: "id-1",
+        expiresAt: new Date("2026-02-12T01:00:00Z").getTime(),
+      });
+      expect(mockFetch).toHaveBeenCalledWith(
+        `${AUTH_BASE_URL}/oauth/token`,
+        expect.objectContaining({
+          method: "POST",
+          body: JSON.stringify({
+            grant_type: "authorization_code",
+            client_id: CLIENT_ID,
+            code: "auth-code",
+            code_verifier: "verifier",
+            redirect_uri: `${AUTH_BASE_URL}/deviceauth/callback`,
+          }),
+        }),
+      );
     });
 
-    // Step 3: poll — first pending, then success
-    mockFetch.mockResolvedValueOnce({
-      ok: false,
-      status: 403,
-      text: async () => "pending",
+    it("throws detailed error when exchange fails", async () => {
+      mockFetch.mockResolvedValueOnce(createMockResponse("invalid code", 401));
+
+      await expect(exchangeDeviceCodeForTokens("auth-code", "verifier")).rejects.toThrow(
+        "Failed to exchange code for tokens: 401 invalid code",
+      );
     });
-    mockFetch.mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({
-        authorization_code: "auth_e2e",
-        code_challenge: "ch_e2e",
-        code_verifier: "cv_e2e",
-      }),
+  });
+
+  describe("refreshDeviceCodeTokens", () => {
+    it("refreshes oauth tokens with refresh_token grant", async () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date("2026-02-12T00:00:00Z"));
+      mockFetch.mockResolvedValueOnce(
+        createMockResponse({
+          access_token: "access-2",
+          refresh_token: "refresh-2",
+          id_token: "id-2",
+          expires_in: 1800,
+        }),
+      );
+
+      const result = await refreshDeviceCodeTokens("refresh-1");
+
+      expect(result).toEqual({
+        accessToken: "access-2",
+        refreshToken: "refresh-2",
+        idToken: "id-2",
+        expiresAt: new Date("2026-02-12T00:30:00Z").getTime(),
+      });
+      expect(mockFetch).toHaveBeenCalledWith(
+        `${AUTH_BASE_URL}/oauth/token`,
+        expect.objectContaining({
+          method: "POST",
+          body: JSON.stringify({
+            grant_type: "refresh_token",
+            client_id: CLIENT_ID,
+            refresh_token: "refresh-1",
+          }),
+        }),
+      );
     });
 
-    // Step 4: exchange
-    mockFetch.mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({
-        access_token: "final_at",
-        refresh_token: "final_rt",
-        id_token: "final_id",
-        expires_in: 3600,
-      }),
+    it("throws detailed error when refresh fails", async () => {
+      mockFetch.mockResolvedValueOnce(createMockResponse("expired refresh token", 401));
+
+      await expect(refreshDeviceCodeTokens("refresh-1")).rejects.toThrow(
+        "Failed to refresh token: 401 expired refresh token",
+      );
     });
+  });
 
-    const tokens = await runDeviceCodeLogin();
+  describe("runDeviceCodeLogin", () => {
+    it("runs full flow and returns exchanged tokens", async () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date("2026-02-12T00:00:00Z"));
 
-    expect(tokens.accessToken).toBe("final_at");
-    expect(tokens.refreshToken).toBe("final_rt");
-    expect(tokens.idToken).toBe("final_id");
-    expect(mockFetch).toHaveBeenCalledTimes(4);
+      const consoleSpy = vi.spyOn(console, "log").mockImplementation(() => undefined);
+      mockFetch
+        .mockResolvedValueOnce(
+          createMockResponse({
+            device_auth_id: "device-auth-1",
+            user_code: "WXYZ-9876",
+            interval: "0",
+          }),
+        )
+        .mockResolvedValueOnce(
+          createMockResponse({
+            authorization_code: "auth-code",
+            code_challenge: "challenge",
+            code_verifier: "verifier",
+          }),
+        )
+        .mockResolvedValueOnce(
+          createMockResponse({
+            access_token: "access-3",
+            refresh_token: "refresh-3",
+            id_token: "id-3",
+            expires_in: 900,
+          }),
+        );
+
+      const result = await runDeviceCodeLogin();
+
+      expect(result).toEqual({
+        accessToken: "access-3",
+        refreshToken: "refresh-3",
+        idToken: "id-3",
+        expiresAt: new Date("2026-02-12T00:15:00Z").getTime(),
+      });
+      expect(mockFetch).toHaveBeenCalledTimes(3);
+      const lines = consoleSpy.mock.calls.flat().map((v) => String(v));
+      expect(lines.join("\n")).toContain(VERIFICATION_URL);
+      expect(lines.join("\n")).toContain("WXYZ-9876");
+      expect(mockLogger.info).toHaveBeenCalledWith("Device code authentication successful");
+
+      consoleSpy.mockRestore();
+    });
   });
 });
