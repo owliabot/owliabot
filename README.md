@@ -185,29 +185,13 @@ OwliaBot integrates with [Clawlet](https://github.com/owliabot/clawlet), a secur
 
 ### Quick Setup
 
-1. **Install Clawlet**:
+1. **Install and start Clawlet**:
 
 ```bash
-# Quick install (user mode)
-curl -fsSL https://raw.githubusercontent.com/owliabot/clawlet/main/scripts/install.sh | bash
-
-# Or production install with key isolation (creates dedicated system user)
-curl -fsSL https://raw.githubusercontent.com/owliabot/clawlet/main/scripts/install.sh | sudo bash -s -- --isolated
-```
-
-2. **Initialize wallet and create auth token**:
-
-```bash
-clawlet init
-clawlet auth grant --scope read,trade --label "owliabot"
-# Save the returned token: clwt_xxxxx
-```
-
-3. **Start the daemon**:
-
-```bash
-clawlet serve
-# Listens on http://127.0.0.1:9100
+curl -fsSL https://raw.githubusercontent.com/owliabot/clawlet/main/scripts/install.sh -o /tmp/clawlet-install.sh && \
+  sudo bash /tmp/clawlet-install.sh && \
+  clawlet start --agent owliabot --daemon && \
+  clawlet connect --agent owliabot
 ```
 
 4. **Start the OwliaBot gateway**:
