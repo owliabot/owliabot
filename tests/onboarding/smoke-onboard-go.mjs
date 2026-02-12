@@ -29,7 +29,7 @@ async function main() {
 
   let transcript = "";
   let reachedStepTwo = false;
-  let sentConfirm = false;
+  let lastConfirmAt = 0;
   let timedOut = false;
   let exitCode = 1;
 
@@ -57,9 +57,14 @@ async function main() {
       const text = chunk.toString("utf8");
       transcript += text;
 
-      if (!sentConfirm && /(Step 1\/\d+|Step 1 of \d+)/.test(transcript)) {
-        child.stdin.write("\n");
-        sentConfirm = true;
+      if (!reachedStepTwo && /(Step 1\/\d+|Step 1 of \d+)/.test(transcript)) {
+        const now = Date.now();
+        if (now-lastConfirmAt >= 700) {
+          // Step 1 can appear multiple times (for example Docker preflight retries on CI runners).
+          // Always pick the first option to keep smoke flow moving toward Step 2.
+          child.stdin.write("1\n");
+          lastConfirmAt = now;
+        }
       }
 
       if (!reachedStepTwo && /(Step 2\/\d+|Step 2 of \d+)/.test(transcript)) {
