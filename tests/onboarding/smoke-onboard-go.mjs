@@ -12,14 +12,29 @@ const rootDir = path.resolve(__dirname, "..", "..");
 const goOnboardDir = path.join(rootDir, "client");
 
 function terminate(child) {
-  if (!child || child.killed) return;
+  if (!child || !child.pid) return;
   if (process.platform === "win32") {
     child.kill();
     return;
   }
-  child.kill("SIGINT");
+
+  const killGroup = (signal) => {
+    try {
+      process.kill(-child.pid, signal);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
+  if (!killGroup("SIGINT")) {
+    child.kill("SIGINT");
+  }
+
   setTimeout(() => {
-    if (!child.killed) child.kill("SIGKILL");
+    if (!killGroup("SIGKILL") && !child.killed) {
+      child.kill("SIGKILL");
+    }
   }, 1200).unref();
 }
 
@@ -41,6 +56,7 @@ async function main() {
       {
         cwd: goOnboardDir,
         stdio: ["pipe", "pipe", "pipe"],
+        detached: process.platform !== "win32",
         env: {
           ...process.env,
           GOCACHE: process.env.GOCACHE ?? path.join(os.tmpdir(), "go-build"),
