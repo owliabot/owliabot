@@ -1,0 +1,388 @@
+import { existsSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { constants as fsConstants } from "node:fs";
+import { access, chmod, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { spawn as nodeSpawn, spawnSync, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { resolveOwliabotHome } from "../utils/paths.js";
+
+export interface GoOnboardOptions {
+  configDir?: string;
+  outputDir?: string;
+  image?: string;
+  channel?: string;
+}
+
+export interface ResolvedGoOnboardCommand {
+  cmd: string;
+  args: string[];
+}
+
+export type OnboardChannel = "stable" | "preview";
+
+export interface OnboardBinaryAsset {
+  url: string;
+  sha256: string;
+  fileName?: string;
+}
+
+export interface OnboardBinaryManifest {
+  channel?: string;
+  assets: Record<string, OnboardBinaryAsset>;
+}
+
+interface ResolveCommandOptions {
+  platform: NodeJS.Platform;
+  rootDir: string;
+  scriptExists: boolean;
+}
+
+interface ResolveBinaryCommandOptions {
+  rootDir: string;
+  platform: NodeJS.Platform;
+  arch: string;
+  channel?: string;
+  cacheRootDir?: string;
+  repository?: string;
+}
+
+interface ResolveBinaryDeps {
+  fetchImpl: typeof fetch;
+}
+
+interface RunnerDeps {
+  spawn: typeof nodeSpawn;
+  platform: NodeJS.Platform;
+  arch: string;
+  rootDir: string;
+  scriptExists: boolean;
+  resolveBinaryCommand: (
+    options: ResolveBinaryCommandOptions,
+    deps: ResolveBinaryDeps,
+  ) => Promise<ResolvedGoOnboardCommand | null>;
+  fetchImpl: typeof fetch;
+  repository?: string;
+  cacheRootDir?: string;
+  allowSourceFallback: boolean;
+}
+
+function trimValue(value: string | undefined): string {
+  return (value ?? "").trim();
+}
+
+export function buildGoOnboardArgs(options: GoOnboardOptions): string[] {
+  const args: string[] = [];
+  const configDir = trimValue(options.configDir);
+  const outputDir = trimValue(options.outputDir);
+  const image = trimValue(options.image);
+
+  if (configDir) {
+    args.push("--config-dir", configDir);
+  }
+  if (outputDir) {
+    args.push("--output-dir", outputDir);
+  }
+  if (image) {
+    args.push("--image", image);
+  }
+  return args;
+}
+
+export function resolveGoOnboardCommand(options: ResolveCommandOptions): ResolvedGoOnboardCommand {
+  if (options.platform !== "win32" && options.scriptExists) {
+    return {
+      cmd: "bash",
+      args: [join(options.rootDir, "scripts", "onboard-go.sh")],
+    };
+  }
+  return {
+    cmd: "go",
+    args: ["run", "./go-onboard"],
+  };
+}
+
+function defaultRootDir(): string {
+  const here = dirname(fileURLToPath(import.meta.url));
+  return join(here, "..", "..");
+}
+
+export function inferOnboardChannelFromGitHead(headContent: string): OnboardChannel | null {
+  const normalized = headContent.trim().toLowerCase();
+  if (!normalized) return null;
+  if (
+    normalized.includes("refs/heads/develop") ||
+    normalized.includes("refs/remotes/origin/develop")
+  ) {
+    return "preview";
+  }
+  if (
+    normalized.includes("refs/heads/main") ||
+    normalized.includes("refs/remotes/origin/main")
+  ) {
+    return "stable";
+  }
+  return null;
+}
+
+export function normalizeOnboardChannel(channel: string | undefined): OnboardChannel | null {
+  const normalized = trimValue(channel).toLowerCase();
+  if (!normalized) return null;
+  if (normalized === "stable") return "stable";
+  if (normalized === "preview") return "preview";
+  return null;
+}
+
+export function buildOnboardManifestUrl(
+  channel: OnboardChannel,
+  repository = "owliabot/owliabot",
+): string {
+  return `https://github.com/${repository}/releases/download/onboard-${channel}/onboard-manifest.json`;
+}
+
+function onboardRuntimeKey(platform: NodeJS.Platform, arch: string): string | null {
+  if ((platform !== "darwin" && platform !== "linux" && platform !== "win32")) {
+    return null;
+  }
+  const normalizedArch = trimValue(arch).toLowerCase();
+  if (normalizedArch !== "x64" && normalizedArch !== "arm64") {
+    return null;
+  }
+  return `${platform}-${normalizedArch}`;
+}
+
+function defaultBinaryFileName(platform: NodeJS.Platform, arch: string): string {
+  const extension = platform === "win32" ? ".exe" : "";
+  return `owliabot-onboard-${platform}-${arch}${extension}`;
+}
+
+async function readGitHeadForChannel(rootDir: string): Promise<OnboardChannel | null> {
+  const dotGitPath = join(rootDir, ".git");
+  let headPath = join(dotGitPath, "HEAD");
+  try {
+    const dotGitRaw = await readFile(dotGitPath, "utf8");
+    if (dotGitRaw.startsWith("gitdir:")) {
+      const gitDir = dotGitRaw.slice("gitdir:".length).trim();
+      headPath = join(rootDir, gitDir, "HEAD");
+    }
+  } catch {
+    // ignore; .git may be a directory
+  }
+  try {
+    const head = await readFile(headPath, "utf8");
+    return inferOnboardChannelFromGitHead(head);
+  } catch {
+    return null;
+  }
+}
+
+async function resolveOnboardChannel(
+  rootDir: string,
+  explicit?: string,
+): Promise<OnboardChannel> {
+  const explicitChannel = normalizeOnboardChannel(explicit);
+  if (explicitChannel) return explicitChannel;
+  const envChannel = normalizeOnboardChannel(process.env.OWLIABOT_ONBOARD_CHANNEL);
+  if (envChannel) return envChannel;
+  const gitChannel = await readGitHeadForChannel(rootDir);
+  return gitChannel ?? "stable";
+}
+
+function sha256Hex(content: Buffer): string {
+  return createHash("sha256").update(content).digest("hex");
+}
+
+async function fileExists(pathname: string): Promise<boolean> {
+  try {
+    await access(pathname, fsConstants.F_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function binaryMatchesChecksum(binaryPath: string, expectedSha256: string): Promise<boolean> {
+  try {
+    const content = await readFile(binaryPath);
+    return sha256Hex(content) === trimValue(expectedSha256).toLowerCase();
+  } catch {
+    return false;
+  }
+}
+
+async function fetchManifest(
+  manifestURL: string,
+  fetchImpl: typeof fetch,
+): Promise<OnboardBinaryManifest> {
+  const response = await fetchImpl(manifestURL);
+  if (!response.ok) {
+    throw new Error(`failed to fetch onboard manifest (${response.status})`);
+  }
+  const parsed = (await response.json()) as OnboardBinaryManifest;
+  if (!parsed || typeof parsed !== "object" || !parsed.assets || typeof parsed.assets !== "object") {
+    throw new Error("invalid onboard manifest format");
+  }
+  return parsed;
+}
+
+async function downloadBinaryAsset(
+  asset: OnboardBinaryAsset,
+  binaryPath: string,
+  platform: NodeJS.Platform,
+  fetchImpl: typeof fetch,
+): Promise<void> {
+  const response = await fetchImpl(asset.url);
+  if (!response.ok) {
+    throw new Error(`failed to download onboard binary (${response.status})`);
+  }
+  const raw = Buffer.from(await response.arrayBuffer());
+  const actual = sha256Hex(raw);
+  const expected = trimValue(asset.sha256).toLowerCase();
+  if (!expected || actual !== expected) {
+    throw new Error("onboard binary checksum mismatch");
+  }
+  await mkdir(dirname(binaryPath), { recursive: true });
+  const tempPath = `${binaryPath}.tmp-${Date.now()}`;
+  await writeFile(tempPath, raw, { mode: platform === "win32" ? 0o666 : 0o755 });
+  if (platform !== "win32") {
+    await chmod(tempPath, 0o755);
+  }
+  await rename(tempPath, binaryPath);
+}
+
+export async function resolveOnboardBinaryCommand(
+  options: ResolveBinaryCommandOptions,
+  deps: Partial<ResolveBinaryDeps> = {},
+): Promise<ResolvedGoOnboardCommand | null> {
+  const runtimeKey = onboardRuntimeKey(options.platform, options.arch);
+  if (!runtimeKey) return null;
+
+  const fetchImpl = deps.fetchImpl ?? fetch;
+  const channel = await resolveOnboardChannel(options.rootDir, options.channel);
+  const repository = trimValue(options.repository) || "owliabot/owliabot";
+  const cacheRootDir = trimValue(options.cacheRootDir) ||
+    join(resolveOwliabotHome(), "bin", "onboard");
+  const manifestURL = buildOnboardManifestUrl(channel, repository);
+  const channelDir = join(cacheRootDir, channel);
+  const fallbackPath = join(
+    channelDir,
+    defaultBinaryFileName(options.platform, options.arch),
+  );
+
+  let manifest: OnboardBinaryManifest | null = null;
+  try {
+    manifest = await fetchManifest(manifestURL, fetchImpl);
+  } catch (err) {
+    if (await fileExists(fallbackPath)) {
+      return { cmd: fallbackPath, args: [] };
+    }
+    throw err;
+  }
+
+  const asset = manifest.assets[runtimeKey];
+  if (!asset) {
+    if (await fileExists(fallbackPath)) {
+      return { cmd: fallbackPath, args: [] };
+    }
+    return null;
+  }
+
+  const safeName = trimValue(asset.fileName) || defaultBinaryFileName(options.platform, options.arch);
+  const binaryPath = join(channelDir, safeName.replace(/[\\/]/g, ""));
+
+  const matches = await binaryMatchesChecksum(binaryPath, asset.sha256);
+  if (!matches) {
+    await rm(binaryPath, { force: true });
+    await downloadBinaryAsset(asset, binaryPath, options.platform, fetchImpl);
+  }
+  if (options.platform !== "win32") {
+    await chmod(binaryPath, 0o755).catch(() => undefined);
+  }
+  return { cmd: binaryPath, args: [] };
+}
+
+function canUseGoToolchain(): boolean {
+  const result = spawnSync("go", ["version"], { stdio: "ignore" });
+  return result.status === 0;
+}
+
+function defaultDeps(): RunnerDeps {
+  const rootDir = defaultRootDir();
+  const scriptPath = join(rootDir, "scripts", "onboard-go.sh");
+  return {
+    spawn: nodeSpawn,
+    platform: process.platform,
+    arch: process.arch,
+    rootDir,
+    scriptExists: existsSync(scriptPath),
+    resolveBinaryCommand: resolveOnboardBinaryCommand,
+    fetchImpl: fetch,
+    repository: process.env.OWLIABOT_ONBOARD_REPOSITORY,
+    cacheRootDir: process.env.OWLIABOT_ONBOARD_CACHE_DIR,
+    allowSourceFallback: canUseGoToolchain(),
+  };
+}
+
+export async function runGoOnboarding(
+  options: GoOnboardOptions,
+  overrides: Partial<RunnerDeps> = {},
+): Promise<void> {
+  const deps: RunnerDeps = {
+    ...defaultDeps(),
+    ...overrides,
+  };
+
+  let resolved: ResolvedGoOnboardCommand | null = null;
+  let binaryResolveError: unknown;
+  try {
+    resolved = await deps.resolveBinaryCommand(
+      {
+        rootDir: deps.rootDir,
+        platform: deps.platform,
+        arch: deps.arch,
+        channel: options.channel,
+        repository: deps.repository,
+        cacheRootDir: deps.cacheRootDir,
+      },
+      { fetchImpl: deps.fetchImpl },
+    );
+  } catch (err) {
+    binaryResolveError = err;
+  }
+
+  if (!resolved) {
+    if (!deps.allowSourceFallback) {
+      const reason = binaryResolveError instanceof Error ? binaryResolveError.message : "no binary available";
+      throw new Error(
+        `failed to resolve onboard binary (${reason}). ` +
+          "Install Go 1.21+ and retry, or set OWLIABOT_ONBOARD_CHANNEL/OWLIABOT_ONBOARD_REPOSITORY.",
+      );
+    }
+    resolved = resolveGoOnboardCommand({
+      platform: deps.platform,
+      rootDir: deps.rootDir,
+      scriptExists: deps.scriptExists,
+    });
+  }
+
+  const args = [...resolved.args, ...buildGoOnboardArgs(options)];
+
+  await new Promise<void>((resolve, reject) => {
+    const child = deps.spawn(resolved.cmd, args, {
+      cwd: deps.rootDir,
+      stdio: "inherit",
+      env: process.env,
+    }) as ChildProcessWithoutNullStreams;
+
+    child.on("error", (err) => {
+      reject(err);
+    });
+    child.on("close", (code) => {
+      if (code === 0) {
+        resolve();
+        return;
+      }
+      reject(new Error(`go onboard exited with code ${code ?? "unknown"}`));
+    });
+  });
+}

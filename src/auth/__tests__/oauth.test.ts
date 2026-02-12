@@ -10,7 +10,7 @@ import {
 } from "../oauth.js";
 import { readFile, writeFile, mkdir, unlink } from "node:fs/promises";
 import { join } from "node:path";
-import * as piAi from "@mariozechner/pi-ai";
+import * as deviceCodeAuth from "../device-code-auth.js";
 import { ensureOwliabotHomeEnv } from "../../utils/paths.js";
 
 vi.mock("node:fs/promises", () => ({
@@ -19,8 +19,10 @@ vi.mock("node:fs/promises", () => ({
   mkdir: vi.fn(),
   unlink: vi.fn(),
 }));
-vi.mock("@mariozechner/pi-ai");
-vi.mock("open", () => ({ default: vi.fn() }));
+vi.mock("../device-code-auth.js", () => ({
+  runDeviceCodeLogin: vi.fn(),
+  refreshDeviceCodeTokens: vi.fn(),
+}));
 vi.mock("../../utils/logger.js", () => ({
   createLogger: () => ({
     debug: vi.fn(),
@@ -81,12 +83,17 @@ describe("oauth", () => {
         access: "new_access",
         refresh: "refresh_token",
         expires: Date.now() + 3600000,
-        email: "test@example.com",
+        idToken: "id-token",
       };
 
       vi.mocked(readFile).mockResolvedValue(JSON.stringify(expiredCredentials));
-      vi.mocked(piAi.refreshOpenAICodexToken).mockResolvedValue(
-        newCredentials as any
+      vi.mocked(deviceCodeAuth.refreshDeviceCodeTokens).mockResolvedValue(
+        {
+          accessToken: newCredentials.access,
+          refreshToken: newCredentials.refresh,
+          idToken: "id-token",
+          expiresAt: newCredentials.expires,
+        } as any,
       );
       vi.mocked(mkdir).mockResolvedValue(undefined);
       vi.mocked(writeFile).mockResolvedValue();
@@ -94,7 +101,7 @@ describe("oauth", () => {
       const result = await loadOAuthCredentials("openai-codex");
 
       expect(result).toEqual(newCredentials);
-      expect(piAi.refreshOpenAICodexToken).toHaveBeenCalled();
+      expect(deviceCodeAuth.refreshDeviceCodeTokens).toHaveBeenCalled();
     });
 
     it("should return null if refresh fails", async () => {
@@ -106,7 +113,7 @@ describe("oauth", () => {
       };
 
       vi.mocked(readFile).mockResolvedValue(JSON.stringify(expiredCredentials));
-      vi.mocked(piAi.refreshOpenAICodexToken).mockRejectedValue(
+      vi.mocked(deviceCodeAuth.refreshDeviceCodeTokens).mockRejectedValue(
         new Error("Refresh failed")
       );
 
@@ -222,11 +229,16 @@ describe("oauth", () => {
         access: "new_access",
         refresh: "refresh_token",
         expires: Date.now() + 3600000,
-        email: "test@example.com",
+        idToken: "id-token",
       };
 
-      vi.mocked(piAi.refreshOpenAICodexToken).mockResolvedValue(
-        newCredentials as any
+      vi.mocked(deviceCodeAuth.refreshDeviceCodeTokens).mockResolvedValue(
+        {
+          accessToken: newCredentials.access,
+          refreshToken: newCredentials.refresh,
+          idToken: "id-token",
+          expiresAt: newCredentials.expires,
+        } as any,
       );
       vi.mocked(mkdir).mockResolvedValue(undefined);
       vi.mocked(writeFile).mockResolvedValue();
@@ -234,7 +246,7 @@ describe("oauth", () => {
       const result = await refreshOAuthCredentials(oldCredentials as any, "openai-codex");
 
       expect(result).toEqual(newCredentials);
-      expect(piAi.refreshOpenAICodexToken).toHaveBeenCalledWith(oldCredentials.refresh);
+      expect(deviceCodeAuth.refreshDeviceCodeTokens).toHaveBeenCalledWith(oldCredentials.refresh);
       expect(writeFile).toHaveBeenCalled();
     });
   });

@@ -55,6 +55,24 @@ docker-compose up -d
 
 See [Docker Installation Guide](docs/docker-install.md) for details.
 
+### Clone Repo + Run Onboard (Docker installed)
+
+If you've already cloned the repo and Docker is running locally:
+
+```bash
+git clone https://github.com/owliabot/owliabot.git
+cd owliabot
+bun install
+bun run build
+node dist/entry.js onboard
+```
+
+Use preview onboard binaries when testing `develop` changes:
+
+```bash
+node dist/entry.js onboard --channel preview
+```
+
 ---
 
 ## Quick Start (Node.js)
@@ -131,6 +149,8 @@ All commands use `npx tsx src/entry.ts <command>`:
 ```bash
 # Interactive onboarding
 npx tsx src/entry.ts onboard
+# preview channel (for develop onboarding binaries)
+npx tsx src/entry.ts onboard --channel preview
 
 # Start with default config (~/.owlia_dev/app.yaml)
 npx tsx src/entry.ts start

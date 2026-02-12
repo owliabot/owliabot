@@ -39,6 +39,17 @@ docker run --rm -it \
   onboard --docker --output-dir /app/output
 ```
 
+Alternative (local Go TUI wizard):
+
+```bash
+owliabot onboard
+# develop channel:
+owliabot onboard --channel preview
+```
+
+`owliabot onboard` now prefers a prebuilt onboard binary (downloaded from GitHub Releases)
+and no longer requires a local Go toolchain for most users.
+
 The wizard will prompt for:
 - AI provider (Anthropic/OpenAI/OpenAI-Codex/OpenAI-compatible)
 - Chat platform (Discord/Telegram)
@@ -73,7 +84,7 @@ owliabot onboard --docker [options]
 ```
 
 Options:
-- `--config-dir <path>` — Config output directory (default: `./config`)
+- `--config-dir <path>` — Config output directory (default: `~/.owliabot`)
 - `--output-dir <path>` — Output directory for docker-compose.yml (default: `.`)
 
 ### Other Commands in Docker
