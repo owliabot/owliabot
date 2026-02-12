@@ -3,10 +3,20 @@
   "version": "0.2.0",
   "description": "Crypto-native AI agent for Telegram and Discord",
   "type": "module",
+  "bin": {
+    "owliabot": "dist/entry.js"
+  },
+  "files": [
+    "dist",
+    "persona",
+    "skills",
+    "workspace"
+  ],
   "engines": {
     "node": ">=22.0.0"
   },
   "scripts": {
+    "prepublishOnly": "npm run build && chmod +x dist/entry.js",
     "build": "tsc",
     "dev": "tsx watch src/entry.ts",
     "start": "node dist/entry.js",

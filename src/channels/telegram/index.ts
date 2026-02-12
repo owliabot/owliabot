@@ -238,7 +238,12 @@ export function createTelegramPlugin(config: TelegramConfig): ChannelPlugin {
 
     async send(target: string, message: OutboundMessage) {
       const chatId = parseInt(target, 10);
-      
+
+      if (!message.text || message.text.trim().length === 0) {
+        log.warn("Skipping send: message text is empty");
+        return;
+      }
+
       // Convert markdown to HTML for Telegram
       const html = markdownToTelegramHtml(message.text);
       

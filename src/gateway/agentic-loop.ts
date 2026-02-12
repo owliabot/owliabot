@@ -337,9 +337,14 @@ export async function runAgenticLoop(
 
     // Extract final content from last assistant message
     const lastMessage = finalMessages[finalMessages.length - 1];
-    const finalContent =
+    const extracted =
       lastMessage && lastMessage.role === "assistant"
         ? extractTextContent(lastMessage)
+        : "";
+    // Fallback when the LLM's last turn was tool-only (no text block)
+    const finalContent =
+      extracted.trim().length > 0
+        ? extracted
         : "I apologize, but I couldn't complete your request.";
 
     return {

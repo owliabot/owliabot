@@ -107,7 +107,7 @@ Wallet connected successfully!
   Address: 0x1234...5678
   Balance: 0.52 ETH
   Scope:   trade
-  Tools:   wallet_balance, wallet_transfer
+  Tools:   wallet_balance, wallet_transfer, wallet_send_tx
 ```
 
 ## Important Notes
