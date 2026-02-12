@@ -81,12 +81,12 @@ The install script handles everything — install, init, and start — in one co
 Tell the user to run this single command (downloads, installs, and starts the daemon):
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/owliabot/clawlet/main/scripts/install.sh -o /tmp/clawlet-install.sh && sudo bash /tmp/clawlet-install.sh --isolated && sudo -H -u clawlet "$(which clawlet)" start --agent owliabot --daemon
+curl -fsSL https://raw.githubusercontent.com/owliabot/clawlet/main/scripts/install.sh -o /tmp/clawlet-install.sh && sudo bash /tmp/clawlet-install.sh --isolated && sudo -H -u clawlet /usr/local/bin/clawlet start --agent owliabot --daemon
 ```
 
 > **Why download first?** The script is saved to `/tmp/` before execution — this avoids piping directly to `sudo bash`, which is safer and allows inspection before running.
 >
-> **Note:** `$(which clawlet)` dynamically resolves the binary path, so it works regardless of install prefix.
+> **Note:** Paths match `install.sh` defaults: `CLAWLET_USER="clawlet"`, `BINARY_PATH="/usr/local/bin/clawlet"`（`DEFAULT_PREFIX="/usr/local"`）. If you used `--prefix` to customize the install path, adjust accordingly.
 
 After the script finishes, verify with the `exec` tool:
 
