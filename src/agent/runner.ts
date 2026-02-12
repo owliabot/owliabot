@@ -339,14 +339,18 @@ export async function runLLM(
 
     // Apply context guard to openai-compatible path too
     const guardConfig = options?.contextGuard;
-    const contextWindow = guardConfig?.contextWindowOverride ?? getContextWindow(modelConfig);
-    const { messages: guardedMessages } = guardContext(messages, {
-      contextWindow,
-      reserveTokens: guardConfig?.reserveTokens ?? options?.maxTokens ?? DEFAULT_RESERVE_TOKENS,
-      maxToolResultChars: guardConfig?.maxToolResultChars,
-      truncateHeadChars: guardConfig?.truncateHeadChars,
-      truncateTailChars: guardConfig?.truncateTailChars,
-    });
+    const guardEnabled = guardConfig?.enabled !== false;
+    // For openai-compatible, use contextWindowOverride or safe default (not pi-ai resolveModel)
+    const contextWindow = guardConfig?.contextWindowOverride ?? 128_000;
+    const { messages: guardedMessages } = guardEnabled
+      ? guardContext(messages, {
+          contextWindow,
+          reserveTokens: guardConfig?.reserveTokens ?? options?.maxTokens ?? DEFAULT_RESERVE_TOKENS,
+          maxToolResultChars: guardConfig?.maxToolResultChars,
+          truncateHeadChars: guardConfig?.truncateHeadChars,
+          truncateTailChars: guardConfig?.truncateTailChars,
+        })
+      : { messages };
 
     const config: OpenAICompatibleConfig = {
       baseUrl: provider.baseUrl,
