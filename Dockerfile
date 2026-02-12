@@ -1,8 +1,15 @@
 # OwliaBot Dockerfile
-# Multi-stage build for minimal production image
+# Multi-stage build with optional Chromium support
 #
-# Build: docker build -t owliabot .
-# Run:   docker run -v ./config:/app/config owliabot
+# Lite (no browser, ~260MB):
+#   docker build -t owliabot .
+#   docker build --target lite -t owliabot:lite .
+#
+# Full (with Chromium for Playwright MCP, ~1GB):
+#   docker build --target full -t owliabot:full .
+#
+# Run:
+#   docker run -v ./config:/app/config owliabot
 
 # ==============================================================================
 # Stage 1: Build
@@ -43,30 +50,13 @@ RUN rm -rf node_modules/@types \
     && find node_modules -name 'LICENSE*' -delete
 
 # ==============================================================================
-# Stage 2: Production
-# Minimal image with only runtime dependencies
+# Stage 2a: Lite production image (no Chromium)
+# Minimal image for deployments that don't need browser automation (~260MB)
 # ==============================================================================
-FROM node:22-alpine AS production
+FROM node:22-alpine AS lite
 
-# Install runtime dependencies + Chromium for Playwright MCP
-# Chromium and its dependencies are needed for browser automation via @playwright/mcp.
-# Using system Chromium avoids Playwright's own download (~400MB) and works in containers.
-RUN apk add --no-cache \
-    ca-certificates \
-    coreutils \
-    wget \
-    chromium \
-    font-liberation \
-    font-noto-emoji \
-    mesa-gbm \
-    nss \
-    libatk-bridge-2.0 \
-    libdrm \
-    libxkbcommon \
-    libxcomposite \
-    libxdamage \
-    libxrandr \
-    at-spi2-core
+# Install minimal runtime dependencies
+RUN apk add --no-cache ca-certificates coreutils wget
 
 # Create non-root user for security
 # Using numeric UID/GID for Kubernetes compatibility
@@ -109,22 +99,47 @@ ENV OWLIABOT_HOME=/home/owliabot/.owliabot
 # Expose gateway HTTP port (configurable, default 8787)
 EXPOSE 8787
 
-# Health check - assumes gateway HTTP is enabled on default port
-# Adjust interval based on your needs
+# Health check
 # Note: Alpine uses BusyBox wget which doesn't support --no-verbose; use -q instead
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD wget -q --tries=1 --spider http://localhost:8787/health || exit 1
 
-# Playwright MCP: use system Chromium, skip download, disable sandbox (container)
-# Note: Alpine's Chromium binary is at /usr/bin/chromium-browser (not /usr/bin/chromium)
-ENV OWLIABOT_PLAYWRIGHT_CHROMIUM_PATH=/usr/bin/chromium-browser
+# Skip Playwright browser download (no Chromium in lite image)
 ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
-ENV PLAYWRIGHT_MCP_NO_SANDBOX=1
 
 # Default config path - can be overridden via -c flag or volume mount
 ENV OWLIABOT_CONFIG_PATH=/home/owliabot/.owliabot/app.yaml
 
-# Entry point: start the bot
-# Users can override command to run other CLI commands (onboard, auth, etc.)
 ENTRYPOINT ["node", "dist/entry.js"]
 CMD ["start", "-c", "/home/owliabot/.owliabot/app.yaml"]
+
+# ==============================================================================
+# Stage 2b: Full production image (with Chromium)
+# Includes Chromium for browser automation via Playwright MCP (~1GB)
+# ==============================================================================
+FROM lite AS full
+
+USER root
+
+# Install Chromium and its dependencies for Playwright MCP
+# Using system Chromium avoids Playwright's own download (~400MB) and works in containers.
+RUN apk add --no-cache \
+    chromium \
+    font-liberation \
+    font-noto-emoji \
+    mesa-gbm \
+    nss \
+    libatk-bridge-2.0 \
+    libdrm \
+    libxkbcommon \
+    libxcomposite \
+    libxdamage \
+    libxrandr \
+    at-spi2-core
+
+USER owliabot
+
+# Playwright MCP: use system Chromium, disable sandbox (container)
+# Note: Alpine's Chromium binary is at /usr/bin/chromium-browser (not /usr/bin/chromium)
+ENV OWLIABOT_PLAYWRIGHT_CHROMIUM_PATH=/usr/bin/chromium-browser
+ENV PLAYWRIGHT_MCP_NO_SANDBOX=1
