@@ -993,9 +993,9 @@ async function handleMessage(
     await transcripts.append(entry.sessionId, assistantMessage);
   }
 
-  // Send response
+  // Send response (skip if empty — e.g. when last LLM turn was tool-only)
   const channel = channels.get(ctx.channel);
-  if (channel) {
+  if (channel && finalContent.trim().length > 0) {
     const target =
       ctx.chatType === "direct" ? ctx.from : (ctx.groupId ?? ctx.from);
     await channel.send(target, {
