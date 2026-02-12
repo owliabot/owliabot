@@ -62,6 +62,20 @@ docker-compose up -d
 
 See [Docker Installation Guide](docs/docker-install.md) for details.
 
+### No Clone: Run Go Onboard Binary (Preview by default)
+
+If you only want the onboarding wizard and don't want to clone the repo:
+
+```bash
+curl -sSL https://raw.githubusercontent.com/owliabot/owliabot/main/onboard.sh | bash
+```
+
+Use the stable release channel:
+
+```bash
+curl -sSL https://raw.githubusercontent.com/owliabot/owliabot/main/onboard.sh | OWLIABOT_ONBOARD_CHANNEL=stable bash
+```
+
 ### Clone Repo + Run Onboard (Docker installed)
 
 If you've already cloned the repo and Docker is running locally:
