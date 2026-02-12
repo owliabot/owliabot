@@ -128,6 +128,90 @@ describe("go-runner binary resolver", () => {
     await rm(rootDir, { recursive: true, force: true });
     await rm(cacheRootDir, { recursive: true, force: true });
   });
+
+  it("uses checksum-verified cached binary when manifest fetch is unavailable", async () => {
+    const rootDir = await mkTmpDir("owliabot-go-runner-offline-root-");
+    const cacheRootDir = await mkTmpDir("owliabot-go-runner-offline-cache-");
+    const binaryData = Buffer.from("#!/bin/sh\necho onboard\n", "utf8");
+    const digest = sha256(binaryData);
+
+    await mkdir(join(rootDir, ".git"), { recursive: true });
+    await writeFile(join(rootDir, ".git", "HEAD"), "ref: refs/heads/main\n");
+
+    const channelDir = join(cacheRootDir, "stable");
+    await mkdir(channelDir, { recursive: true });
+    const binaryPath = join(channelDir, "owliabot-onboard-darwin-arm64");
+    await writeFile(binaryPath, binaryData, { mode: 0o755 });
+    await writeFile(
+      join(channelDir, "onboard-manifest.json"),
+      JSON.stringify({
+        channel: "stable",
+        assets: {
+          "darwin-arm64": {
+            url: "https://example.test/unused",
+            sha256: digest,
+            fileName: "owliabot-onboard-darwin-arm64",
+          },
+        },
+      }),
+      "utf8",
+    );
+
+    const fetchMock = vi.fn(async () => {
+      throw new Error("network unavailable");
+    });
+
+    const resolved = await resolveOnboardBinaryCommand(
+      { rootDir, platform: "darwin", arch: "arm64", cacheRootDir, channel: "stable" },
+      { fetchImpl: fetchMock as unknown as typeof fetch },
+    );
+
+    expect(resolved).toEqual({ cmd: binaryPath, args: [] });
+    await rm(rootDir, { recursive: true, force: true });
+    await rm(cacheRootDir, { recursive: true, force: true });
+  });
+
+  it("refuses cached binary when checksum cannot be verified offline", async () => {
+    const rootDir = await mkTmpDir("owliabot-go-runner-offline-invalid-root-");
+    const cacheRootDir = await mkTmpDir("owliabot-go-runner-offline-invalid-cache-");
+    const binaryData = Buffer.from("#!/bin/sh\necho onboard\n", "utf8");
+
+    await mkdir(join(rootDir, ".git"), { recursive: true });
+    await writeFile(join(rootDir, ".git", "HEAD"), "ref: refs/heads/main\n");
+
+    const channelDir = join(cacheRootDir, "stable");
+    await mkdir(channelDir, { recursive: true });
+    const binaryPath = join(channelDir, "owliabot-onboard-darwin-arm64");
+    await writeFile(binaryPath, binaryData, { mode: 0o755 });
+    await writeFile(
+      join(channelDir, "onboard-manifest.json"),
+      JSON.stringify({
+        channel: "stable",
+        assets: {
+          "darwin-arm64": {
+            url: "https://example.test/unused",
+            sha256: "deadbeef",
+            fileName: "owliabot-onboard-darwin-arm64",
+          },
+        },
+      }),
+      "utf8",
+    );
+
+    const fetchMock = vi.fn(async () => {
+      throw new Error("network unavailable");
+    });
+
+    await expect(
+      resolveOnboardBinaryCommand(
+        { rootDir, platform: "darwin", arch: "arm64", cacheRootDir, channel: "stable" },
+        { fetchImpl: fetchMock as unknown as typeof fetch },
+      ),
+    ).rejects.toThrow(/cached binary verification failed/);
+
+    await rm(rootDir, { recursive: true, force: true });
+    await rm(cacheRootDir, { recursive: true, force: true });
+  });
 });
 
 async function mkTmpDir(prefix: string): Promise<string> {

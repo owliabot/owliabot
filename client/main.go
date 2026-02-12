@@ -12,6 +12,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -687,7 +688,7 @@ func applyAnswers(a Answers, opts cliOptions) (applyResult, error) {
 		outputDir = "."
 	}
 
-	if err := os.MkdirAll(configDir, 0o755); err != nil {
+	if err := os.MkdirAll(configDir, 0o700); err != nil {
 		return applyResult{}, err
 	}
 	if err := os.MkdirAll(filepath.Join(configDir, "auth"), 0o700); err != nil {
@@ -704,7 +705,14 @@ func applyAnswers(a Answers, opts cliOptions) (applyResult, error) {
 	sec := BuildSecrets(a)
 	appYAML := RenderAppYAML(app)
 	secretsYAML := RenderSecretsYAML(sec)
-	composeYAML := BuildDockerComposeYAML(configDir, a.Timezone, a.GatewayPort, opts.Image)
+	gatewayPort, err := parseGatewayPort(a.GatewayPort)
+	if err != nil {
+		return applyResult{}, err
+	}
+	composeYAML, err := BuildDockerComposeYAML(configDir, a.Timezone, a.GatewayPort, opts.Image)
+	if err != nil {
+		return applyResult{}, err
+	}
 
 	appPath := filepath.Join(configDir, "app.yaml")
 	if err := os.WriteFile(appPath, []byte(appYAML), 0o644); err != nil {
@@ -725,7 +733,7 @@ func applyAnswers(a Answers, opts cliOptions) (applyResult, error) {
 		AppPath:     appPath,
 		SecretsPath: secretsPath,
 		ComposePath: composePath,
-		GatewayPort: strings.TrimSpace(a.GatewayPort),
+		GatewayPort: strconv.Itoa(gatewayPort),
 		Image:       normalizeImageRef(opts.Image),
 	}, nil
 }
