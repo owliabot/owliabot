@@ -5,8 +5,9 @@
 
 import { program } from "commander";
 import { join, dirname } from "node:path";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+import updateNotifier from "update-notifier";
 import { loadConfig } from "./config/loader.js";
 import { ensureWorkspaceInitialized } from "./workspace/init.js";
 import { loadWorkspace } from "./workspace/loader.js";
@@ -33,6 +34,12 @@ import { diagnoseDoctor } from "./doctor/index.js";
 
 const log = logger;
 
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const pkg = JSON.parse(readFileSync(join(__dirname, "..", "package.json"), "utf-8")) as {
+  name: string;
+  version: string;
+};
+
 const nodeMajor = Number.parseInt(process.versions.node.split(".")[0] ?? "0", 10);
 if (Number.isNaN(nodeMajor) || nodeMajor < 22) {
   log.error(
@@ -41,10 +48,17 @@ if (Number.isNaN(nodeMajor) || nodeMajor < 22) {
   process.exit(1);
 }
 
+const isDocker = process.env.OWLIABOT_DOCKER === "1" || existsSync("/.dockerenv");
+if (!isDocker) {
+  updateNotifier({ pkg }).notify({
+    message: "Update available {currentVersion} → {latestVersion}\nRun `npx owliabot@latest` to update",
+  });
+}
+
 program
   .name("owliabot")
   .description("Crypto-native AI agent for Telegram and Discord")
-  .version("0.1.0");
+  .version(pkg.version);
 
 /**
  * Check if any OAuth providers are configured but lack credentials.
@@ -149,9 +163,7 @@ program
       process.on("SIGTERM", shutdown);
 
       // ASCII art banner
-      const __dirname = dirname(fileURLToPath(import.meta.url));
-      const pkg = JSON.parse(readFileSync(join(__dirname, "..", "package.json"), "utf-8"));
-      const version = pkg.version as string;
+      const version = pkg.version;
       const banner = [
         "",
         "   ___           _ _       ____        _   ",
