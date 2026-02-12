@@ -89,7 +89,7 @@ export class TimeoutError extends Error {
  * @param provider - Provider ID (anthropic, openai, openai-codex)
  * @param configApiKey - Optional API key from config (loaded from secrets.yaml)
  */
-async function resolveApiKey(provider: string, configApiKey?: string): Promise<string> {
+export async function resolveApiKey(provider: string, configApiKey?: string): Promise<string> {
   // Use config API key if provided and valid
   if (configApiKey && configApiKey !== "oauth" && configApiKey !== "env" && configApiKey !== "secrets") {
     log.debug(`Using config API key for ${provider}`);

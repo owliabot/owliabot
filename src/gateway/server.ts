@@ -14,7 +14,7 @@ import type { Message } from "../agent/session.js";
 import { resolveAgentId, resolveSessionKey } from "../agent/session-key.js";
 import { createSessionStore, type SessionKey } from "../agent/session-store.js";
 import { createSessionTranscriptStore } from "../agent/session-transcript.js";
-import { callWithFailover, type LLMProvider } from "../agent/runner.js";
+import type { LLMProvider } from "../agent/runner.js";
 import { loadOAuthCredentials, type SupportedOAuthProvider } from "../auth/oauth.js";
 import { buildSystemPrompt } from "../agent/system-prompt.js";
 import type { MsgContext } from "../channels/interface.js";
@@ -24,7 +24,8 @@ import { GroupHistoryBuffer } from "./group-history.js";
 import { GroupRateLimiter } from "./group-rate-limit.js";
 import { resolveEffectiveProviders } from "../models/override.js";
 import { ToolRegistry } from "../agent/tools/registry.js";
-import { executeToolCalls } from "../agent/tools/executor.js";
+import { createSessionSteeringManager } from "./session-steering.js";
+import { runAgenticLoop, createConversation } from "./agentic-loop.js";
 import {
   createBuiltinTools,
   createHelpTool,
@@ -37,7 +38,6 @@ import {
   createWriteGateChannelAdapter,
 } from "../security/write-gate-adapter.js";
 import type { WriteGateChannel } from "../security/write-gate.js";
-import type { ToolResult } from "../agent/tools/interface.js";
 import { createCronService } from "../cron/legacy-service.js";
 import { executeHeartbeat } from "../cron/heartbeat.js";
 import { createCronIntegration } from "./cron-integration.js";
@@ -179,6 +179,9 @@ export async function startGateway(
     infraStore = createInfraStore({ sqlitePath: infraDbPath });
     log.info(`Infrastructure store initialized: ${infraDbPath}`);
   }
+
+  // Session steering manager for mid-run message injection
+  const steeringManager = createSessionSteeringManager();
 
   const sessionStore = createSessionStore({
     sessionsDir,
@@ -373,6 +376,7 @@ export async function startGateway(
         groupHistory,
         groupRateLimiter,
         infraStore,
+        steeringManager,
       );
     });
 
@@ -410,6 +414,7 @@ export async function startGateway(
         groupHistory,
         groupRateLimiter,
         infraStore,
+        steeringManager,
       );
     });
 
@@ -534,72 +539,34 @@ export async function startGateway(
   runBootOnce({
     workspacePath: config.workspace,
     executePrompt: async (prompt) => {
-      const bootMessages: Message[] = [
-        { role: "system", content: "You are a helpful assistant performing a startup boot check.", timestamp: Date.now() },
-        { role: "user", content: prompt, timestamp: Date.now() },
-      ];
-      const providers: LLMProvider[] = config.providers;
       const bootSessionKey = "boot:startup" as SessionKey;
       const bootAgentId = resolveAgentId({ config });
 
-      // Agentic loop with tool support (so BOOT.md can send messages etc.)
-      const MAX_BOOT_ITERATIONS = 3;
-      let iteration = 0;
-      let finalContent = "";
+      const conversationMessages = createConversation(
+        "You are a helpful assistant performing a startup boot check.",
+        [{ role: "user", content: prompt, timestamp: Date.now() }],
+      );
 
-      while (iteration < MAX_BOOT_ITERATIONS) {
-        iteration++;
-        const response = await callWithFailover(providers, bootMessages, {
-          tools: tools.getAll(),
-        });
-
-        if (!response.toolCalls || response.toolCalls.length === 0) {
-          finalContent = response.content;
-          break;
-        }
-
-        log.info(`boot: tool calls in iteration ${iteration}: ${response.toolCalls.map(c => c.name).join(", ")}`);
-
-        const toolResults = await executeToolCalls(response.toolCalls, {
-          registry: tools,
-          context: {
-            sessionKey: bootSessionKey,
-            agentId: bootAgentId,
-            config: {
-              channel: "boot",
-              target: "boot",
-            },
-          },
+      const result = await runAgenticLoop(
+        conversationMessages,
+        {
+          sessionKey: bootSessionKey,
+          agentId: bootAgentId,
+          sessionId: "boot",
+          userId: "boot",
+          channelId: "boot",
+          chatTargetId: "boot",
           workspacePath: config.workspace,
-        });
+        },
+        {
+          providers: config.providers,
+          tools,
+          transcripts,
+          maxIterations: 3,
+        },
+      );
 
-        // Add assistant + tool results to conversation
-        const assistantMsg: Message = {
-          role: "assistant",
-          content: response.content || "",
-          toolCalls: response.toolCalls,
-          timestamp: Date.now(),
-        };
-        bootMessages.push(assistantMsg);
-
-        // Add tool results as user message (matching main handler pattern)
-        const bootToolResults = response.toolCalls.map((call) => {
-          const result = toolResults.get(call.id);
-          return {
-            ...(result ?? { success: false, error: "Missing tool result" }),
-            toolCallId: call.id,
-            toolName: call.name,
-          } as ToolResult;
-        });
-        bootMessages.push({
-          role: "user",
-          content: "",
-          timestamp: Date.now(),
-          toolResults: bootToolResults,
-        });
-      }
-
-      return finalContent;
+      return result.content;
     },
   }).then((result) => {
     if (result.status === "ran") {
@@ -641,6 +608,16 @@ export async function startGateway(
   };
 }
 
+/**
+ * Local message handler for channel plugins.
+ * 
+ * Note: This is separate from message-handler.ts's exported handleMessage.
+ * Both implementations use the same runAgenticLoop, but serve different purposes:
+ * - This function: Direct integration with channel plugins in server.ts
+ * - message-handler.ts: Modular, reusable version for other entry points
+ * 
+ * Both are valid and serve different architectural needs.
+ */
 async function handleMessage(
   ctx: MsgContext,
   config: Config,
@@ -654,6 +631,7 @@ async function handleMessage(
   groupHistory: GroupHistoryBuffer,
   groupRateLimiter: GroupRateLimiter,
   infraStore: InfraStore | null,
+  steeringManager?: ReturnType<typeof createSessionSteeringManager>,
 ): Promise<void> {
   const agentId = resolveAgentId({ config });
   const sessionKey = resolveSessionKey({ ctx, config });
@@ -805,6 +783,15 @@ async function handleMessage(
   }
 
   // ─────────────────────────────────────────────────────────────────────────
+  // Steering: if a loop is already active for this session, queue and return early
+  // ─────────────────────────────────────────────────────────────────────────
+  if (steeringManager?.isActive(sessionKey)) {
+    log.info(`Session ${sessionKey} active, queuing as steering message`);
+    steeringManager.pushSteering(sessionKey, ctx.body, ctx.timestamp);
+    return;
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
   // Handle /status command (infrastructure status)
   // ─────────────────────────────────────────────────────────────────────────
   const statusCmd = await tryHandleStatusCommand({
@@ -945,127 +932,66 @@ async function handleMessage(
     return;
   }
 
-  // Agentic loop
-  const MAX_ITERATIONS = 5;
-  let iteration = 0;
-  let finalContent = "";
+  // Agentic loop (using pi-agent-core, with steering/follow-up support)
+  const conversationMessages = createConversation(systemPrompt, history);
+  
+  const loopConfig = config.agents?.loop ?? { maxIterations: 50, timeoutSeconds: 600 };
 
-  const conversationMessages: Message[] = [
-    { role: "system", content: systemPrompt, timestamp: Date.now() },
-    ...history,
-  ];
-
+  steeringManager?.setActive(sessionKey);
+  let loopResult;
   try {
-    while (iteration < MAX_ITERATIONS) {
-      iteration++;
-      log.debug(`Agentic loop iteration ${iteration}`);
-
-      // Call LLM with tools
-      const providers: LLMProvider[] = effectiveProviders;
-      const response = await callWithFailover(providers, conversationMessages, {
-        tools: tools.getAll(),
-      });
-
-      // If no tool calls, we're done
-      if (!response.toolCalls || response.toolCalls.length === 0) {
-        finalContent = response.content;
-        break;
-      }
-
-      log.info(`LLM requested ${response.toolCalls.length} tool calls`);
-      for (const call of response.toolCalls) {
-        const argsStr = JSON.stringify(call.arguments);
-        log.info(`  ↳ ${call.name}(${argsStr.length > 200 ? argsStr.slice(0, 200) + "…" : argsStr})`);
-      }
-
-      // Execute tool calls
-      const toolResults = await executeToolCalls(response.toolCalls, {
-        registry: tools,
-        context: {
-          sessionKey,
-          agentId,
-          config: {
-            memorySearch: config.memorySearch,
-            channel: ctx.channel,
-            target: ctx.chatType === "direct" ? ctx.from : (ctx.groupId ?? ctx.from),
-          },
-        },
-        writeGateChannel: writeGateChannels.get(ctx.channel),
-        securityConfig: config.security,
-        workspacePath: config.workspace,
+    loopResult = await runAgenticLoop(
+      conversationMessages,
+      {
+        sessionKey,
+        agentId,
+        sessionId: entry.sessionId,
         userId: ctx.from,
-      });
-
-      for (const [id, result] of toolResults) {
-        const body = result.success ? (result.data ?? "") : (result.error ?? "");
-        const bodyStr = typeof body === "string" ? body : JSON.stringify(body);
-        log.info(`  ↳ result [${id}] success=${result.success}: ${bodyStr.length > 300 ? bodyStr.slice(0, 300) + "…" : bodyStr}`);
+        channelId: ctx.channel,
+        chatTargetId: ctx.chatType === "direct" ? ctx.from : (ctx.groupId ?? ctx.from),
+        workspacePath: config.workspace,
+        memorySearchConfig: config.memorySearch,
+        securityConfig: config.security,
+      },
+      {
+        providers: effectiveProviders,
+        tools,
+        writeGateChannel: writeGateChannels.get(ctx.channel),
+        transcripts,
+        maxIterations: loopConfig.maxIterations,
+        timeoutMs: loopConfig.timeoutSeconds * 1000,
+        cliBackends: config.agents?.defaults?.cliBackends,
+        getSteeringMessages: steeringManager
+          ? async () => steeringManager.drainSteering(sessionKey)
+          : undefined,
+        getFollowUpMessages: steeringManager
+          ? async () => steeringManager.drainFollowUp(sessionKey)
+          : undefined,
       }
-
-      // Add assistant message with tool calls to conversation
-      const assistantToolCallMessage: Message = {
-        role: "assistant",
-        content: response.content || "",
-        timestamp: Date.now(),
-        toolCalls: response.toolCalls,
-      };
-      conversationMessages.push(assistantToolCallMessage);
-      await transcripts.append(entry.sessionId, assistantToolCallMessage);
-
-      // Add tool results as user message with proper toolResults structure
-      // The runner will convert this to pi-ai's ToolResultMessage format
-      const toolResultsArray = response.toolCalls.map((call) => {
-        const result = toolResults.get(call.id);
-        if (!result) {
-          return {
-            success: false,
-            error: "Missing tool result",
-            toolCallId: call.id,
-            toolName: call.name,
-          } as ToolResult;
-        }
-        return {
-          ...result,
-          toolCallId: call.id,
-          toolName: call.name,
-        } as ToolResult;
-      });
-
-      const toolResultMessage: Message = {
-        role: "user",
-        content: "", // Content is empty, tool results are in toolResults array
-        timestamp: Date.now(),
-        toolResults: toolResultsArray,
-      };
-      conversationMessages.push(toolResultMessage);
-      await transcripts.append(entry.sessionId, toolResultMessage);
-    }
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-
-    // Provide a user-visible hint for missing provider keys / auth.
-    if (message.includes("No API key found for anthropic")) {
-      finalContent =
-        "⚠️ Anthropic 未授权：请先运行 `owliabot auth setup`（或设置 `ANTHROPIC_API_KEY`），然后再试一次。";
-    } else {
-      finalContent = `⚠️ 处理失败：${message}`;
-    }
+    );
+  } finally {
+    steeringManager?.setInactive(sessionKey);
   }
 
-  if (!finalContent && iteration >= MAX_ITERATIONS) {
-    finalContent =
-      "I apologize, but I couldn't complete your request. Please try again.";
-  }
+  const finalContent = loopResult.content;
+  const iteration = loopResult.iterations;
 
   log.info(`Final response: ${finalContent.slice(0, 50)}...`);
 
-  // Append assistant response to session
-  const assistantMessage: Message = {
-    role: "assistant",
-    content: finalContent,
-    timestamp: Date.now(),
-  };
-  await transcripts.append(entry.sessionId, assistantMessage);
+  // Persist all messages from the agentic loop (tool calls, results, assistant responses)
+  if (loopResult.messages.length > 0) {
+    for (const msg of loopResult.messages) {
+      await transcripts.append(entry.sessionId, msg);
+    }
+  } else {
+    // Fallback: persist synthetic assistant message if loop returned no messages
+    const assistantMessage: Message = {
+      role: "assistant",
+      content: finalContent,
+      timestamp: Date.now(),
+    };
+    await transcripts.append(entry.sessionId, assistantMessage);
+  }
 
   // Send response
   const channel = channels.get(ctx.channel);
