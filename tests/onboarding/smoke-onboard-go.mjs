@@ -8,7 +8,7 @@ import { fileURLToPath } from "node:url";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-const rootDir = path.resolve(__dirname, "..");
+const rootDir = path.resolve(__dirname, "..", "..");
 const goOnboardDir = path.join(rootDir, "go-onboard");
 
 function terminate(child) {
@@ -86,12 +86,12 @@ async function main() {
   }
 
   if (reachedStepTwo) {
-    console.log("onboard:go smoke passed (reached Step 2)");
+    console.log("onboard-go smoke passed (reached Step 2)");
     return 0;
   }
 
   const tail = transcript.slice(-4000);
-  console.error("onboard:go smoke failed: did not reach Step 2");
+  console.error("onboard-go smoke failed: did not reach Step 2");
   if (timedOut) {
     console.error("reason: timeout");
   }

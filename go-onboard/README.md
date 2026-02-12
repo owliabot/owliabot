@@ -1,25 +1,19 @@
 # Go Docker Onboarding (Centered TUI)
 
 A standalone Go onboarding wizard for Docker deployments.
-The existing TypeScript onboarding remains in place; this is an additive Go path.
 
 ## Run
 
-From repository root:
+Preferred (through CLI entrypoint):
 
 ```bash
-bun run onboard:go
+owliabot onboard
 ```
 
-`onboard:go` uses a cross-platform launcher:
-- macOS/Linux: auto-detects terminal mode and falls back to pseudo-terminal launch when package manager I/O wrapping breaks interactive input.
-- Windows: launches `go run` directly with inherited console I/O.
-
-Or directly:
+Source fallback (developer mode):
 
 ```bash
-cd go-onboard
-go run .
+go -C go-onboard run .
 ```
 
 Defaults:
@@ -29,13 +23,13 @@ Defaults:
 Optional overrides:
 
 ```bash
-bun run onboard:go -- --config-dir /custom/path --output-dir /custom/output
+owliabot onboard --config-dir /custom/path --output-dir /custom/output
 ```
 
 Smoke test:
 
 ```bash
-bun run test:onboard:go:smoke
+bun tests/onboarding/smoke-onboard-go.mjs
 ```
 
 ## UX Style

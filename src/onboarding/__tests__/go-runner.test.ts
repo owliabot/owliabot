@@ -27,29 +27,14 @@ describe("go-runner", () => {
     ]);
   });
 
-  it("resolveGoOnboardCommand chooses bash script on unix when script exists", () => {
+  it("resolveGoOnboardCommand uses go run in go-onboard module", () => {
     const command = resolveGoOnboardCommand({
-      platform: "darwin",
-      rootDir: "/repo",
-      scriptExists: true,
-    });
-
-    expect(command).toEqual({
-      cmd: "bash",
-      args: ["/repo/scripts/onboard-go.sh"],
-    });
-  });
-
-  it("resolveGoOnboardCommand chooses go run on windows", () => {
-    const command = resolveGoOnboardCommand({
-      platform: "win32",
       rootDir: "C:\\repo",
-      scriptExists: true,
     });
 
     expect(command).toEqual({
       cmd: "go",
-      args: ["run", "./go-onboard"],
+      args: ["-C", "C:\\repo/go-onboard", "run", "."],
     });
   });
 
@@ -63,7 +48,6 @@ describe("go-runner", () => {
         spawn: spawnMock as any,
         platform: "darwin",
         rootDir: "/repo",
-        scriptExists: true,
         allowSourceFallback: true,
         resolveBinaryCommand: async () => null,
       },
@@ -75,9 +59,12 @@ describe("go-runner", () => {
 
     await expect(runPromise).resolves.toBeUndefined();
     expect(spawnMock).toHaveBeenCalledWith(
-      "bash",
+      "go",
       [
-        "/repo/scripts/onboard-go.sh",
+        "-C",
+        "/repo/go-onboard",
+        "run",
+        ".",
         "--config-dir",
         "/tmp/config",
         "--image",
@@ -100,7 +87,6 @@ describe("go-runner", () => {
         spawn: spawnMock as any,
         platform: "darwin",
         rootDir: "/repo",
-        scriptExists: true,
         allowSourceFallback: true,
         resolveBinaryCommand: async () => null,
       },
@@ -123,7 +109,6 @@ describe("go-runner", () => {
         spawn: spawnMock as any,
         platform: "linux",
         rootDir: "/repo",
-        scriptExists: true,
         allowSourceFallback: false,
         resolveBinaryCommand: async () => ({ cmd: "/tmp/onboard-bin", args: [] }),
       },

@@ -5,17 +5,15 @@ on:
     branches: [main, develop]
     paths:
       - "go-onboard/**"
-      - "scripts/onboard-go.mjs"
-      - "scripts/onboard-go.sh"
-      - "scripts/smoke-onboard-go.mjs"
+      - "src/onboarding/go-runner.ts"
+      - "tests/onboarding/smoke-onboard-go.mjs"
       - "package.json"
       - ".github/workflows/onboard-go.yml"
   pull_request:
     paths:
       - "go-onboard/**"
-      - "scripts/onboard-go.mjs"
-      - "scripts/onboard-go.sh"
-      - "scripts/smoke-onboard-go.mjs"
+      - "src/onboarding/go-runner.ts"
+      - "tests/onboarding/smoke-onboard-go.mjs"
       - "package.json"
       - ".github/workflows/onboard-go.yml"
   workflow_dispatch:
@@ -39,15 +37,15 @@ jobs:
           go-version: "1.21.x"
           cache-dependency-path: go-onboard/go.mod
 
-      - name: Set up Bun
-        uses: oven-sh/setup-bun@v2
-
       - name: Go unit tests
         working-directory: go-onboard
         run: go test ./...
 
-      - name: Verify onboard:go command entrypoint
-        run: bun run onboard:go -- --help
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Verify onboard command entrypoint
+        run: go -C go-onboard run . --help
 
       - name: Smoke test onboarding
-        run: bun run test:onboard:go:smoke
+        run: bun tests/onboarding/smoke-onboard-go.mjs
