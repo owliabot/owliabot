@@ -143,6 +143,8 @@ If auto-connect failed (e.g. OwliaBot was not running during install), run:
 clawlet connect --agent owliabot
 ```
 
+> **Note:** `connect` 不需要 sudo，普通用户即可调用。
+
 This will detect OwliaBot, generate a token, and connect automatically. The user just enters their wallet password when prompted.
 
 ### Fallback: Manual connect
