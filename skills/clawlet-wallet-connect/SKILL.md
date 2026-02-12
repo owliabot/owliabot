@@ -138,7 +138,7 @@ After the install script completes, verify the connection is working:
 clawlet status
 ```
 
-If auto-connect failed (e.g. OwliaBot was not running during install), run:
+If auto-connect failed (e.g. OwliaBot was not running during install), re-run：
 
 ```bash
 clawlet connect --agent owliabot
@@ -146,25 +146,9 @@ clawlet connect --agent owliabot
 
 > **Note:** `connect` 不需要 sudo，普通用户即可调用。
 
-This will detect OwliaBot, generate a token, and connect automatically. The user just enters their wallet password when prompted.
-
-### Fallback: Manual connect
-
-If `clawlet connect` also fails, use the manual flow with the token printed during install:
-
-**Docker mode:**
-```bash
-docker exec -it owliabot owliabot wallet connect --token clwt_xxxxx
-```
-
-**npm mode:**
-```bash
-npx owliabot wallet connect --token clwt_xxxxx
-```
-
 ## Important Notes
 
-- Wallet config is stored **in memory only**. If the gateway restarts, run `wallet connect` again.
+- Wallet config is stored **in memory only**. If the gateway restarts, run `clawlet connect --agent owliabot` again.
 - To disconnect: `owliabot wallet disconnect`
 - Private keys never enter the OwliaBot process — all signing happens inside Clawlet.
 
