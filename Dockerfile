@@ -8,13 +8,13 @@
 # Stage 1: Build
 # Compile TypeScript and install all dependencies (including devDependencies)
 # ==============================================================================
-FROM node:22-slim AS builder
+FROM node:22-alpine AS builder
 
 # Install build dependencies for native modules (better-sqlite3)
 # python3 + make + g++ are required for node-gyp
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    python3 make g++ \
-    && rm -rf /var/lib/apt/lists/*
+# Alpine uses musl libc — better-sqlite3 prebuilds may not exist, so we
+# compile from source (handled automatically by node-gyp with these tools).
+RUN apk add --no-cache python3 make g++
 
 WORKDIR /app
 
@@ -38,33 +38,32 @@ RUN npm prune --production
 # Stage 2: Production
 # Minimal image with only runtime dependencies
 # ==============================================================================
-FROM node:22-slim AS production
+FROM node:22-alpine AS production
 
 # Install runtime dependencies + Chromium for Playwright MCP
 # Chromium and its dependencies are needed for browser automation via @playwright/mcp.
 # Using system Chromium avoids Playwright's own download (~400MB) and works in containers.
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN apk add --no-cache \
     ca-certificates \
     coreutils \
     wget \
     chromium \
-    fonts-liberation \
-    fonts-noto-color-emoji \
-    libgbm1 \
-    libnss3 \
-    libatk-bridge2.0-0 \
-    libdrm2 \
-    libxkbcommon0 \
-    libxcomposite1 \
-    libxdamage1 \
-    libxrandr2 \
-    libatspi2.0-0 \
-    && rm -rf /var/lib/apt/lists/*
+    font-liberation \
+    font-noto-emoji \
+    mesa-gbm \
+    nss \
+    libatk-bridge-2.0 \
+    libdrm \
+    libxkbcommon \
+    libxcomposite \
+    libxdamage \
+    libxrandr \
+    at-spi2-core
 
 # Create non-root user for security
 # Using numeric UID/GID for Kubernetes compatibility
-RUN groupadd -g 1001 owliabot && \
-    useradd -u 1001 -g owliabot -m owliabot
+RUN addgroup -g 1001 owliabot && \
+    adduser -u 1001 -G owliabot -D owliabot
 
 WORKDIR /app
 
@@ -103,12 +102,14 @@ EXPOSE 8787
 
 # Health check - assumes gateway HTTP is enabled on default port
 # Adjust interval based on your needs
+# Note: Alpine uses BusyBox wget which doesn't support --no-verbose; use -q instead
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD wget --no-verbose --tries=1 --spider http://localhost:8787/health || exit 1
+    CMD wget -q --tries=1 --spider http://localhost:8787/health || exit 1
 
 # Default config path - can be overridden via -c flag or volume mount
 # Playwright MCP: use system Chromium, skip download, disable sandbox (container)
-ENV OWLIABOT_PLAYWRIGHT_CHROMIUM_PATH=/usr/bin/chromium
+# Note: Alpine's Chromium binary is at /usr/bin/chromium-browser (not /usr/bin/chromium)
+ENV OWLIABOT_PLAYWRIGHT_CHROMIUM_PATH=/usr/bin/chromium-browser
 ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
 ENV PLAYWRIGHT_MCP_NO_SANDBOX=1
 
