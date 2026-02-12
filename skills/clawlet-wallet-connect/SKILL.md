@@ -78,16 +78,36 @@ Clawlet is a secure local wallet daemon that keeps private keys isolated from Ow
 
 The install script handles everything — install, init, and start — in one command. If Clawlet is already installed, it detects the existing installation and starts the daemon.
 
-Tell the user to run:
+Tell the user to run this single command (downloads, installs, and starts the daemon):
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/owliabot/clawlet/main/scripts/install.sh | sudo bash -s -- --isolated
+curl -fsSL https://raw.githubusercontent.com/owliabot/clawlet/main/scripts/install.sh -o /tmp/clawlet-install.sh && sudo bash /tmp/clawlet-install.sh --isolated && sudo -H -u clawlet /usr/local/bin/clawlet start --agent owliabot --daemon
 ```
+
+> **Why download first?** The script is saved to `/tmp/` before execution — this avoids piping directly to `sudo bash`, which is safer and allows inspection before running.
+>
+> **Note:** Paths match `install.sh` defaults: `CLAWLET_USER="clawlet"`, `BINARY_PATH="/usr/local/bin/clawlet"`（`DEFAULT_PREFIX="/usr/local"`）. If you used `--prefix` to customize the install path, adjust accordingly.
 
 After the script finishes, verify with the `exec` tool:
 
 ```bash
 clawlet --version
+```
+
+The install + start sequence will output useful commands at the end:
+
+```
+Useful commands:
+
+  # View logs:
+  sudo tail -f /home/clawlet/.clawlet/clawlet.log   # Linux
+  sudo tail -f /var/clawlet/.clawlet/clawlet.log     # macOS
+
+  # Stop daemon:
+  sudo -H -u clawlet clawlet stop
+
+  # Clear sudo cache (security best practice):
+  sudo -k
 ```
 
 The script walks through an interactive flow:
