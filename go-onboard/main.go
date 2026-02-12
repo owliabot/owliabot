@@ -2849,7 +2849,12 @@ func displayPath(path string) string {
 
 	prefix := cleanHome + string(filepath.Separator)
 	if strings.HasPrefix(cleanPath, prefix) {
-		return "~" + string(filepath.Separator) + strings.TrimPrefix(cleanPath, prefix)
+		rel := strings.TrimPrefix(cleanPath, prefix)
+		rel = strings.ReplaceAll(rel, string(filepath.Separator), "/")
+		if rel == "" {
+			return "~"
+		}
+		return "~/" + rel
 	}
 
 	return path
