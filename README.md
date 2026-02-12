@@ -213,7 +213,17 @@ curl -fsSL https://raw.githubusercontent.com/owliabot/clawlet/main/scripts/insta
   clawlet connect --agent owliabot
 ```
 
-4. **Start the OwliaBot gateway**:
+2. **Reconnect after restart** (wallet daemon or bot restart):
+
+```bash
+# Only need connect — no reinstall or sudo required
+clawlet connect --agent owliabot
+```
+
+> **npm 运行模式**：bot 启动时可自动发起 connect（见下方配置）。
+> **Docker 运行模式**：需要在宿主机命令行手动执行 `clawlet connect --agent owliabot`。
+
+3. **Start the OwliaBot gateway**:
 
 ```bash
 owliabot start
