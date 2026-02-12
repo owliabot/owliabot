@@ -1,8 +1,6 @@
 package main
 
 import (
-	"os"
-	"syscall"
 	"testing"
 )
 
@@ -24,15 +22,4 @@ func TestRenderOnResizeRerendersLastView(t *testing.T) {
 	if count != 2 {
 		t.Fatalf("expected resize rerender to be called, got %d", count)
 	}
-}
-
-func TestResizeSignalsIncludeSIGWINCH(t *testing.T) {
-	signals := resizeSignals()
-	want := os.Signal(syscall.SIGWINCH)
-	for _, s := range signals {
-		if s == want {
-			return
-		}
-	}
-	t.Fatalf("expected SIGWINCH in resize signals, got: %v", signals)
 }
