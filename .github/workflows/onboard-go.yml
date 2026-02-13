@@ -44,8 +44,14 @@ jobs:
       - name: Set up Bun
         uses: oven-sh/setup-bun@v2
 
+      - name: Install JS dependencies
+        run: bun install
+
       - name: Verify onboard command entrypoint
         run: go -C client run . --help
 
       - name: Smoke test onboarding
         run: bun tests/onboarding/smoke-onboard-go.mjs
+
+      - name: Go wizard E2E
+        run: bun tests/onboarding/e2e-onboard-go-wizard.mjs
