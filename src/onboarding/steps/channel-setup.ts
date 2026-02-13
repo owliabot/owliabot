@@ -222,6 +222,24 @@ export async function getChannelsSetup(
     if (!discordToken && !telegramToken) {
       warn("No chat token yet. You can add it later.");
     }
+
+    // After our strict allowList policy, the bot rejects all messages when no
+    // allowList is configured.  Warn the user and prompt for IDs.
+    const hasTgAllow = !!telegramAllowList && telegramAllowList.length > 0;
+    const hasDcAllow = !!(existing?.discordMemberAllowList && existing.discordMemberAllowList.length > 0);
+    if (!hasTgAllow && !hasDcAllow) {
+      console.log("");
+      warn("No allowList configured. The bot won't respond to anyone without one.");
+      if (telegramEnabled) {
+        const ids = await ask(rl, "Enter your Telegram user IDs (comma-separated, or press Enter to skip): ", true);
+        const parsed = ids.split(",").map((s) => s.trim()).filter(Boolean);
+        if (parsed.length > 0) {
+          telegramAllowList = parsed;
+          success(`Telegram allowList: ${parsed.join(", ")}`);
+        }
+      }
+    }
+
     return {
       discordEnabled,
       telegramEnabled,

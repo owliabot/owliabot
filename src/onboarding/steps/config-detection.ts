@@ -25,6 +25,7 @@ export interface DetectedConfig {
   hasOAuthCodex?: boolean;
   oauthCodexExpires?: number;
   anthropicTokenValid?: boolean;
+  discordMemberAllowList?: string[];
   telegramAllowList?: string[];
   telegramGroups?: TelegramGroups;
 }
@@ -84,10 +85,23 @@ export async function detectExistingConfig(
       }
     }
 
-    // Best-effort: detect Telegram allowList/groups from app.yaml so we can offer reuse.
+    // Best-effort: detect channel allowLists/groups from app.yaml so we can offer reuse.
     try {
       if (existsSync(appConfigPath)) {
         const raw = yamlParse(readFileSync(appConfigPath, "utf-8")) as any;
+
+        // Discord memberAllowList
+        const dc = raw?.discord;
+        if (dc && typeof dc === "object") {
+          const memberAllowList = Array.isArray(dc.memberAllowList)
+            ? dc.memberAllowList.map((v: unknown) => (typeof v === "string" ? v.trim() : "")).filter(Boolean)
+            : [];
+          if (memberAllowList.length > 0) {
+            result.discordMemberAllowList = memberAllowList;
+            hasAny = true;
+          }
+        }
+
         const tg = raw?.telegram;
         if (tg && typeof tg === "object") {
           const allowList = Array.isArray(tg.allowList)

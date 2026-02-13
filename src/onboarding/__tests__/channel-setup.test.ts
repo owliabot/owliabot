@@ -108,6 +108,7 @@ describe("channel-setup step", () => {
     });
 
     it("reuses existing telegram token", async () => {
+      answers = [""];  // skip allowList prompt
       const existing: DetectedConfig = { telegramToken: "existing-t-tok" };
       const secrets: any = {};
       const result = await getChannelsSetup(rl, false, secrets, existing, true);
@@ -115,10 +116,28 @@ describe("channel-setup step", () => {
     });
 
     it("reuses both when both exist", async () => {
+      answers = [""];  // skip allowList prompt
       const existing: DetectedConfig = { discordToken: "d", telegramToken: "t" };
       const result = await getChannelsSetup(rl, false, {}, existing, true);
       expect(result.discordEnabled).toBe(true);
       expect(result.telegramEnabled).toBe(true);
+    });
+
+    it("prompts for allowList when reusing with no allowList configured", async () => {
+      answers = ["111,222"];
+      const existing: DetectedConfig = { telegramToken: "t" };
+      const result = await getChannelsSetup(rl, false, {}, existing, true);
+      expect(result.telegramAllowList).toEqual(["111", "222"]);
+    });
+
+    it("skips allowList prompt when existing allowList is present", async () => {
+      answers = ["y"];  // "Reuse your existing Telegram setup?"
+      const existing: DetectedConfig = {
+        telegramToken: "t",
+        telegramAllowList: ["111"],
+      };
+      const result = await getChannelsSetup(rl, false, {}, existing, true);
+      expect(result.telegramAllowList).toEqual(["111"]);
     });
 
     it("falls through to askChannels when reuseExisting=false", async () => {

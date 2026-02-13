@@ -13,6 +13,7 @@ export interface DetectedConfig extends ExistingConfig {
   hasOAuthCodex?: boolean;
   oauthCodexExpires?: number;
   anthropicTokenValid?: boolean;
+  discordMemberAllowList?: string[];
   telegramAllowList?: string[];
   telegramGroups?: NonNullable<NonNullable<AppConfig["telegram"]>["groups"]>;
 }

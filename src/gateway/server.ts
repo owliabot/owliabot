@@ -19,6 +19,7 @@ import { loadOAuthCredentials, type SupportedOAuthProvider } from "../auth/oauth
 import { buildSystemPrompt } from "../agent/system-prompt.js";
 import type { MsgContext } from "../channels/interface.js";
 import { passesUserAllowlist, shouldHandleMessage } from "./activation.js";
+import { UnboundNotifier } from "./unbound-notify.js";
 import { tryHandleCommand, tryHandleStatusCommand } from "./commands.js";
 import { GroupHistoryBuffer } from "./group-history.js";
 import { GroupRateLimiter } from "./group-rate-limit.js";
@@ -158,6 +159,10 @@ export async function startGateway(
 
   const groupHistory = new GroupHistoryBuffer(maxGroupHistoryLimit);
   const groupRateLimiter = new GroupRateLimiter(config.group?.maxConcurrent ?? 3);
+  const unboundNotifier = new UnboundNotifier(config.messages?.unboundUserReply
+    ? { message: config.messages.unboundUserReply }
+    : undefined,
+  );
 
   const channels = new ChannelRegistry();
 
@@ -377,6 +382,7 @@ export async function startGateway(
         groupRateLimiter,
         infraStore,
         steeringManager,
+        unboundNotifier,
       );
     });
 
@@ -415,6 +421,7 @@ export async function startGateway(
         groupRateLimiter,
         infraStore,
         steeringManager,
+        unboundNotifier,
       );
     });
 
@@ -632,6 +639,7 @@ async function handleMessage(
   groupRateLimiter: GroupRateLimiter,
   infraStore: InfraStore | null,
   steeringManager?: ReturnType<typeof createSessionSteeringManager>,
+  unboundNotifier?: UnboundNotifier,
 ): Promise<void> {
   const agentId = resolveAgentId({ config });
   const sessionKey = resolveSessionKey({ ctx, config });
@@ -670,6 +678,24 @@ async function handleMessage(
   // Mention-only groups: record non-activated group messages for later context.
   // Only record if the user passes the allowlist gate (avoid leaking non-allowlisted users).
   if (!shouldHandleMessage(ctx, config)) {
+    // If the user failed the allowlist check:
+    // - DMs: send a rate-limited onboard prompt so the user knows what to do.
+    // - Groups: silently ignore to avoid spamming the chat.
+    if (!passesUserAllowlist(ctx, config)) {
+      if (ctx.chatType === "direct" && unboundNotifier) {
+        const replyText = unboundNotifier.shouldNotify(ctx.from);
+        if (replyText) {
+          const ch = channels.get(ctx.channel);
+          if (ch) {
+            await ch.send(ctx.from, { text: replyText, replyToId: ctx.messageId }).catch((err) => {
+              log.error("Failed to send unbound-user notification", err);
+            });
+          }
+        }
+      }
+      return;
+    }
+
     if (
       ctx.chatType === "group" &&
       passesUserAllowlist(ctx, config) &&
