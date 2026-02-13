@@ -709,6 +709,28 @@ async function handleMessage(
     return;
   }
 
+  // Telegram allowlist applies to ALL chat types (DM + group).
+  // passesUserAllowlist only checks it for DMs, so we need an explicit gate here
+  // to prevent unbound users in Telegram groups from reaching the AI pipeline.
+  if (ctx.channel === "telegram") {
+    const tgAllowList = config.telegram?.allowList;
+    if (tgAllowList && tgAllowList.length > 0 && !tgAllowList.includes(ctx.from)) {
+      if (unboundNotifier) {
+        const replyText = unboundNotifier.shouldNotify(ctx.from);
+        if (replyText) {
+          const ch = channels.get(ctx.channel);
+          if (ch) {
+            const target = ctx.chatType === "direct" ? ctx.from : (ctx.groupId ?? ctx.from);
+            await ch.send(target, { text: replyText, replyToId: ctx.messageId }).catch((err) => {
+              log.error("Failed to send unbound-user notification", err);
+            });
+          }
+        }
+      }
+      return;
+    }
+  }
+
   // Group mention ack UX + per-session concurrency limiting.
   const isGroupMention = ctx.chatType === "group" && !!ctx.mentioned;
   const channelForReactions = channels.get(ctx.channel);
