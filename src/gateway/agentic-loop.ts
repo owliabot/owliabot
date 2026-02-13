@@ -396,9 +396,12 @@ export async function runAgenticLoop(
             };
           }
 
+          // Preserve toolResults on legacy user messages (role: "user" with toolResults array)
+          const legacyToolResults = (m as any).toolResults;
           return {
             ...base,
             role: m.role as "user" | "assistant" | "system",
+            ...(Array.isArray(legacyToolResults) ? { toolResults: legacyToolResults } : {}),
           };
         });
 
@@ -413,28 +416,33 @@ export async function runAgenticLoop(
           );
         }
 
-        // Map pruned internal messages back to original AgentMessages by index.
-        // Cannot use identity (Set) because guardContext may clone messages during truncation.
-        // Instead, build a set of surviving original indices.
-        const survivingIndices = new Set<number>();
-        for (const p of pruned) {
-          // Find the original index: match by the object if identity held, else by position
-          const idx = internalMessages.indexOf(p);
-          if (idx >= 0) {
-            survivingIndices.add(idx);
+        // Map pruned messages back to AgentMessages.
+        // guardContext drops from the front and may clone+truncate tool result messages.
+        // We use offset-based mapping and apply any truncation from the guard.
+        const offset = messages.length - pruned.length;
+        const result: AgentMessage[] = [];
+        for (let i = 0; i < pruned.length; i++) {
+          const originalIdx = offset + i;
+          const original = messages[originalIdx];
+          const prunedMsg = pruned[i];
+          const internalMsg = internalMessages[originalIdx];
+
+          // If guardContext cloned/truncated this message, reflect truncation on the AgentMessage
+          if (prunedMsg !== internalMsg && original.role === "toolResult") {
+            // guardContext truncated the tool result — rebuild with truncated content
+            const truncatedText = prunedMsg.toolResults?.[0]?.data
+              ?? prunedMsg.toolResults?.[0]?.error
+              ?? prunedMsg.content
+              ?? "";
+            const tr = original as any;
+            result.push({
+              ...tr,
+              content: [{ type: "text", text: String(truncatedText) }],
+            });
+          } else {
+            result.push(original);
           }
         }
-        // If identity matching missed some (cloned messages), fall back to count-based mapping:
-        // guardContext preserves order and only drops from the front, so pruned[i] corresponds
-        // to messages[offset + i] where offset = messages.length - pruned.length.
-        if (survivingIndices.size < pruned.length) {
-          survivingIndices.clear();
-          const offset = messages.length - pruned.length;
-          for (let i = 0; i < pruned.length; i++) {
-            survivingIndices.add(offset + i);
-          }
-        }
-        const result = messages.filter((_, i) => survivingIndices.has(i));
 
         log.info(
           {
