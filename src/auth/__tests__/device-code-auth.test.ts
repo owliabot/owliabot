@@ -46,16 +46,23 @@ function createMockResponse(body: unknown, status = 200): Response {
     bytes: async () => new Uint8Array(),
   } as Response;
 }
+let priorDeviceCodeOnly: string | undefined;
 
 describe("device-code-auth", () => {
   beforeEach(() => {
+    priorDeviceCodeOnly = process.env.OWLIABOT_OAUTH_DEVICE_CODE_ONLY;
     vi.clearAllMocks();
+    mockFetch.mockReset();
     vi.useRealTimers();
   });
 
   afterEach(() => {
     vi.useRealTimers();
-    delete process.env.OWLIABOT_OAUTH_DEVICE_CODE_ONLY;
+    if (priorDeviceCodeOnly === undefined) {
+      delete process.env.OWLIABOT_OAUTH_DEVICE_CODE_ONLY;
+    } else {
+      process.env.OWLIABOT_OAUTH_DEVICE_CODE_ONLY = priorDeviceCodeOnly;
+    }
   });
 
   describe("requestDeviceCode", () => {
