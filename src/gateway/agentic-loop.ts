@@ -20,7 +20,6 @@ import {
 import type { Message } from "../agent/session.js";
 import {
   guardContext,
-  estimateContextTokens,
   calculateMaxToolResultChars,
 } from "../agent/context-guard.js";
 import type { ToolRegistry } from "../agent/tools/registry.js";
@@ -37,6 +36,34 @@ import { type Message as PiAiMessage } from "@mariozechner/pi-ai";
 
 const log = createLogger("gateway:agentic-loop");
 const DEFAULT_TOOL_RESULT_MAX_CHARS = 8192;
+const DEFAULT_CHARS_PER_TOKEN = 4;
+
+/**
+ * Estimate tokens for pi-ai AgentMessage[] (content blocks, not plain strings).
+ * Unlike context-guard's estimateContextTokens which expects Message.content: string,
+ * this handles AssistantMessage.content: (TextContent | ThinkingContent | ToolCall)[]
+ * and ToolResultMessage.content: (TextContent | ImageContent)[].
+ */
+function estimateAgentMessageTokens(messages: AgentMessage[]): number {
+  let total = 0;
+  for (const m of messages) {
+    if (typeof m.content === "string") {
+      total += Math.ceil(m.content.length / DEFAULT_CHARS_PER_TOKEN);
+    } else if (Array.isArray(m.content)) {
+      for (const block of m.content) {
+        if ("text" in block && typeof block.text === "string") {
+          total += Math.ceil(block.text.length / DEFAULT_CHARS_PER_TOKEN);
+        } else if ("thinking" in block && typeof block.thinking === "string") {
+          total += Math.ceil(block.thinking.length / DEFAULT_CHARS_PER_TOKEN);
+        } else if ("arguments" in block) {
+          // ToolCall block
+          total += Math.ceil(JSON.stringify(block.arguments).length / DEFAULT_CHARS_PER_TOKEN);
+        }
+      }
+    }
+  }
+  return total;
+}
 
 /**
  * Context for running the agentic loop.
@@ -196,7 +223,20 @@ export async function runAgenticLoop(
 ): Promise<AgenticLoopResult> {
   const maxIterations = config.maxIterations ?? 50;
   const timeoutMs = config.timeoutMs ?? 600_000; // 10 minutes default
-  const contextWindow = config.contextWindow ?? 200_000;
+
+  // Derive context window from the primary provider's model if not explicitly set
+  const primaryModelContextWindow = (() => {
+    try {
+      const p = config.providers[0];
+      if (p) {
+        const model = resolveModel({ provider: p.id, model: p.model ?? "", apiKey: "" });
+        return model.contextWindow;
+      }
+    } catch { /* fallback below */ }
+    return 200_000;
+  })();
+  const contextWindow = config.contextWindow ?? primaryModelContextWindow;
+  const effectiveContextWindow = contextWindow;
   const toolResultMaxChars =
     config.toolResultMaxChars ?? calculateMaxToolResultChars(contextWindow);
 
@@ -305,10 +345,31 @@ export async function runAgenticLoop(
           throw new Error(`Max iterations (${maxIterations}) reached`);
         }
 
-        // Guard context window: prune old messages if context is too large
+        // Guard context window: convert AgentMessage[] to internal Message[] for guardContext,
+        // using proper content serialization (not just array.length).
+        const internalMessages: Message[] = messages.map((m) => ({
+          role: m.role === "toolResult" ? "user" as const : m.role as "user" | "assistant" | "system",
+          content: typeof m.content === "string"
+            ? m.content
+            : Array.isArray(m.content)
+              ? m.content.map((block: any) => {
+                  if ("text" in block) return block.text;
+                  if ("thinking" in block) return block.thinking;
+                  if ("arguments" in block) return `[tool_call: ${block.name}] ${JSON.stringify(block.arguments)}`;
+                  return JSON.stringify(block);
+                }).join("\n")
+              : String(m.content),
+          timestamp: (m as any).timestamp ?? Date.now(),
+          ...(m.role === "assistant" && Array.isArray(m.content) ? {
+            toolCalls: m.content
+              .filter((b: any) => b.type === "toolCall")
+              .map((b: any) => ({ id: b.id, name: b.name, arguments: b.arguments })),
+          } : {}),
+        }));
+
         const { messages: pruned, dropped } = guardContext(
-          messages as Message[],
-          { contextWindow, reserveTokens: 8192 },
+          internalMessages,
+          { contextWindow: effectiveContextWindow, reserveTokens: 8192 },
         );
         if (dropped > 0) {
           log.warn(
@@ -317,13 +378,16 @@ export async function runAgenticLoop(
           );
         }
 
-        const result = pruned as AgentMessage[];
+        // Map pruned internal messages back — use the original AgentMessages by index
+        // guardContext preserves order, so we match by finding which originals survived
+        const prunedSet = new Set(pruned);
+        const result = messages.filter((_, i) => prunedSet.has(internalMessages[i]));
 
         log.info(
           {
             messageCount: result.length,
             toolCallCount: estimateToolCallCount(result),
-            estimatedChars: estimateChars(result),
+            estimatedTokens: estimateAgentMessageTokens(result),
           },
           "LLM context stats"
         );
