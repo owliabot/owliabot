@@ -7,6 +7,7 @@ on:
       - "client/**"
       - "src/onboarding/go-runner.ts"
       - "tests/onboarding/smoke-onboard-go.mjs"
+      - "tests/onboarding/e2e-onboard-go-wizard.mjs"
       - "package.json"
       - ".github/workflows/onboard-go.yml"
   pull_request:
@@ -14,6 +15,7 @@ on:
       - "client/**"
       - "src/onboarding/go-runner.ts"
       - "tests/onboarding/smoke-onboard-go.mjs"
+      - "tests/onboarding/e2e-onboard-go-wizard.mjs"
       - "package.json"
       - ".github/workflows/onboard-go.yml"
   workflow_dispatch:
