@@ -223,10 +223,6 @@ async function runScenario(scenario) {
     );
 
     child.stdin.on("error", () => {});
-    child.on("error", (err) => {
-      spawnError = err;
-      terminate(child);
-    });
 
     const onData = (chunk) => {
       const text = chunk.toString("utf8");
@@ -247,9 +243,16 @@ async function runScenario(scenario) {
       terminate(child);
     }, DEFAULT_TIMEOUT_MS);
 
-    exitCode = await new Promise((resolve) => {
-      child.on("close", (code) => resolve(code ?? 1));
+    const exitResult = await new Promise((resolve) => {
+      child.on("close", (code) => resolve({ code: code ?? 1 }));
+      child.on("error", (err) => resolve({ error: err }));
     });
+    if (exitResult?.error) {
+      spawnError = exitResult.error;
+      exitCode = 1;
+    } else {
+      exitCode = exitResult.code ?? 1;
+    }
     done = true;
     flushOutputWaiters(outputWaiters);
     await feedPromise;
@@ -258,10 +261,10 @@ async function runScenario(scenario) {
     const plainTranscript = normalizeTerminalText(transcript);
 
     if (spawnError) {
-      throw new Error(`wizard spawn failed: ${spawnError.message}`);
+      throw new Error(`wizard spawn failed: ${spawnError.message}\n${plainTranscript.slice(-4000)}`);
     }
     if (timedOut) {
-      throw new Error(`wizard timed out after ${DEFAULT_TIMEOUT_MS}ms`);
+      throw new Error(`wizard timed out after ${DEFAULT_TIMEOUT_MS}ms\n${plainTranscript.slice(-4000)}`);
     }
     if (exitCode !== 0) {
       throw new Error(`wizard exited with code ${exitCode}\n${plainTranscript.slice(-4000)}`);
@@ -317,13 +320,24 @@ async function feedInputs(child, lines, outputWaiters, isDone) {
   }
 }
 
-function waitForOutputTick(outputWaiters, isDone) {
+function waitForOutputTick(outputWaiters, isDone, maxWaitMs = 400) {
   return new Promise((resolve) => {
     if (isDone()) {
       resolve();
       return;
     }
-    outputWaiters.push(resolve);
+    const timeout = setTimeout(() => {
+      const idx = outputWaiters.indexOf(notify);
+      if (idx >= 0) {
+        outputWaiters.splice(idx, 1);
+      }
+      resolve();
+    }, maxWaitMs);
+    const notify = () => {
+      clearTimeout(timeout);
+      resolve();
+    };
+    outputWaiters.push(notify);
   });
 }
 
