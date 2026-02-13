@@ -28,6 +28,10 @@ import {
   isCliProvider,
   type ConfigWithCliBackends,
 } from "../agent/cli/cli-provider.js";
+import {
+  guardContext,
+  type GuardOptions,
+} from "../agent/context-guard.js";
 import { type Message as PiAiMessage } from "@mariozechner/pi-ai";
 
 const log = createLogger("gateway:agentic-loop");
@@ -83,6 +87,8 @@ export interface AgenticLoopConfig {
   getFollowUpMessages?: () => Promise<AgentMessage[]>;
   /** Maximum tool result text chars kept in context (default: 8192) */
   toolResultMaxChars?: number;
+  /** Context window size in tokens (default: 200_000) */
+  contextWindow?: number;
 }
 
 /**
@@ -296,15 +302,33 @@ export async function runAgenticLoop(
           maxIterationsReached = true;
           throw new Error(`Max iterations (${maxIterations}) reached`);
         }
+
+        // L1+L2: Apply context guard (tool result truncation + history pruning
+        // with tool-call/tool-result pairing protection)
+        const contextWindow = config.contextWindow ?? 200_000;
+        const guardOpts: GuardOptions = {
+          contextWindow,
+          maxToolResultChars: toolResultMaxChars,
+        };
+        const { messages: guarded, dropped } = guardContext(
+          messages as unknown as Message[],
+          guardOpts,
+        );
+        if (dropped > 0) {
+          log.warn(`Context guard dropped ${dropped} old messages`);
+        }
+
+        const result = guarded as unknown as AgentMessage[];
+
         log.info(
           {
-            messageCount: messages.length,
-            toolCallCount: estimateToolCallCount(messages),
-            estimatedChars: estimateChars(messages),
+            messageCount: result.length,
+            toolCallCount: estimateToolCallCount(result),
+            estimatedChars: estimateChars(result),
           },
           "LLM context stats"
         );
-        return messages;
+        return result;
       },
       getSteeringMessages: config.getSteeringMessages,
       getFollowUpMessages: config.getFollowUpMessages,
@@ -699,12 +723,47 @@ async function runLegacyLoop(
  * @param history - Previous conversation history
  * @returns Conversation messages array
  */
+/**
+ * Sanitize history to remove orphaned tool_result messages
+ * whose tool_use_id doesn't match any assistant tool_call in the history.
+ * This prevents Anthropic API 400 errors when session transcripts
+ * have been compacted, corrupted, or interrupted mid-tool-call.
+ */
+function sanitizeHistory(history: Message[]): Message[] {
+  // Collect all tool_use IDs from assistant messages
+  const toolUseIds = new Set<string>();
+  for (const msg of history) {
+    if (msg.role === "assistant" && msg.toolCalls) {
+      for (const tc of msg.toolCalls) {
+        toolUseIds.add(tc.id);
+      }
+    }
+  }
+
+  // Filter out user messages whose toolResults reference non-existent tool_use IDs
+  return history.filter((msg) => {
+    if (msg.role === "user" && msg.toolResults && msg.toolResults.length > 0) {
+      const hasValidRef = msg.toolResults.some(
+        (tr) => tr.toolCallId && toolUseIds.has(tr.toolCallId)
+      );
+      if (!hasValidRef) {
+        log.warn(
+          `Dropping orphaned tool_result message (toolCallIds: ${msg.toolResults.map((tr) => tr.toolCallId).join(", ")})`,
+        );
+        return false;
+      }
+    }
+    return true;
+  });
+}
+
 export function createConversation(
   systemPrompt: string,
   history: Message[]
 ): Message[] {
+  const sanitized = sanitizeHistory(history);
   return [
     { role: "system", content: systemPrompt, timestamp: Date.now() },
-    ...history,
+    ...sanitized,
   ];
 }
