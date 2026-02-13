@@ -101,18 +101,19 @@ func (w *wizardSession) runWizard(opts cliOptions) (Answers, error) {
 
 		case 1:
 			w.stepIndex = 1
-			if reuseExisting && existing != nil {
-				applyExistingAppSettings(existing, &answers)
-			}
 			reusedProviders := false
 			if reuseExisting && existing != nil {
 				reusedProviders = reuseProviders(existing, &answers)
 				if reusedProviders {
+					applyExistingAppSettings(existing, &answers)
 					w.conversation = append(w.conversation, "Assistant: Reused your saved provider settings.")
 				}
 			}
 			if !reusedProviders {
 				resetProviderAnswers(&answers)
+				if reuseExisting && existing != nil {
+					applyExistingAppSettings(existing, &answers)
+				}
 				providerOptions, providerDetails := providerStageMenu()
 				providerChoice, askErr := w.askOptionWithDetails(
 					"Provider",
@@ -417,11 +418,15 @@ func (w *wizardSession) runWizard(opts cliOptions) (Answers, error) {
 			if reuseExisting && existing != nil && strings.TrimSpace(existing.GatewayToken) != "" {
 				answers.GatewayToken = existing.GatewayToken
 			}
-			answers.DiscordChannelAllowList = nil
-			answers.DiscordMemberAllowList = nil
-			answers.TelegramAllowList = nil
-			answers.AdditionalWriteToolAllowList = nil
-			answers.EnableWriteToolsForAllowlist = false
+			if reuseExisting && existing != nil {
+				applyExistingAppSettings(existing, &answers)
+			} else {
+				answers.DiscordChannelAllowList = nil
+				answers.DiscordMemberAllowList = nil
+				answers.TelegramAllowList = nil
+				answers.AdditionalWriteToolAllowList = nil
+				answers.EnableWriteToolsForAllowlist = false
+			}
 			stage = 3
 
 		case 3:
