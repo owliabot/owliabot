@@ -101,6 +101,9 @@ func (w *wizardSession) runWizard(opts cliOptions) (Answers, error) {
 
 		case 1:
 			w.stepIndex = 1
+			if reuseExisting && existing != nil {
+				applyExistingAppSettings(existing, &answers)
+			}
 			reusedProviders := false
 			if reuseExisting && existing != nil {
 				reusedProviders = reuseProviders(existing, &answers)

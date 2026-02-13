@@ -802,6 +802,50 @@ func reuseProviders(existing *ExistingConfig, answers *Answers) bool {
 	return true
 }
 
+func applyExistingAppSettings(existing *ExistingConfig, answers *Answers) {
+	if existing == nil || answers == nil {
+		return
+	}
+	if strings.TrimSpace(existing.Timezone) != "" {
+		answers.Timezone = existing.Timezone
+	}
+	if strings.TrimSpace(existing.GatewayPort) != "" {
+		answers.GatewayPort = existing.GatewayPort
+	}
+	if strings.TrimSpace(existing.AnthropicModel) != "" {
+		answers.AnthropicModel = existing.AnthropicModel
+	}
+	if strings.TrimSpace(existing.OpenAIModel) != "" {
+		answers.OpenAIModel = existing.OpenAIModel
+	}
+	if strings.TrimSpace(existing.OpenAICodexModel) != "" {
+		answers.OpenAICodexModel = existing.OpenAICodexModel
+	}
+	if strings.TrimSpace(existing.OpenAICompatibleModel) != "" {
+		answers.OpenAICompatibleModel = existing.OpenAICompatibleModel
+	}
+	if strings.TrimSpace(existing.OpenAICompatibleBaseURL) != "" {
+		answers.OpenAICompatibleBaseURL = existing.OpenAICompatibleBaseURL
+	}
+	if len(existing.DiscordChannelAllowList) > 0 {
+		answers.DiscordChannelAllowList = cloneSlice(existing.DiscordChannelAllowList)
+	}
+	if len(existing.DiscordMemberAllowList) > 0 {
+		answers.DiscordMemberAllowList = cloneSlice(existing.DiscordMemberAllowList)
+	}
+	if len(existing.TelegramAllowList) > 0 {
+		answers.TelegramAllowList = cloneSlice(existing.TelegramAllowList)
+	}
+	if len(existing.WriteToolAllowList) > 0 {
+		answers.AdditionalWriteToolAllowList = cloneSlice(existing.WriteToolAllowList)
+		answers.EnableWriteToolsForAllowlist = true
+	}
+	if existing.HasMCP {
+		answers.EnableMCP = true
+		answers.MCPPresets = cloneSlice(existing.MCPPresets)
+	}
+}
+
 func reuseChannels(existing *ExistingConfig, answers *Answers) bool {
 	if existing == nil {
 		return false

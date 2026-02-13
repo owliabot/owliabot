@@ -23,20 +23,37 @@ type OAuthSessionDetail struct {
 }
 
 type ExistingConfig struct {
-	AnthropicAPIKey     string
-	AnthropicToken      string
-	OpenAIKey           string
-	OpenAICompatibleKey string
-	DiscordToken        string
-	TelegramToken       string
-	GatewayToken        string
-	HasOAuthAnthropic   bool
-	HasOAuthCodex       bool
-	DetectedSecrets     []DetectedSecretEntry
-	AnthropicOAuth      *OAuthSessionDetail
-	OpenAICodexOAuth    *OAuthSessionDetail
-	HasMCP              bool
-	MCPPresets          []string
+	AnthropicAPIKey         string
+	AnthropicToken          string
+	OpenAIKey               string
+	OpenAICompatibleKey     string
+	DiscordToken            string
+	TelegramToken           string
+	GatewayToken            string
+	Timezone                string
+	AnthropicModel          string
+	OpenAIModel             string
+	OpenAICodexModel        string
+	OpenAICompatibleModel   string
+	OpenAICompatibleBaseURL string
+	DiscordChannelAllowList []string
+	DiscordMemberAllowList  []string
+	TelegramAllowList       []string
+	WriteToolAllowList      []string
+	GatewayPort             string
+	HasOAuthAnthropic       bool
+	HasOAuthCodex           bool
+	DetectedSecrets         []DetectedSecretEntry
+	AnthropicOAuth          *OAuthSessionDetail
+	OpenAICodexOAuth        *OAuthSessionDetail
+	HasMCP                  bool
+	MCPPresets              []string
+}
+
+type providerEntry struct {
+	ID      string
+	Model   string
+	BaseURL string
 }
 
 func (e *ExistingConfig) hasAny() bool {
@@ -50,6 +67,17 @@ func (e *ExistingConfig) hasAny() bool {
 		e.DiscordToken != "" ||
 		e.TelegramToken != "" ||
 		e.GatewayToken != "" ||
+		e.Timezone != "" ||
+		e.AnthropicModel != "" ||
+		e.OpenAIModel != "" ||
+		e.OpenAICodexModel != "" ||
+		e.OpenAICompatibleModel != "" ||
+		e.OpenAICompatibleBaseURL != "" ||
+		len(e.DiscordChannelAllowList) > 0 ||
+		len(e.DiscordMemberAllowList) > 0 ||
+		len(e.TelegramAllowList) > 0 ||
+		len(e.WriteToolAllowList) > 0 ||
+		e.GatewayPort != "" ||
 		e.HasOAuthAnthropic ||
 		e.HasOAuthCodex ||
 		e.HasMCP ||
@@ -70,7 +98,7 @@ func DetectExistingConfig(configDir string) (*ExistingConfig, error) {
 	appPath := filepath.Join(configDir, "app.yaml")
 	appRaw, err := os.ReadFile(appPath)
 	if err == nil {
-		parseAppYAMLForMCP(string(appRaw), cfg)
+		parseAppYAML(string(appRaw), cfg)
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return nil, err
 	}
@@ -157,48 +185,181 @@ func parseSecretsYAML(raw string, out *ExistingConfig) {
 	}
 }
 
-func parseAppYAMLForMCP(raw string, out *ExistingConfig) {
+func parseAppYAML(raw string, out *ExistingConfig) {
 	section := ""
 	subsection := ""
+	listKey := ""
+	var currentProvider *providerEntry
+	providers := map[string]*providerEntry{}
+
 	for _, line := range strings.Split(raw, "\n") {
-		if strings.TrimSpace(line) == "" || strings.HasPrefix(strings.TrimSpace(line), "#") {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
 			continue
 		}
 		indent := len(line) - len(strings.TrimLeft(line, " "))
-		trimmed := strings.TrimSpace(line)
 
-		if indent == 0 && strings.HasSuffix(trimmed, ":") {
-			section = strings.TrimSuffix(trimmed, ":")
+		if indent == 0 {
 			subsection = ""
-			continue
-		}
-		if section != "mcp" {
-			continue
-		}
-		if indent == 2 && strings.HasSuffix(trimmed, ":") {
-			subsection = strings.TrimSuffix(trimmed, ":")
-			continue
-		}
-		if indent == 2 {
-			parts := strings.SplitN(trimmed, ":", 2)
-			if len(parts) != 2 {
+			listKey = ""
+			if strings.HasSuffix(trimmed, ":") {
+				section = strings.TrimSuffix(trimmed, ":")
+				if section != "providers" {
+					currentProvider = nil
+				}
 				continue
 			}
-			key := strings.TrimSpace(parts[0])
-			value := strings.Trim(strings.TrimSpace(parts[1]), `"'`)
-			if key == "autoStart" {
-				out.HasMCP = strings.EqualFold(value, "true")
+			if key, value, ok := splitKeyValue(trimmed); ok && key == "timezone" {
+				out.Timezone = value
 			}
 			continue
 		}
-		if indent >= 4 && subsection == "presets" && strings.HasPrefix(trimmed, "-") {
-			preset := strings.TrimSpace(strings.TrimPrefix(trimmed, "-"))
-			preset = strings.Trim(preset, `"'`)
-			if preset != "" {
-				out.MCPPresets = append(out.MCPPresets, preset)
-				out.HasMCP = true
+
+		switch section {
+		case "providers":
+			if strings.HasPrefix(trimmed, "-") {
+				item := strings.TrimSpace(strings.TrimPrefix(trimmed, "-"))
+				currentProvider = &providerEntry{}
+				if key, value, ok := splitKeyValue(item); ok {
+					applyProviderField(currentProvider, key, value)
+				}
+				if currentProvider.ID != "" {
+					providers[strings.ToLower(currentProvider.ID)] = currentProvider
+				}
+				continue
+			}
+			if currentProvider == nil {
+				continue
+			}
+			if key, value, ok := splitKeyValue(trimmed); ok {
+				applyProviderField(currentProvider, key, value)
+			}
+			if currentProvider.ID != "" {
+				providers[strings.ToLower(currentProvider.ID)] = currentProvider
+			}
+		case "discord":
+			if indent == 2 && strings.HasSuffix(trimmed, ":") {
+				listKey = strings.TrimSuffix(trimmed, ":")
+				continue
+			}
+			if indent >= 4 && strings.HasPrefix(trimmed, "-") {
+				value := strings.TrimSpace(strings.TrimPrefix(trimmed, "-"))
+				value = strings.Trim(value, `"'`)
+				if value == "" {
+					continue
+				}
+				switch listKey {
+				case "channelAllowList":
+					out.DiscordChannelAllowList = append(out.DiscordChannelAllowList, value)
+				case "memberAllowList":
+					out.DiscordMemberAllowList = append(out.DiscordMemberAllowList, value)
+				}
+			}
+		case "telegram":
+			if indent == 2 && strings.HasSuffix(trimmed, ":") {
+				listKey = strings.TrimSuffix(trimmed, ":")
+				continue
+			}
+			if indent >= 4 && strings.HasPrefix(trimmed, "-") {
+				value := strings.TrimSpace(strings.TrimPrefix(trimmed, "-"))
+				value = strings.Trim(value, `"'`)
+				if value == "" {
+					continue
+				}
+				if listKey == "allowList" {
+					out.TelegramAllowList = append(out.TelegramAllowList, value)
+				}
+			}
+		case "gateway":
+			if indent == 2 && strings.HasSuffix(trimmed, ":") {
+				subsection = strings.TrimSuffix(trimmed, ":")
+				continue
+			}
+			if subsection == "http" && indent >= 4 {
+				if key, value, ok := splitKeyValue(trimmed); ok {
+					if key == "port" {
+						if _, err := strconv.Atoi(value); err == nil {
+							out.GatewayPort = value
+						}
+					}
+				}
+			}
+		case "security":
+			if indent == 2 && strings.HasSuffix(trimmed, ":") {
+				listKey = strings.TrimSuffix(trimmed, ":")
+				continue
+			}
+			if indent >= 4 && strings.HasPrefix(trimmed, "-") {
+				value := strings.TrimSpace(strings.TrimPrefix(trimmed, "-"))
+				value = strings.Trim(value, `"'`)
+				if value == "" {
+					continue
+				}
+				if listKey == "writeToolAllowList" {
+					out.WriteToolAllowList = append(out.WriteToolAllowList, value)
+				}
+			}
+		case "mcp":
+			if indent == 2 && strings.HasSuffix(trimmed, ":") {
+				subsection = strings.TrimSuffix(trimmed, ":")
+				continue
+			}
+			if indent == 2 {
+				if key, value, ok := splitKeyValue(trimmed); ok && key == "autoStart" {
+					out.HasMCP = strings.EqualFold(value, "true")
+				}
+				continue
+			}
+			if indent >= 4 && subsection == "presets" && strings.HasPrefix(trimmed, "-") {
+				preset := strings.TrimSpace(strings.TrimPrefix(trimmed, "-"))
+				preset = strings.Trim(preset, `"'`)
+				if preset != "" {
+					out.MCPPresets = append(out.MCPPresets, preset)
+					out.HasMCP = true
+				}
 			}
 		}
+	}
+
+	if provider := providers["anthropic"]; provider != nil {
+		out.AnthropicModel = provider.Model
+	}
+	if provider := providers["openai"]; provider != nil {
+		out.OpenAIModel = provider.Model
+	}
+	if provider := providers["openai-codex"]; provider != nil {
+		out.OpenAICodexModel = provider.Model
+	}
+	if provider := providers["openai-compatible"]; provider != nil {
+		out.OpenAICompatibleModel = provider.Model
+		out.OpenAICompatibleBaseURL = provider.BaseURL
+	}
+}
+
+func splitKeyValue(raw string) (string, string, bool) {
+	parts := strings.SplitN(raw, ":", 2)
+	if len(parts) != 2 {
+		return "", "", false
+	}
+	key := strings.TrimSpace(parts[0])
+	if key == "" {
+		return "", "", false
+	}
+	value := strings.Trim(strings.TrimSpace(parts[1]), `"'`)
+	return key, value, true
+}
+
+func applyProviderField(provider *providerEntry, key, value string) {
+	if provider == nil {
+		return
+	}
+	switch key {
+	case "id":
+		provider.ID = value
+	case "model":
+		provider.Model = value
+	case "baseUrl":
+		provider.BaseURL = value
 	}
 }
 

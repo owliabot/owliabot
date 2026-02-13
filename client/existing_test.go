@@ -72,6 +72,105 @@ gateway:
 	}
 }
 
+func TestDetectExistingConfigReadsAppSettings(t *testing.T) {
+	tmp := t.TempDir()
+	app := "" +
+		"timezone: Asia/Tokyo\n" +
+		"providers:\n" +
+		"  - id: anthropic\n    model: claude-opus-4-5\n    apiKey: env\n    priority: 1\n" +
+		"  - id: openai\n    model: gpt-5.2\n    apiKey: env\n    priority: 2\n" +
+		"  - id: openai-codex\n    model: gpt-5\n    apiKey: env\n    priority: 3\n" +
+		"  - id: openai-compatible\n    model: llama3.2\n    baseUrl: https://example.test/v1\n    apiKey: env\n    priority: 4\n" +
+		"discord:\n  requireMentionInGuild: true\n  channelAllowList:\n    - \"123\"\n  memberAllowList:\n    - \"789\"\n" +
+		"telegram:\n  allowList:\n    - \"456\"\n" +
+		"gateway:\n  http:\n    port: 9999\n" +
+		"security:\n  writeToolAllowList:\n    - \"789\"\n"
+	if err := os.WriteFile(filepath.Join(tmp, "app.yaml"), []byte(app), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	existing, err := DetectExistingConfig(tmp)
+	if err != nil || existing == nil {
+		t.Fatalf("unexpected: %v", err)
+	}
+	if existing.Timezone != "Asia/Tokyo" {
+		t.Fatalf("timezone missing")
+	}
+	if existing.OpenAICompatibleBaseURL != "https://example.test/v1" {
+		t.Fatalf("baseUrl missing")
+	}
+	if existing.AnthropicModel != "claude-opus-4-5" {
+		t.Fatalf("anthropic model missing")
+	}
+	if existing.OpenAIModel != "gpt-5.2" {
+		t.Fatalf("openai model missing")
+	}
+	if existing.OpenAICodexModel != "gpt-5" {
+		t.Fatalf("openai-codex model missing")
+	}
+	if existing.OpenAICompatibleModel != "llama3.2" {
+		t.Fatalf("openai-compatible model missing")
+	}
+	if len(existing.DiscordChannelAllowList) != 1 || existing.DiscordChannelAllowList[0] != "123" {
+		t.Fatalf("discord channel allowlist missing")
+	}
+	if len(existing.DiscordMemberAllowList) != 1 || existing.DiscordMemberAllowList[0] != "789" {
+		t.Fatalf("discord member allowlist missing")
+	}
+	if len(existing.TelegramAllowList) != 1 || existing.TelegramAllowList[0] != "456" {
+		t.Fatalf("telegram allowlist missing")
+	}
+	if existing.GatewayPort != "9999" {
+		t.Fatalf("gateway port missing")
+	}
+
+	answers := Answers{
+		Timezone:                     "UTC",
+		OpenAICompatibleBaseURL:      "http://host.docker.internal:11434/v1",
+		AnthropicModel:               "claude-haiku-3-5",
+		OpenAIModel:                  "gpt-4.1",
+		OpenAICodexModel:             "gpt-4.1",
+		OpenAICompatibleModel:        "qwen2.5:14b",
+		GatewayPort:                  "8787",
+		EnableWriteToolsForAllowlist: false,
+	}
+	applyExistingAppSettings(existing, &answers)
+
+	if answers.Timezone != "Asia/Tokyo" {
+		t.Fatalf("timezone not reused")
+	}
+	if answers.OpenAICompatibleBaseURL != "https://example.test/v1" {
+		t.Fatalf("baseUrl not reused")
+	}
+	if answers.AnthropicModel != "claude-opus-4-5" {
+		t.Fatalf("anthropic model not reused")
+	}
+	if answers.OpenAIModel != "gpt-5.2" {
+		t.Fatalf("openai model not reused")
+	}
+	if answers.OpenAICodexModel != "gpt-5" {
+		t.Fatalf("openai-codex model not reused")
+	}
+	if answers.OpenAICompatibleModel != "llama3.2" {
+		t.Fatalf("openai-compatible model not reused")
+	}
+	if len(answers.DiscordChannelAllowList) != 1 || answers.DiscordChannelAllowList[0] != "123" {
+		t.Fatalf("discord channel allowlist not reused")
+	}
+	if len(answers.DiscordMemberAllowList) != 1 || answers.DiscordMemberAllowList[0] != "789" {
+		t.Fatalf("discord member allowlist not reused")
+	}
+	if len(answers.TelegramAllowList) != 1 || answers.TelegramAllowList[0] != "456" {
+		t.Fatalf("telegram allowlist not reused")
+	}
+	if answers.GatewayPort != "9999" {
+		t.Fatalf("gateway port not reused")
+	}
+	if !answers.EnableWriteToolsForAllowlist {
+		t.Fatalf("write tool allowlist not reused")
+	}
+}
+
 func TestDetectExistingConfigReturnsNilWhenNoSignals(t *testing.T) {
 	tmp := t.TempDir()
 	existing, err := DetectExistingConfig(tmp)
