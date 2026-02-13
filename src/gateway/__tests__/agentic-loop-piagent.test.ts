@@ -372,4 +372,60 @@ describe("agentic-loop pi-agent-core integration", () => {
     expect(signal).toBeDefined();
   });
 
+  it("logs context size before LLM call and truncates oversized tool results", async () => {
+    let capturedLoopConfig: any;
+    const mockStream = {
+      async *[Symbol.asyncIterator]() {
+        await capturedLoopConfig.transformContext([
+          {
+            role: "assistant",
+            content: [{ type: "toolCall", id: "call-1", name: "echo", arguments: {} }],
+            timestamp: Date.now(),
+          },
+        ]);
+        yield { type: "turn_start" } as AgentEvent;
+      },
+      result: async () => [
+        {
+          role: "assistant",
+          content: [{ type: "text", text: "OK" }],
+          timestamp: Date.now(),
+        },
+      ],
+    };
+
+    mockAgentLoop.mockImplementation((...args: any[]) => {
+      capturedLoopConfig = args[2];
+      return mockStream;
+    });
+
+    await runAgenticLoop(
+      [{ role: "user", content: "Hi", timestamp: Date.now() }],
+      makeContext(),
+      makeConfig()
+    );
+
+    expect(mockLog.info).toHaveBeenCalledWith(
+      expect.objectContaining({
+        messageCount: 1,
+        toolCallCount: 1,
+      }),
+      "LLM context stats"
+    );
+
+    const converted = await capturedLoopConfig.convertToLlm([
+      {
+        role: "user",
+        toolResults: [
+          {
+            success: true,
+            data: "x".repeat(9000),
+            toolCallId: "call-1",
+          },
+        ],
+      },
+    ]);
+
+    expect(converted[0].content[0].text).toContain("[... truncated, original length: 9000 chars]");
+  });
 });
