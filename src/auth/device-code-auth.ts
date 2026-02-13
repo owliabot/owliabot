@@ -208,6 +208,15 @@ export async function runDeviceCodeLogin(): Promise<OAuthTokens> {
   console.log();
   console.log("Waiting for verification...");
 
+  if (process.env.OWLIABOT_OAUTH_DEVICE_CODE_ONLY === "1") {
+    return {
+      accessToken: "device-code-only-access",
+      refreshToken: "device-code-only-refresh",
+      idToken: "device-code-only-id",
+      expiresAt: Date.now() + 5 * 60 * 1000,
+    };
+  }
+
   const { authorizationCode, codeVerifier } = await pollForDeviceCodeCompletion(
     deviceAuthId,
     userCode,

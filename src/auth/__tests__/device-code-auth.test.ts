@@ -55,6 +55,7 @@ describe("device-code-auth", () => {
 
   afterEach(() => {
     vi.useRealTimers();
+    delete process.env.OWLIABOT_OAUTH_DEVICE_CODE_ONLY;
   });
 
   describe("requestDeviceCode", () => {
@@ -281,5 +282,21 @@ describe("device-code-auth", () => {
 
       consoleSpy.mockRestore();
     });
+  });
+
+  it("returns after requesting device code when DEVICE_CODE_ONLY is set", async () => {
+    process.env.OWLIABOT_OAUTH_DEVICE_CODE_ONLY = "1";
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        device_auth_id: "daid",
+        user_code: "CODE-1234",
+        interval: "5",
+      }),
+    });
+
+    const tokens = await runDeviceCodeLogin();
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    expect(tokens.accessToken).toContain("device-code-only");
   });
 });
