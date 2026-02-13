@@ -10,13 +10,16 @@ import type { Message } from "../../agent/session.js";
 import type { AgentEvent } from "@mariozechner/pi-agent-core";
 
 // Mock logger
-vi.mock("../../utils/logger.js", () => ({
-  createLogger: () => ({
+const { mockLog } = vi.hoisted(() => ({
+  mockLog: {
     debug: vi.fn(),
     info: vi.fn(),
     warn: vi.fn(),
     error: vi.fn(),
-  }),
+  },
+}));
+vi.mock("../../utils/logger.js", () => ({
+  createLogger: () => mockLog,
 }));
 
 // Mock pi-agent-core
@@ -121,6 +124,66 @@ describe("agentic-loop pi-agent-core integration", () => {
     expect(result.maxIterationsReached).toBe(false);
     expect(result.timedOut).toBe(false);
     expect(mockAgentLoop).toHaveBeenCalledTimes(1);
+  });
+
+  it("surfaces provider error details when final assistant text is empty", async () => {
+    const mockStream = {
+      async *[Symbol.asyncIterator]() {
+        yield { type: "turn_start" } as AgentEvent;
+      },
+      result: async () => [
+        {
+          role: "assistant",
+          content: [],
+          stopReason: "error",
+          errorMessage: "upstream failed",
+          timestamp: Date.now(),
+        },
+      ],
+    };
+
+    mockAgentLoop.mockReturnValue(mockStream);
+
+    const result = await runAgenticLoop(
+      [{ role: "user", content: "Hi", timestamp: Date.now() }],
+      makeContext(),
+      makeConfig()
+    );
+
+    expect(result.content).toBe("⚠️ 处理失败：upstream failed");
+    expect(mockLog.warn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        stopReason: "error",
+        errorMessage: "upstream failed",
+      }),
+      "Final assistant message had no extractable text"
+    );
+  });
+
+  it("returns context-too-long guidance when stopReason is length", async () => {
+    const mockStream = {
+      async *[Symbol.asyncIterator]() {
+        yield { type: "turn_start" } as AgentEvent;
+      },
+      result: async () => [
+        {
+          role: "assistant",
+          content: [],
+          stopReason: "length",
+          timestamp: Date.now(),
+        },
+      ],
+    };
+
+    mockAgentLoop.mockReturnValue(mockStream);
+
+    const result = await runAgenticLoop(
+      [{ role: "user", content: "Hi", timestamp: Date.now() }],
+      makeContext(),
+      makeConfig()
+    );
+
+    expect(result.content).toContain("/new");
   });
 
   it("handles multiple iterations with tool calls", async () => {
@@ -307,5 +370,62 @@ describe("agentic-loop pi-agent-core integration", () => {
 
     // Verify signal
     expect(signal).toBeDefined();
+  });
+
+  it("logs context size before LLM call and truncates oversized tool results", async () => {
+    let capturedLoopConfig: any;
+    const mockStream = {
+      async *[Symbol.asyncIterator]() {
+        await capturedLoopConfig.transformContext([
+          {
+            role: "assistant",
+            content: [{ type: "toolCall", id: "call-1", name: "echo", arguments: {} }],
+            timestamp: Date.now(),
+          },
+        ]);
+        yield { type: "turn_start" } as AgentEvent;
+      },
+      result: async () => [
+        {
+          role: "assistant",
+          content: [{ type: "text", text: "OK" }],
+          timestamp: Date.now(),
+        },
+      ],
+    };
+
+    mockAgentLoop.mockImplementation((...args: any[]) => {
+      capturedLoopConfig = args[2];
+      return mockStream;
+    });
+
+    await runAgenticLoop(
+      [{ role: "user", content: "Hi", timestamp: Date.now() }],
+      makeContext(),
+      makeConfig()
+    );
+
+    expect(mockLog.info).toHaveBeenCalledWith(
+      expect.objectContaining({
+        messageCount: 1,
+        toolCallCount: 1,
+      }),
+      "LLM context stats"
+    );
+
+    const converted = await capturedLoopConfig.convertToLlm([
+      {
+        role: "user",
+        toolResults: [
+          {
+            success: true,
+            data: "x".repeat(9000),
+            toolCallId: "call-1",
+          },
+        ],
+      },
+    ]);
+
+    expect(converted[0].content[0].text).toContain("[... truncated, original length: 9000 chars]");
   });
 });

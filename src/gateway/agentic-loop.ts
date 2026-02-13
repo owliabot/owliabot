@@ -31,6 +31,7 @@ import {
 import { type Message as PiAiMessage } from "@mariozechner/pi-ai";
 
 const log = createLogger("gateway:agentic-loop");
+const DEFAULT_TOOL_RESULT_MAX_CHARS = 8192;
 
 /**
  * Context for running the agentic loop.
@@ -80,6 +81,8 @@ export interface AgenticLoopConfig {
   getSteeringMessages?: () => Promise<AgentMessage[]>;
   /** Callback to get follow-up messages (processed after agent finishes) */
   getFollowUpMessages?: () => Promise<AgentMessage[]>;
+  /** Maximum tool result text chars kept in context (default: 8192) */
+  toolResultMaxChars?: number;
 }
 
 /**
@@ -107,7 +110,10 @@ export interface AgenticLoopResult {
  * 
  * Runtime validation: Ensures messages have required fields before casting.
  */
-function convertToLlm(messages: AgentMessage[]): PiAiMessage[] {
+function convertToLlm(
+  messages: AgentMessage[],
+  toolResultMaxChars = DEFAULT_TOOL_RESULT_MAX_CHARS
+): PiAiMessage[] {
   const result: PiAiMessage[] = [];
 
   for (const msg of messages) {
@@ -121,8 +127,8 @@ function convertToLlm(messages: AgentMessage[]): PiAiMessage[] {
       for (const tr of m.toolResults) {
         const text = tr.success
           ? typeof tr.data === "string"
-            ? tr.data
-            : JSON.stringify(tr.data ?? "OK", null, 2)
+            ? truncateToolResult(tr.data, toolResultMaxChars)
+            : truncateToolResult(JSON.stringify(tr.data ?? "OK", null, 2), toolResultMaxChars)
           : `Error: ${tr.error ?? "Unknown error"}`;
         result.push({
           role: "tool",
@@ -183,6 +189,8 @@ export async function runAgenticLoop(
 ): Promise<AgenticLoopResult> {
   const maxIterations = config.maxIterations ?? 50;
   const timeoutMs = config.timeoutMs ?? 600_000; // 10 minutes default
+  const toolResultMaxChars =
+    config.toolResultMaxChars ?? DEFAULT_TOOL_RESULT_MAX_CHARS;
 
   // Check if using CLI providers - fallback to old path
   const primaryProvider = config.providers[0];
@@ -265,7 +273,7 @@ export async function runAgenticLoop(
     // Setup agent loop config (with iteration limit via transformContext)
     const loopConfig: AgentLoopConfig = {
       model,
-      convertToLlm,
+      convertToLlm: (messages) => convertToLlm(messages, toolResultMaxChars),
       getApiKey: async (provider: string) => {
         // Try current provider first, then failover to others
         for (let i = 0; i < sortedProviders.length; i++) {
@@ -288,6 +296,14 @@ export async function runAgenticLoop(
           maxIterationsReached = true;
           throw new Error(`Max iterations (${maxIterations}) reached`);
         }
+        log.info(
+          {
+            messageCount: messages.length,
+            toolCallCount: estimateToolCallCount(messages),
+            estimatedChars: estimateChars(messages),
+          },
+          "LLM context stats"
+        );
         return messages;
       },
       getSteeringMessages: config.getSteeringMessages,
@@ -336,22 +352,54 @@ export async function runAgenticLoop(
     collectedMessages = finalMessages.length > 0 ? finalMessages : collectedMessages;
 
     // Extract final content from last assistant message
-    const lastMessage = finalMessages[finalMessages.length - 1];
-    const extracted =
-      lastMessage && lastMessage.role === "assistant"
-        ? extractTextContent(lastMessage)
-        : "";
-    // Fallback when the LLM's last turn was tool-only (no text block)
-    const finalContent =
-      extracted.trim().length > 0
-        ? extracted
-        : "I apologize, but I couldn't complete your request.";
+    const lastMessage = collectedMessages[collectedMessages.length - 1];
+    const lastAssistant =
+      lastMessage && lastMessage.role === "assistant" ? lastMessage : undefined;
+    const extracted = lastAssistant ? extractTextContent(lastAssistant) : "";
+
+    let finalContent = extracted;
+    if (finalContent.trim().length === 0) {
+      const stopReason = lastAssistant?.stopReason;
+      const errorMessage = lastAssistant?.errorMessage?.trim();
+      const contentTypes = Array.isArray(lastAssistant?.content)
+        ? lastAssistant.content.map((c) => c.type)
+        : [];
+
+      log.warn(
+        {
+          stopReason,
+          errorMessage: errorMessage || undefined,
+          contentTypes,
+        },
+        "Final assistant message had no extractable text"
+      );
+
+      if (stopReason === "error" || stopReason === "aborted") {
+        finalContent = errorMessage
+          ? `⚠️ 处理失败：${errorMessage}`
+          : "⚠️ 处理失败：上游模型返回异常。请重试。";
+      } else if (stopReason === "length") {
+        finalContent =
+          "⚠️ 上下文过长：请发送 /new 开启新会话，然后重试当前请求。";
+      } else {
+        const previousAssistantWithText = [...collectedMessages]
+          .reverse()
+          .find(
+            (message) =>
+              message.role === "assistant" &&
+              extractTextContent(message).trim().length > 0
+          );
+        finalContent = previousAssistantWithText
+          ? extractTextContent(previousAssistantWithText)
+          : "I apologize, but I couldn't complete your request.";
+      }
+    }
 
     return {
       content: finalContent,
       iterations,
       toolCallsCount,
-      messages: finalMessages as Message[], // Convert back to internal format
+      messages: collectedMessages as Message[], // Convert back to internal format
       maxIterationsReached: false,
       timedOut: false,
     };
@@ -467,6 +515,35 @@ function extractTextContent(message: AgentMessage): string {
     .join("");
 }
 
+function truncateToolResult(
+  content: string,
+  maxChars = DEFAULT_TOOL_RESULT_MAX_CHARS
+): string {
+  if (content.length <= maxChars) return content;
+  return `${content.slice(0, maxChars)}\n[... truncated, original length: ${content.length} chars]`;
+}
+
+function estimateToolCallCount(messages: AgentMessage[]): number {
+  let count = 0;
+  for (const message of messages) {
+    if (message.role !== "assistant" || !Array.isArray(message.content)) continue;
+    count += message.content.filter((content) => content.type === "toolCall").length;
+  }
+  return count;
+}
+
+function estimateChars(messages: AgentMessage[]): number {
+  let total = 0;
+  for (const message of messages) {
+    try {
+      total += JSON.stringify(message).length;
+    } catch {
+      // Best-effort estimate only
+    }
+  }
+  return total;
+}
+
 /**
  * Legacy loop implementation for CLI providers.
  * Uses the original callWithFailover approach.
@@ -479,6 +556,8 @@ async function runLegacyLoop(
   const { executeToolCalls } = await import("../agent/tools/executor.js");
 
   const maxIterations = config.maxIterations ?? 5;
+  const toolResultMaxChars =
+    config.toolResultMaxChars ?? DEFAULT_TOOL_RESULT_MAX_CHARS;
   let iteration = 0;
   let toolCallsCount = 0;
   const newMessages: Message[] = [];
@@ -556,6 +635,13 @@ async function runLegacyLoop(
         }
         return {
           ...result,
+          data: result.success
+            ? typeof result.data === "string"
+              ? truncateToolResult(result.data, toolResultMaxChars)
+              : typeof result.data === "object" && result.data !== null
+                ? truncateToolResult(JSON.stringify(result.data, null, 2), toolResultMaxChars)
+                : result.data
+            : result.data,
           toolCallId: call.id,
           toolName: call.name,
         };
