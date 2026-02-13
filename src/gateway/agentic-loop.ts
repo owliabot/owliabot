@@ -336,22 +336,54 @@ export async function runAgenticLoop(
     collectedMessages = finalMessages.length > 0 ? finalMessages : collectedMessages;
 
     // Extract final content from last assistant message
-    const lastMessage = finalMessages[finalMessages.length - 1];
-    const extracted =
-      lastMessage && lastMessage.role === "assistant"
-        ? extractTextContent(lastMessage)
-        : "";
-    // Fallback when the LLM's last turn was tool-only (no text block)
-    const finalContent =
-      extracted.trim().length > 0
-        ? extracted
-        : "I apologize, but I couldn't complete your request.";
+    const lastMessage = collectedMessages[collectedMessages.length - 1];
+    const lastAssistant =
+      lastMessage && lastMessage.role === "assistant" ? lastMessage : undefined;
+    const extracted = lastAssistant ? extractTextContent(lastAssistant) : "";
+
+    let finalContent = extracted;
+    if (finalContent.trim().length === 0) {
+      const stopReason = lastAssistant?.stopReason;
+      const errorMessage = lastAssistant?.errorMessage?.trim();
+      const contentTypes = Array.isArray(lastAssistant?.content)
+        ? lastAssistant.content.map((c) => c.type)
+        : [];
+
+      log.warn(
+        {
+          stopReason,
+          errorMessage: errorMessage || undefined,
+          contentTypes,
+        },
+        "Final assistant message had no extractable text"
+      );
+
+      if (stopReason === "error" || stopReason === "aborted") {
+        finalContent = errorMessage
+          ? `⚠️ 处理失败：${errorMessage}`
+          : "⚠️ 处理失败：上游模型返回异常。请重试。";
+      } else if (stopReason === "length") {
+        finalContent =
+          "⚠️ 上下文过长：请发送 /new 开启新会话，然后重试当前请求。";
+      } else {
+        const previousAssistantWithText = [...collectedMessages]
+          .reverse()
+          .find(
+            (message) =>
+              message.role === "assistant" &&
+              extractTextContent(message).trim().length > 0
+          );
+        finalContent = previousAssistantWithText
+          ? extractTextContent(previousAssistantWithText)
+          : "I apologize, but I couldn't complete your request.";
+      }
+    }
 
     return {
       content: finalContent,
       iterations,
       toolCallsCount,
-      messages: finalMessages as Message[], // Convert back to internal format
+      messages: collectedMessages as Message[], // Convert back to internal format
       maxIterationsReached: false,
       timedOut: false,
     };

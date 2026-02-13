@@ -10,13 +10,16 @@ import type { Message } from "../../agent/session.js";
 import type { AgentEvent } from "@mariozechner/pi-agent-core";
 
 // Mock logger
-vi.mock("../../utils/logger.js", () => ({
-  createLogger: () => ({
+const { mockLog } = vi.hoisted(() => ({
+  mockLog: {
     debug: vi.fn(),
     info: vi.fn(),
     warn: vi.fn(),
     error: vi.fn(),
-  }),
+  },
+}));
+vi.mock("../../utils/logger.js", () => ({
+  createLogger: () => mockLog,
 }));
 
 // Mock pi-agent-core
@@ -121,6 +124,66 @@ describe("agentic-loop pi-agent-core integration", () => {
     expect(result.maxIterationsReached).toBe(false);
     expect(result.timedOut).toBe(false);
     expect(mockAgentLoop).toHaveBeenCalledTimes(1);
+  });
+
+  it("surfaces provider error details when final assistant text is empty", async () => {
+    const mockStream = {
+      async *[Symbol.asyncIterator]() {
+        yield { type: "turn_start" } as AgentEvent;
+      },
+      result: async () => [
+        {
+          role: "assistant",
+          content: [],
+          stopReason: "error",
+          errorMessage: "upstream failed",
+          timestamp: Date.now(),
+        },
+      ],
+    };
+
+    mockAgentLoop.mockReturnValue(mockStream);
+
+    const result = await runAgenticLoop(
+      [{ role: "user", content: "Hi", timestamp: Date.now() }],
+      makeContext(),
+      makeConfig()
+    );
+
+    expect(result.content).toBe("⚠️ 处理失败：upstream failed");
+    expect(mockLog.warn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        stopReason: "error",
+        errorMessage: "upstream failed",
+      }),
+      "Final assistant message had no extractable text"
+    );
+  });
+
+  it("returns context-too-long guidance when stopReason is length", async () => {
+    const mockStream = {
+      async *[Symbol.asyncIterator]() {
+        yield { type: "turn_start" } as AgentEvent;
+      },
+      result: async () => [
+        {
+          role: "assistant",
+          content: [],
+          stopReason: "length",
+          timestamp: Date.now(),
+        },
+      ],
+    };
+
+    mockAgentLoop.mockReturnValue(mockStream);
+
+    const result = await runAgenticLoop(
+      [{ role: "user", content: "Hi", timestamp: Date.now() }],
+      makeContext(),
+      makeConfig()
+    );
+
+    expect(result.content).toContain("/new");
   });
 
   it("handles multiple iterations with tool calls", async () => {
@@ -308,4 +371,5 @@ describe("agentic-loop pi-agent-core integration", () => {
     // Verify signal
     expect(signal).toBeDefined();
   });
+
 });
