@@ -224,10 +224,12 @@ export async function runAgenticLoop(
   const maxIterations = config.maxIterations ?? 50;
   const timeoutMs = config.timeoutMs ?? 600_000; // 10 minutes default
 
-  // Derive context window from the primary provider's model if not explicitly set
+  // Derive context window from the highest-priority provider's model if not explicitly set
   const primaryModelContextWindow = (() => {
     try {
-      const p = config.providers[0];
+      // Sort by priority (ascending = highest priority first) to match runtime provider selection
+      const sorted = [...config.providers].sort((a, b) => (a.priority ?? 99) - (b.priority ?? 99));
+      const p = sorted[0];
       if (p) {
         const model = resolveModel({ provider: p.id, model: p.model ?? "", apiKey: "" });
         return model.contextWindow;
@@ -346,26 +348,54 @@ export async function runAgenticLoop(
         }
 
         // Guard context window: convert AgentMessage[] to internal Message[] for guardContext,
-        // using proper content serialization (not just array.length).
-        const internalMessages: Message[] = messages.map((m) => ({
-          role: m.role === "toolResult" ? "user" as const : m.role as "user" | "assistant" | "system",
-          content: typeof m.content === "string"
-            ? m.content
-            : Array.isArray(m.content)
-              ? m.content.map((block: any) => {
-                  if ("text" in block) return block.text;
-                  if ("thinking" in block) return block.thinking;
-                  if ("arguments" in block) return `[tool_call: ${block.name}] ${JSON.stringify(block.arguments)}`;
-                  return JSON.stringify(block);
-                }).join("\n")
-              : String(m.content),
-          timestamp: (m as any).timestamp ?? Date.now(),
-          ...(m.role === "assistant" && Array.isArray(m.content) ? {
-            toolCalls: m.content
+        // using proper content serialization and preserving tool-call/tool-result pairing.
+        const serializeContent = (m: AgentMessage): string => {
+          if (typeof m.content === "string") return m.content;
+          if (!Array.isArray(m.content)) return String(m.content);
+          return m.content.map((block: any) => {
+            if ("text" in block) return block.text;
+            if ("thinking" in block) return block.thinking;
+            if ("arguments" in block) return `[tool_call: ${block.name}] ${JSON.stringify(block.arguments)}`;
+            return JSON.stringify(block);
+          }).join("\n");
+        };
+
+        const internalMessages: Message[] = messages.map((m) => {
+          const base = {
+            content: serializeContent(m),
+            timestamp: (m as any).timestamp ?? Date.now(),
+          };
+
+          if (m.role === "assistant" && Array.isArray(m.content)) {
+            const toolCalls = m.content
               .filter((b: any) => b.type === "toolCall")
-              .map((b: any) => ({ id: b.id, name: b.name, arguments: b.arguments })),
-          } : {}),
-        }));
+              .map((b: any) => ({ id: b.id, name: b.name, arguments: b.arguments }));
+            return {
+              ...base,
+              role: "assistant" as const,
+              ...(toolCalls.length > 0 ? { toolCalls } : {}),
+            };
+          }
+
+          if (m.role === "toolResult") {
+            // Preserve toolResult identity so guardContext groups it with its assistant message
+            const tr = m as any;
+            return {
+              ...base,
+              role: "user" as const,
+              toolResults: [{
+                toolCallId: tr.toolCallId ?? "",
+                success: !tr.isError,
+                data: base.content,
+              }],
+            };
+          }
+
+          return {
+            ...base,
+            role: m.role as "user" | "assistant" | "system",
+          };
+        });
 
         const { messages: pruned, dropped } = guardContext(
           internalMessages,
