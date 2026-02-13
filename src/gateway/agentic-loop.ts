@@ -128,7 +128,7 @@ function convertToLlm(
         const text = tr.success
           ? typeof tr.data === "string"
             ? truncateToolResult(tr.data, toolResultMaxChars)
-            : JSON.stringify(tr.data ?? "OK", null, 2)
+            : truncateToolResult(JSON.stringify(tr.data ?? "OK", null, 2), toolResultMaxChars)
           : `Error: ${tr.error ?? "Unknown error"}`;
         result.push({
           role: "tool",
@@ -635,10 +635,13 @@ async function runLegacyLoop(
         }
         return {
           ...result,
-          data:
-            result.success && typeof result.data === "string"
+          data: result.success
+            ? typeof result.data === "string"
               ? truncateToolResult(result.data, toolResultMaxChars)
-              : result.data,
+              : typeof result.data === "object" && result.data !== null
+                ? truncateToolResult(JSON.stringify(result.data, null, 2), toolResultMaxChars)
+                : result.data
+            : result.data,
           toolCallId: call.id,
           toolName: call.name,
         };
