@@ -36,13 +36,21 @@ describe("UnboundNotifier", () => {
   it("uses custom message when provided", () => {
     const custom = "Please onboard!";
     const n = new UnboundNotifier({ message: custom });
-    expect(n.shouldNotify("user1")).toBe(custom);
+    const msg = n.shouldNotify("user1")!;
+    expect(msg).toContain(custom);
+    expect(msg).toContain("user1");
   });
 
   it("uses default message when none provided", () => {
     const n = new UnboundNotifier();
-    const msg = n.shouldNotify("user1");
+    const msg = n.shouldNotify("user1")!;
     expect(msg).toContain("你还没有绑定");
     expect(msg).toContain("You're not bound yet");
+  });
+
+  it("includes user ID in notification", () => {
+    const n = new UnboundNotifier();
+    const msg = n.shouldNotify("123456789")!;
+    expect(msg).toContain("123456789");
   });
 });

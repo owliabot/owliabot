@@ -8,7 +8,7 @@ import type { MsgContext } from "../channels/interface.js";
  * - If allowList is configured for a channel, only allow messages from those users.
  * - For group chats, `group.activation=mention` gates responses unless allowlisted channel/group.
  */
-/** Returns true if no allowlist is configured or the sender is on it. */
+/** Returns true only when an allowlist is configured and the sender is on it. */
 export function passesUserAllowlist(ctx: MsgContext, config: Config): boolean {
   const allowList =
     ctx.channel === "discord"
@@ -16,7 +16,7 @@ export function passesUserAllowlist(ctx: MsgContext, config: Config): boolean {
       : ctx.channel === "telegram"
         ? config.telegram?.allowList
         : undefined;
-  return !allowList || allowList.length === 0 || allowList.includes(ctx.from);
+  return !!allowList && allowList.includes(ctx.from);
 }
 
 type TelegramGroupPolicy = {

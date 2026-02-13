@@ -134,7 +134,7 @@ describe("shouldHandleMessage", () => {
 
   it("allows group message when mentioned is true (mention-only mode)", () => {
     const config = makeConfig({
-      discord: { token: "x" },
+      discord: { token: "x", memberAllowList: ["u1"] },
     });
 
     const ctx: any = {
@@ -150,7 +150,7 @@ describe("shouldHandleMessage", () => {
 
   it("allows all group messages when activation is 'always'", () => {
     const config = makeConfig({
-      discord: { token: "x" },
+      discord: { token: "x", memberAllowList: ["u1"] },
       group: { activation: "always" },
     });
 
@@ -167,7 +167,7 @@ describe("shouldHandleMessage", () => {
 
   it("allows channelAllowList channel even without mention", () => {
     const config = makeConfig({
-      discord: { token: "x", channelAllowList: ["c-allowed"] },
+      discord: { token: "x", memberAllowList: ["u1"], channelAllowList: ["c-allowed"] },
     });
 
     const ctx: any = {
@@ -199,7 +199,7 @@ describe("shouldHandleMessage", () => {
 
   it("allows DM even without mention flag (chatType=direct)", () => {
     const config = makeConfig({
-      discord: { token: "x" },
+      discord: { token: "x", memberAllowList: ["u1"] },
     });
 
     const ctx: any = {
@@ -212,10 +212,10 @@ describe("shouldHandleMessage", () => {
     expect(shouldHandleMessage(ctx, config)).toBe(true);
   });
 
-  it("allows any user when no allowList is configured", () => {
+  it("rejects any user when no allowList is configured", () => {
     const config = makeConfig({
       discord: { token: "x" },
-      // no allowList
+      // no allowList → closed by default
     });
 
     const ctx: any = {
@@ -226,7 +226,7 @@ describe("shouldHandleMessage", () => {
       mentioned: true,
     };
 
-    expect(shouldHandleMessage(ctx, config)).toBe(true);
+    expect(shouldHandleMessage(ctx, config)).toBe(false);
   });
 
   it("blocks group message with empty channelAllowList and no mention", () => {
@@ -265,6 +265,7 @@ describe("shouldHandleMessage", () => {
     const config = makeConfig({
       telegram: {
         token: "x",
+        allowList: ["u1"],
         groups: {
           "g-random": { requireMention: false },
         },

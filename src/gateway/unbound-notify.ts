@@ -57,6 +57,6 @@ export class UnboundNotifier {
       return null;
     }
     this.lastNotified.set(userId, now);
-    return this.message;
+    return `${this.message}\n🆔 Your ID: \`${userId}\``;
   }
 }

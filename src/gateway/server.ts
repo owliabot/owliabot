@@ -678,16 +678,19 @@ async function handleMessage(
   // Mention-only groups: record non-activated group messages for later context.
   // Only record if the user passes the allowlist gate (avoid leaking non-allowlisted users).
   if (!shouldHandleMessage(ctx, config)) {
-    // If the user failed the allowlist check, send a rate-limited onboard prompt.
-    if (!passesUserAllowlist(ctx, config) && unboundNotifier) {
-      const replyText = unboundNotifier.shouldNotify(ctx.from);
-      if (replyText) {
-        const ch = channels.get(ctx.channel);
-        if (ch) {
-          const target = ctx.chatType === "direct" ? ctx.from : (ctx.groupId ?? ctx.from);
-          await ch.send(target, { text: replyText, replyToId: ctx.messageId }).catch((err) => {
-            log.error("Failed to send unbound-user notification", err);
-          });
+    // If the user failed the allowlist check:
+    // - DMs: send a rate-limited onboard prompt so the user knows what to do.
+    // - Groups: silently ignore to avoid spamming the chat.
+    if (!passesUserAllowlist(ctx, config)) {
+      if (ctx.chatType === "direct" && unboundNotifier) {
+        const replyText = unboundNotifier.shouldNotify(ctx.from);
+        if (replyText) {
+          const ch = channels.get(ctx.channel);
+          if (ch) {
+            await ch.send(ctx.from, { text: replyText, replyToId: ctx.messageId }).catch((err) => {
+              log.error("Failed to send unbound-user notification", err);
+            });
+          }
         }
       }
       return;
