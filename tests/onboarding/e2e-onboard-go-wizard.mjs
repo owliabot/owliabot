@@ -197,9 +197,11 @@ async function runScenario(scenario) {
   const outputDir = await mkdtemp(path.join(os.tmpdir(), "owliabot-onboard-output-"));
 
   let transcript = "";
-  let plainTranscript = "";
   let exitCode = 1;
   let timedOut = false;
+  let spawnError = null;
+  let done = false;
+  const outputWaiters = [];
 
   try {
     const child = spawn(
@@ -221,20 +223,24 @@ async function runScenario(scenario) {
     );
 
     child.stdin.on("error", () => {});
+    child.on("error", (err) => {
+      spawnError = err;
+      terminate(child);
+    });
 
     const onData = (chunk) => {
       const text = chunk.toString("utf8");
       transcript += text;
-      plainTranscript += normalizeTerminalText(text);
+      flushOutputWaiters(outputWaiters);
     };
 
     child.stdout.on("data", onData);
     child.stderr.on("data", onData);
 
-    const payload = scenario.input.join("\n") + "\n";
-    setTimeout(() => {
-      child.stdin.write(payload);
-    }, 120);
+    const feedPromise = (async () => {
+      await waitForOutputTick(outputWaiters, () => done);
+      await feedInputs(child, scenario.input, outputWaiters, () => done);
+    })().catch(() => {});
 
     const timeout = setTimeout(() => {
       timedOut = true;
@@ -244,8 +250,19 @@ async function runScenario(scenario) {
     exitCode = await new Promise((resolve) => {
       child.on("close", (code) => resolve(code ?? 1));
     });
+    done = true;
+    flushOutputWaiters(outputWaiters);
+    await feedPromise;
     clearTimeout(timeout);
 
+    const plainTranscript = normalizeTerminalText(transcript);
+
+    if (spawnError) {
+      throw new Error(`wizard spawn failed: ${spawnError.message}`);
+    }
+    if (timedOut) {
+      throw new Error(`wizard timed out after ${DEFAULT_TIMEOUT_MS}ms`);
+    }
     if (exitCode !== 0) {
       throw new Error(`wizard exited with code ${exitCode}\n${plainTranscript.slice(-4000)}`);
     }
@@ -290,6 +307,31 @@ function terminate(child) {
       child.kill("SIGKILL");
     }
   }, 1200).unref();
+}
+
+async function feedInputs(child, lines, outputWaiters, isDone) {
+  for (const line of lines) {
+    if (isDone()) return;
+    child.stdin.write(`${line}\n`);
+    await waitForOutputTick(outputWaiters, isDone);
+  }
+}
+
+function waitForOutputTick(outputWaiters, isDone) {
+  return new Promise((resolve) => {
+    if (isDone()) {
+      resolve();
+      return;
+    }
+    outputWaiters.push(resolve);
+  });
+}
+
+function flushOutputWaiters(outputWaiters) {
+  while (outputWaiters.length > 0) {
+    const resolve = outputWaiters.shift();
+    resolve();
+  }
 }
 
 async function readYaml(filePath) {
