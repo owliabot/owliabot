@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 )
@@ -505,6 +506,9 @@ func (w *wizardSession) runWizard(opts cliOptions) (Answers, error) {
 }
 
 func (w *wizardSession) ensureDockerReady(displayConfigDir, displayOutputDir string) error {
+	if envEnabled("OWLIABOT_ONBOARD_SKIP_DOCKER") {
+		return nil
+	}
 	for {
 		status := detectDockerStatus()
 		if status.Installed && status.Running {
@@ -580,6 +584,21 @@ func (w *wizardSession) ensureDockerReady(displayConfigDir, displayOutputDir str
 			return errWizardCancelled
 		}
 	}
+}
+
+func envEnabled(name string) bool {
+	value, ok := os.LookupEnv(name)
+	if !ok {
+		return false
+	}
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return false
+	}
+	if value == "0" || strings.EqualFold(value, "false") {
+		return false
+	}
+	return true
 }
 
 func (w *wizardSession) runPostActions(result applyResult) bool {

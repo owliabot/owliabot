@@ -119,3 +119,26 @@ func TestRunWizardCancelAtReviewReturnsWizardCancelledError(t *testing.T) {
 		t.Fatalf("expected wizard cancel error, got: %v", err)
 	}
 }
+
+func TestEnsureDockerReadySkipsWhenEnvSet(t *testing.T) {
+	t.Setenv("OWLIABOT_ONBOARD_SKIP_DOCKER", "1")
+	origLookPath := execLookPath
+	origCombinedOutput := execCombinedOutput
+	execLookPath = func(file string) (string, error) {
+		t.Fatalf("execLookPath should not be called when docker checks are skipped")
+		return "", fmt.Errorf("unexpected lookup: %s", file)
+	}
+	execCombinedOutput = func(name string, args ...string) (string, error) {
+		t.Fatalf("execCombinedOutput should not be called when docker checks are skipped")
+		return "", fmt.Errorf("unexpected command: %s", name)
+	}
+	t.Cleanup(func() {
+		execLookPath = origLookPath
+		execCombinedOutput = origCombinedOutput
+	})
+
+	w := &wizardSession{renderer: func(popupView) {}}
+	if err := w.ensureDockerReady("~/.owliabot", "."); err != nil {
+		t.Fatalf("expected skip docker, got %v", err)
+	}
+}
