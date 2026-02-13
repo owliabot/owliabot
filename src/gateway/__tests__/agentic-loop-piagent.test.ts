@@ -419,13 +419,13 @@ describe("agentic-loop pi-agent-core integration", () => {
         toolResults: [
           {
             success: true,
-            data: "x".repeat(9000),
+            data: "x".repeat(300_000),
             toolCallId: "call-1",
           },
         ],
       },
     ]);
 
-    expect(converted[0].content[0].text).toContain("[... truncated, original length: 9000 chars]");
+    expect(converted[0].content[0].text).toContain("[... truncated, original length: 300000 chars]");
   });
 });
