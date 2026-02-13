@@ -232,7 +232,7 @@ export async function runAgenticLoop(
       const p = sorted[0];
       if (p) {
         const model = resolveModel({ provider: p.id, model: p.model ?? "", apiKey: "" });
-        return model.contextWindow;
+        return model.contextWindow || 200_000;
       }
     } catch { /* fallback below */ }
     return 200_000;
@@ -389,7 +389,9 @@ export async function runAgenticLoop(
               toolResults: [{
                 toolCallId: tr.toolCallId ?? "",
                 success: !tr.isError,
-                data: base.content,
+                ...(tr.isError
+                  ? { error: base.content }
+                  : { data: base.content }),
               }],
             };
           }
