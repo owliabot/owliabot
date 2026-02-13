@@ -1,6 +1,5 @@
 import { Client, GatewayIntentBits, Events, Partials } from "discord.js";
 import { createLogger } from "../../utils/logger.js";
-import { UnboundNotifier, type UnboundNotifierOptions } from "../../gateway/unbound-notify.js";
 import type {
   ChannelPlugin,
   MessageHandler,
@@ -26,8 +25,6 @@ export interface DiscordConfig {
    * Used by WriteGate to let confirmation replies ("yes"/"no") through.
    */
   preFilter?: (ctx: MsgContext) => boolean;
-  /** Options for the unbound-user notification (rate-limited onboard prompt). */
-  unboundNotify?: UnboundNotifierOptions;
 }
 
 async function withTyping(channel: { sendTyping(): Promise<void> }, fn: () => Promise<void>) {
@@ -55,7 +52,6 @@ export function createDiscordPlugin(config: DiscordConfig): ChannelPlugin {
     ],
   });
 
-  const unboundNotifier = new UnboundNotifier(config.unboundNotify);
   let messageHandler: MessageHandler | null = null;
 
   const capabilities: ChannelCapabilities = {
@@ -86,12 +82,6 @@ export function createDiscordPlugin(config: DiscordConfig): ChannelPlugin {
         if (config.memberAllowList && config.memberAllowList.length > 0) {
           if (!config.memberAllowList.includes(message.author.id)) {
             log.warn(`User ${message.author.id} not in memberAllowList`);
-            const replyText = unboundNotifier.shouldNotify(message.author.id);
-            if (replyText) {
-              await message.reply(replyText).catch((err) =>
-                log.error("Failed to send unbound-user notification", err),
-              );
-            }
             return;
           }
         }

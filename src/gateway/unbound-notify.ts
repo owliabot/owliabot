@@ -35,11 +35,22 @@ export class UnboundNotifier {
     this.cooldownMs = opts?.cooldownMs ?? DEFAULT_COOLDOWN_MS;
   }
 
+  private static readonly EVICTION_THRESHOLD = 1000;
+
   /**
    * Returns the reply text if the user should be notified, or `null` if
    * they were notified recently and should be silently ignored.
    */
   shouldNotify(userId: string, now = Date.now()): string | null {
+    // Evict stale entries when the map grows too large
+    if (this.lastNotified.size > UnboundNotifier.EVICTION_THRESHOLD) {
+      for (const [id, ts] of this.lastNotified) {
+        if (now - ts >= this.cooldownMs) {
+          this.lastNotified.delete(id);
+        }
+      }
+    }
+
     const last = this.lastNotified.get(userId);
     if (last !== undefined && now - last < this.cooldownMs) {
       log.debug(`Suppressing unbound notification for ${userId} (cooldown)`);
@@ -47,10 +58,5 @@ export class UnboundNotifier {
     }
     this.lastNotified.set(userId, now);
     return this.message;
-  }
-
-  /** Visible for testing */
-  _getLastNotified(userId: string): number | undefined {
-    return this.lastNotified.get(userId);
   }
 }
