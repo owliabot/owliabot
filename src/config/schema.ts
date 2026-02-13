@@ -532,6 +532,14 @@ export const configSchema = z.object({
 
   // Context window guard
   contextGuard: contextGuardSchema,
+
+  // Customizable messages
+  messages: z
+    .object({
+      /** Reply sent to unbound (non-allowlisted) users. */
+      unboundUserReply: z.string().optional(),
+    })
+    .optional(),
 });
 
 export type Config = z.infer<typeof configSchema>;
