@@ -378,10 +378,13 @@ export async function runAgenticLoop(
           }
 
           if (m.role === "toolResult") {
-            // Preserve toolResult identity so guardContext groups it with its assistant message
+            // Preserve toolResult identity so guardContext groups it with its assistant message.
+            // Set content to empty string to avoid double-counting — the actual text
+            // is in toolResults[].data which guardContext uses for estimation + truncation.
             const tr = m as any;
             return {
               ...base,
+              content: "",
               role: "user" as const,
               toolResults: [{
                 toolCallId: tr.toolCallId ?? "",
@@ -408,10 +411,28 @@ export async function runAgenticLoop(
           );
         }
 
-        // Map pruned internal messages back — use the original AgentMessages by index
-        // guardContext preserves order, so we match by finding which originals survived
-        const prunedSet = new Set(pruned);
-        const result = messages.filter((_, i) => prunedSet.has(internalMessages[i]));
+        // Map pruned internal messages back to original AgentMessages by index.
+        // Cannot use identity (Set) because guardContext may clone messages during truncation.
+        // Instead, build a set of surviving original indices.
+        const survivingIndices = new Set<number>();
+        for (const p of pruned) {
+          // Find the original index: match by the object if identity held, else by position
+          const idx = internalMessages.indexOf(p);
+          if (idx >= 0) {
+            survivingIndices.add(idx);
+          }
+        }
+        // If identity matching missed some (cloned messages), fall back to count-based mapping:
+        // guardContext preserves order and only drops from the front, so pruned[i] corresponds
+        // to messages[offset + i] where offset = messages.length - pruned.length.
+        if (survivingIndices.size < pruned.length) {
+          survivingIndices.clear();
+          const offset = messages.length - pruned.length;
+          for (let i = 0; i < pruned.length; i++) {
+            survivingIndices.add(offset + i);
+          }
+        }
+        const result = messages.filter((_, i) => survivingIndices.has(i));
 
         log.info(
           {
