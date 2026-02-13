@@ -132,14 +132,9 @@ export function createTelegramPlugin(config: TelegramConfig): ChannelPlugin {
 
         const chatType = ctx.chat.type === "private" ? "direct" : "group";
 
-        // Check allowlist (direct messages only)
-        if (chatType === "direct" && config.allowList && config.allowList.length > 0) {
-          const userId = ctx.from?.id.toString();
-          if (!userId || !config.allowList.includes(userId)) {
-            log.warn(`User ${userId} not in allowlist`);
-            return;
-          }
-        }
+        // NOTE: allowlist gating is handled by the gateway (passesUserAllowlist +
+        // UnboundNotifier).  Do NOT block here — the gateway needs to see the
+        // message so it can send the onboard prompt to unbound users.
 
         const rawText = ctx.message.text;
 

@@ -77,7 +77,7 @@ describe("telegram plugin", () => {
     expect(msgCtx.channel).toBe("telegram");
   });
 
-  it("enforces allow list for direct messages", async () => {
+  it("forwards non-allowlisted DMs to gateway (gateway handles unbound gating)", async () => {
     const plugin = createTelegramPlugin({
       token: "test-token",
       allowList: ["999"],
@@ -93,7 +93,8 @@ describe("telegram plugin", () => {
 
     await bot.handlers["message:text"](ctx);
 
-    expect(handler).not.toHaveBeenCalled();
+    // Plugin no longer blocks — gateway is responsible for allowlist + onboard prompt
+    expect(handler).toHaveBeenCalled();
   });
 
   it("dispatches group messages with group metadata", async () => {

@@ -83,7 +83,7 @@ describe("shouldHandleMessage", () => {
     expect(shouldHandleMessage(ctx, config)).toBe(true);
   });
 
-  it("does not apply telegram.allowList to group messages", () => {
+  it("applies telegram.allowList to group messages", () => {
     const config = makeConfig({
       telegram: { token: "x", allowList: ["u1"] },
     });
@@ -96,7 +96,8 @@ describe("shouldHandleMessage", () => {
       mentioned: true,
     };
 
-    expect(shouldHandleMessage(ctx, config)).toBe(true);
+    // Unbound users in groups should also be blocked
+    expect(shouldHandleMessage(ctx, config)).toBe(false);
   });
 
   it("blocks group message when not mentioned and not in channelAllowList", () => {

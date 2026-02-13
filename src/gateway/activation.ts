@@ -14,9 +14,7 @@ export function passesUserAllowlist(ctx: MsgContext, config: Config): boolean {
     ctx.channel === "discord"
       ? config.discord?.memberAllowList
       : ctx.channel === "telegram"
-        ? ctx.chatType === "direct"
-          ? config.telegram?.allowList
-          : undefined
+        ? config.telegram?.allowList
         : undefined;
   return !allowList || allowList.length === 0 || allowList.includes(ctx.from);
 }
