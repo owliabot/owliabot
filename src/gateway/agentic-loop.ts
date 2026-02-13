@@ -18,6 +18,11 @@ import {
   type LLMProvider,
 } from "../agent/runner.js";
 import type { Message } from "../agent/session.js";
+import {
+  guardContext,
+  estimateContextTokens,
+  calculateMaxToolResultChars,
+} from "../agent/context-guard.js";
 import type { ToolRegistry } from "../agent/tools/registry.js";
 import type { WriteGateChannel } from "../security/write-gate.js";
 import type { Config } from "../config/schema.js";
@@ -81,8 +86,10 @@ export interface AgenticLoopConfig {
   getSteeringMessages?: () => Promise<AgentMessage[]>;
   /** Callback to get follow-up messages (processed after agent finishes) */
   getFollowUpMessages?: () => Promise<AgentMessage[]>;
-  /** Maximum tool result text chars kept in context (default: 8192) */
+  /** Maximum tool result text chars kept in context (default: dynamic based on context window) */
   toolResultMaxChars?: number;
+  /** Context window size in tokens (default: 200000) */
+  contextWindow?: number;
 }
 
 /**
@@ -189,8 +196,9 @@ export async function runAgenticLoop(
 ): Promise<AgenticLoopResult> {
   const maxIterations = config.maxIterations ?? 50;
   const timeoutMs = config.timeoutMs ?? 600_000; // 10 minutes default
+  const contextWindow = config.contextWindow ?? 200_000;
   const toolResultMaxChars =
-    config.toolResultMaxChars ?? DEFAULT_TOOL_RESULT_MAX_CHARS;
+    config.toolResultMaxChars ?? calculateMaxToolResultChars(contextWindow);
 
   // Check if using CLI providers - fallback to old path
   const primaryProvider = config.providers[0];
@@ -290,21 +298,36 @@ export async function runAgenticLoop(
         // Fallback: try the requested provider name directly
         return await resolveApiKey(provider, modelConfig.apiKey);
       },
-      // Inject max iterations check via transformContext (uses local turnCount)
+      // Inject max iterations check and context guard via transformContext
       transformContext: async (messages: AgentMessage[]) => {
         if (turnCount >= maxIterations) {
           maxIterationsReached = true;
           throw new Error(`Max iterations (${maxIterations}) reached`);
         }
+
+        // Guard context window: prune old messages if context is too large
+        const { messages: pruned, dropped } = guardContext(
+          messages as Message[],
+          { contextWindow, reserveTokens: 8192 },
+        );
+        if (dropped > 0) {
+          log.warn(
+            { dropped, before: messages.length, after: pruned.length },
+            "Context guard pruned old messages",
+          );
+        }
+
+        const result = pruned as AgentMessage[];
+
         log.info(
           {
-            messageCount: messages.length,
-            toolCallCount: estimateToolCallCount(messages),
-            estimatedChars: estimateChars(messages),
+            messageCount: result.length,
+            toolCallCount: estimateToolCallCount(result),
+            estimatedChars: estimateChars(result),
           },
           "LLM context stats"
         );
-        return messages;
+        return result;
       },
       getSteeringMessages: config.getSteeringMessages,
       getFollowUpMessages: config.getFollowUpMessages,
