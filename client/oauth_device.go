@@ -2,15 +2,23 @@ package main
 
 import (
 	"bufio"
+	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 )
+
+const openAICodexDeviceCodeURL = "https://auth.openai.com/api/accounts/deviceauth/usercode"
+const openAICodexVerificationURL = "https://auth.openai.com/codex/device"
+const openAICodexClientID = "app_EMoamEEZ73f0CkXaXp7hrann"
 
 func handleOpenAICodexOAuthNow(w *wizardSession, configDir string) error {
 	if w == nil {
@@ -126,6 +134,46 @@ func openAICodexActionValue(value, fallback string) string {
 	return value
 }
 
+func requestOpenAICodexDeviceCode() (string, string, error) {
+	payload, err := json.Marshal(map[string]string{
+		"client_id": openAICodexClientID,
+	})
+	if err != nil {
+		return "", "", err
+	}
+	req, err := http.NewRequest("POST", openAICodexDeviceCodeURL, bytes.NewReader(payload))
+	if err != nil {
+		return "", "", err
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", "", err
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", "", err
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return "", "", fmt.Errorf("device code request failed: %d %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+
+	var decoded map[string]any
+	if err := json.Unmarshal(body, &decoded); err != nil {
+		return "", "", err
+	}
+	code, _ := decoded["user_code"].(string)
+	code = strings.TrimSpace(code)
+	if code == "" {
+		return "", "", errors.New("device code missing from response")
+	}
+	return openAICodexVerificationURL, code, nil
+}
+
 func runOpenAICodexDeviceLogin(configDir string) (openAICodexDeviceLoginResult, error) {
 	return runOpenAICodexDeviceLoginWithUpdates(configDir, nil)
 }
@@ -139,6 +187,29 @@ func runOpenAICodexDeviceLoginWithUpdates(
 	configDir = strings.TrimSpace(configDir)
 	if configDir == "" {
 		return result, errors.New("config-dir cannot be empty for oauth setup")
+	}
+
+	publishUpdate := func(status string) {
+		status = strings.TrimSpace(status)
+		if status != "" {
+			result.StatusText = status
+		}
+		if onUpdate != nil {
+			onUpdate(result)
+		}
+	}
+
+	publishUpdate("Starting device code login...")
+
+	if os.Getenv("OWLIABOT_OAUTH_DEVICE_CODE_ONLY") == "1" {
+		verificationURL, deviceCode, err := requestOpenAICodexDeviceCode()
+		if err != nil {
+			return result, err
+		}
+		result.VerificationURL = verificationURL
+		result.DeviceCode = deviceCode
+		publishUpdate("Device code ready.")
+		return result, nil
 	}
 
 	setupCmd, setupArgs, setupDir, setupErr := resolveOpenAICodexSetupCommand(root)
@@ -177,18 +248,6 @@ func runOpenAICodexDeviceLoginWithUpdates(
 		wg.Wait()
 		close(updates)
 	}()
-
-	publishUpdate := func(status string) {
-		status = strings.TrimSpace(status)
-		if status != "" {
-			result.StatusText = status
-		}
-		if onUpdate != nil {
-			onUpdate(result)
-		}
-	}
-
-	publishUpdate("Starting device code login...")
 
 	for line := range updates {
 		for _, status := range applyOpenAICodexOutputLine(&result, line) {
