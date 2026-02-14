@@ -20,6 +20,7 @@
     "build": "tsc",
     "dev": "tsx watch src/entry.ts",
     "start": "node dist/entry.js",
+    "onboard:preview": "node dist/entry.js onboard --channel preview",
     "lint": "eslint src/",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",

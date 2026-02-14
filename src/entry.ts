@@ -5,9 +5,8 @@
 
 import { program } from "commander";
 import { join, dirname } from "node:path";
-import { existsSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import updateNotifier from "update-notifier";
 import { loadConfig } from "./config/loader.js";
 import { ensureWorkspaceInitialized } from "./workspace/init.js";
 import { loadWorkspace } from "./workspace/loader.js";
@@ -20,25 +19,11 @@ import {
   getAllOAuthStatus,
   type SupportedOAuthProvider,
 } from "./auth/oauth.js";
-import { runOnboarding } from "./onboarding/onboard.js";
-import { DEV_APP_CONFIG_PATH } from "./onboarding/storage.js";
+import { runGoOnboarding } from "./onboarding/go-runner.js";
 import type { Config } from "./config/schema.js";
-import { defaultConfigPath, ensureOwliabotHomeEnv, resolvePathLike } from "./utils/paths.js";
-import { createDefaultDoctorIO, runDoctorCli } from "./doctor/cli.js";
-import { listConfiguredModelCatalog } from "./models/catalog.js";
-import { parseModelRef } from "./models/ref.js";
-import { updateAppConfigYamlPrimaryModel, updateYamlFileAtomic } from "./models/config-file.js";
-import { parse as parseYaml } from "yaml";
-import { readFile } from "node:fs/promises";
-import { diagnoseDoctor } from "./doctor/index.js";
+import { defaultConfigPath, ensureOwliabotHomeEnv } from "./utils/paths.js";
 
 const log = logger;
-
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const pkg = JSON.parse(readFileSync(join(__dirname, "..", "package.json"), "utf-8")) as {
-  name: string;
-  version: string;
-};
 
 const nodeMajor = Number.parseInt(process.versions.node.split(".")[0] ?? "0", 10);
 if (Number.isNaN(nodeMajor) || nodeMajor < 22) {
@@ -48,17 +33,10 @@ if (Number.isNaN(nodeMajor) || nodeMajor < 22) {
   process.exit(1);
 }
 
-const isDocker = process.env.OWLIABOT_DOCKER === "1" || existsSync("/.dockerenv");
-if (!isDocker) {
-  updateNotifier({ pkg }).notify({
-    message: "Update available {currentVersion} → {latestVersion}\nRun `npx owliabot@latest` to update",
-  });
-}
-
 program
   .name("owliabot")
   .description("Crypto-native AI agent for Telegram and Discord")
-  .version(pkg.version);
+  .version("0.1.0");
 
 /**
  * Check if any OAuth providers are configured but lack credentials.
@@ -121,10 +99,6 @@ program
       ensureOwliabotHomeEnv();
       log.info("Starting OwliaBot...");
 
-      // Make the effective config path available to runtime commands (e.g. /model default).
-      // This also keeps behavior consistent across "start -c <path>" and Docker env usage.
-      process.env.OWLIABOT_CONFIG_PATH = options.config;
-
       // Load config
       const config = await loadConfig(options.config);
 
@@ -163,7 +137,9 @@ program
       process.on("SIGTERM", shutdown);
 
       // ASCII art banner
-      const version = pkg.version;
+      const __dirname = dirname(fileURLToPath(import.meta.url));
+      const pkg = JSON.parse(readFileSync(join(__dirname, "..", "package.json"), "utf-8"));
+      const version = pkg.version as string;
       const banner = [
         "",
         "   ___           _ _       ____        _   ",
@@ -190,52 +166,21 @@ program
   });
 
 program
-  .command("doctor")
-  .description("Diagnose startup failures (config/tokens) and guide fixes")
-  .option(
-    "-c, --config <path>",
-    "Config file path (default: $OWLIABOT_HOME/app.yaml)",
-    process.env.OWLIABOT_CONFIG_PATH ?? defaultConfigPath()
-  )
-  .option("--no-interactive", "Disable interactive prompts (exit non-zero on errors)")
-  .option("--json", "Print diagnosis report as JSON and exit (non-interactive)")
-  .action(async (options) => {
-    try {
-      ensureOwliabotHomeEnv();
-      if (options.json) {
-        const report = await diagnoseDoctor({ configPath: options.config });
-        // Print raw JSON for CI/automation usage.
-        console.log(JSON.stringify(report, null, 2));
-        process.exit(report.ok ? 0 : 1);
-      }
-      const interactive = Boolean(
-        options.interactive && process.stdin.isTTY && process.stdout.isTTY,
-      );
-      const { io, close } = createDefaultDoctorIO({ interactive });
-      try {
-        const code = await runDoctorCli({ configPath: options.config, io });
-        process.exit(code);
-      } finally {
-        close();
-      }
-    } catch (err) {
-      log.error("Doctor failed", err);
-      process.exit(1);
-    }
-  });
-
-program
   .command("onboard")
-  .description("Interactive onboarding: configure providers, channels, and generate config files")
-  .option("--path <path>", "App config output path (dev mode)", DEV_APP_CONFIG_PATH)
-  .option("--docker", "Docker-aware mode: generates docker-compose.yml and full secrets")
-  .option("--output-dir <path>", "Output directory for docker-compose.yml", ".")
+  .description("Launch the Go onboarding wizard")
+  .option("--docker", "Deprecated: Go onboarding is Docker-first by default")
+  .option("--path <path>", "Deprecated: use --config-dir instead")
+  .option("--config-dir <path>", "Config directory (default: ~/.owliabot)")
+  .option("--output-dir <path>", "Output directory for docker-compose.yml")
+  .option("--image <ref>", "OwliaBot Docker image reference")
+  .option("--channel <channel>", "Onboard binary channel: stable|preview")
   .action(async (options) => {
     try {
-      await runOnboarding({
-        docker: options.docker,
-        appConfigPath: options.path,
+      await runGoOnboarding({
+        configDir: options.configDir,
         outputDir: options.outputDir,
+        image: options.image,
+        channel: options.channel,
       });
     } catch (err) {
       log.error("Onboarding failed", err);
@@ -243,7 +188,7 @@ program
     }
   });
 
-// Token command group (stores tokens to secrets.yaml next to the app config, under $OWLIABOT_HOME by default)
+// Token command group (stores tokens to ~/.owlia_dev/secrets.yaml)
 const token = program.command("token").description("Manage channel tokens (stored on disk)");
 
 token
@@ -540,119 +485,6 @@ program
     }
   });
 
-// Models command group
-const models = program.command("models").description("List and configure available LLM models");
-
-models
-  .command("list [filter]")
-  .description("List available models for configured providers (optional substring filter)")
-  .option(
-    "-c, --config <path>",
-    "Config file path (default: $OWLIABOT_HOME/app.yaml)",
-    process.env.OWLIABOT_CONFIG_PATH ?? defaultConfigPath(),
-  )
-  .action(async (filter: string | undefined, options) => {
-    try {
-      const config = await loadConfig(options.config);
-      const entries = listConfiguredModelCatalog({ providers: config.providers, filter });
-      if (entries.length === 0) {
-        log.info("No models found.");
-        return;
-      }
-      for (const e of entries) {
-        const label = e.name && e.name !== e.model ? `  # ${e.name}` : "";
-        console.log(`${e.key}${label}`);
-      }
-    } catch (err) {
-      log.error("Failed to list models", err);
-      process.exit(1);
-    }
-  });
-
-models
-  .command("get")
-  .description("Show current default primary model from app.yaml")
-  .option(
-    "-c, --config <path>",
-    "Config file path (default: $OWLIABOT_HOME/app.yaml)",
-    process.env.OWLIABOT_CONFIG_PATH ?? defaultConfigPath(),
-  )
-  .action(async (options) => {
-    try {
-      const config = await loadConfig(options.config);
-      const sorted = [...config.providers].sort((a, b) => a.priority - b.priority);
-      const primary = sorted[0];
-      if (!primary) {
-        throw new Error("No providers configured");
-      }
-      console.log(`${primary.id}/${primary.model}`);
-    } catch (err) {
-      log.error("Failed to get default model", err);
-      process.exit(1);
-    }
-  });
-
-models
-  .command("set <modelRefOrId>")
-  .description("Set default primary model (writes app.yaml providers priorities and model)")
-  .option(
-    "-c, --config <path>",
-    "Config file path (default: $OWLIABOT_HOME/app.yaml)",
-    process.env.OWLIABOT_CONFIG_PATH ?? defaultConfigPath(),
-  )
-  .action(async (modelRefOrId: string, options) => {
-    try {
-      const configPath = resolvePathLike(options.config);
-
-      const token = String(modelRefOrId ?? "").trim();
-      if (!token) {
-        throw new Error("Model ref is required");
-      }
-
-      await updateYamlFileAtomic(configPath, (rawYaml) => {
-        let override = parseModelRef(token);
-        if (!override) {
-          // Treat as "model id for current default provider"
-          const doc = parseYaml(rawYaml) as any;
-          const providers = Array.isArray(doc?.providers) ? doc.providers : null;
-          if (!providers || providers.length === 0) {
-            throw new Error("No providers configured in app.yaml");
-          }
-          const sorted = [...providers].sort((a, b) => Number(a?.priority ?? 0) - Number(b?.priority ?? 0));
-          const primaryId = String(sorted[0]?.id ?? "").trim();
-          if (!primaryId) {
-            throw new Error("Invalid providers[]: missing id on primary provider");
-          }
-          override = { provider: primaryId, model: token };
-        }
-
-        return updateAppConfigYamlPrimaryModel(rawYaml, override);
-      });
-
-      // Read back the updated app.yaml to report the current primary model.
-      // (TypeScript does not track assignments inside update callbacks reliably.)
-      const updatedYaml = await readFile(configPath, "utf-8");
-      const updatedDoc = parseYaml(updatedYaml) as any;
-      const updatedProviders = Array.isArray(updatedDoc?.providers) ? updatedDoc.providers : null;
-      if (!updatedProviders || updatedProviders.length === 0) {
-        throw new Error("Default model updated but providers[] is missing in app.yaml");
-      }
-      const sorted = [...updatedProviders].sort(
-        (a, b) => Number(a?.priority ?? 0) - Number(b?.priority ?? 0)
-      );
-      const primaryId = String(sorted[0]?.id ?? "").trim();
-      const primaryModel = String(sorted[0]?.model ?? "").trim();
-      if (!primaryId || !primaryModel) {
-        throw new Error("Default model updated but primary provider is invalid in app.yaml");
-      }
-
-      log.info(`Default model updated: ${primaryId}/${primaryModel}`);
-    } catch (err) {
-      log.error("Failed to set default model", err);
-      process.exit(1);
-    }
-  });
-
 // API Key command group
 const apiKey = program.command("api-key").description("Manage API keys for programmatic access");
 
@@ -820,7 +652,7 @@ wallet
   .description("Connect wallet to the running gateway (stored in memory only)")
   .option("-c, --config <path>", "Config file path (overrides OWLIABOT_CONFIG_PATH)")
   .option("--gateway-token <token>", "Gateway auth token (overrides config)")
-  .option("--base-url <url>", "Clawlet daemon base URL (auto-detected in Docker)")
+  .option("--base-url <url>", "Clawlet daemon base URL", "http://127.0.0.1:9100")
   .option("--token <token>", "Clawlet auth token (or set CLAWLET_TOKEN env)")
   .option("--chain-id <id>", "Default chain ID", "8453")
   .option("--scope <scope>", "Token scope: read, trade, or read,trade", "trade")
@@ -830,8 +662,7 @@ wallet
       const gatewayUrl = info.gatewayUrl;
       const gatewayToken = options.gatewayToken ?? info.gatewayToken;
 
-      const { resolveClawletBaseUrl } = await import("./wallet/clawlet-client.js");
-      let baseUrl: string = options.baseUrl ?? resolveClawletBaseUrl();
+      let baseUrl: string = options.baseUrl;
       let token: string | undefined = options.token ?? process.env.CLAWLET_TOKEN;
       let chainId = parseInt(options.chainId, 10);
 
@@ -857,32 +688,7 @@ wallet
           const baseUrlAns = await ask(`Clawlet base URL [${baseUrl}]: `);
           if (baseUrlAns) baseUrl = baseUrlAns;
 
-          const tokenAns = await new Promise<string>((resolve) => {
-            process.stdout.write("Paste Clawlet token: ");
-            const stdin = process.stdin;
-            const wasRaw = stdin.isRaw;
-            if (typeof stdin.setRawMode === "function") stdin.setRawMode(true);
-            let buf = "";
-            const onData = (ch: Buffer) => {
-              const c = ch.toString();
-              if (c === "\n" || c === "\r") {
-                stdin.removeListener("data", onData);
-                if (typeof stdin.setRawMode === "function") stdin.setRawMode(wasRaw ?? false);
-                process.stdout.write("\n");
-                resolve(buf.trim());
-              } else if (c === "\x7f" || c === "\b") {
-                buf = buf.slice(0, -1);
-              } else if (c === "\x03") {
-                // Ctrl+C
-                stdin.removeListener("data", onData);
-                if (typeof stdin.setRawMode === "function") stdin.setRawMode(wasRaw ?? false);
-                resolve("");
-              } else {
-                buf += c;
-              }
-            };
-            stdin.on("data", onData);
-          });
+          const tokenAns = await ask("Paste Clawlet token: ");
           if (!isValidClawletToken(tokenAns)) {
             throw new Error("Invalid token format (should start with 'clwt_')");
           }
@@ -1015,63 +821,6 @@ program
         process.exit(0);
       }
       log.error("Failed to read logs", err);
-      process.exit(1);
-    }
-  });
-
-// Security command group
-const security = program.command("security").description("Manage WriteGate and security configuration");
-
-security
-  .command("show")
-  .description("Display current security configuration")
-  .action(async () => {
-    try {
-      const { securityShow } = await import("./security/cli.js");
-      await securityShow();
-    } catch (err) {
-      log.error("Failed to show security config", err);
-      process.exit(1);
-    }
-  });
-
-security
-  .command("setup")
-  .description("Interactive security configuration")
-  .action(async () => {
-    try {
-      const { securitySetup } = await import("./security/cli.js");
-      await securitySetup();
-    } catch (err) {
-      log.error("Security setup failed", err);
-      process.exit(1);
-    }
-  });
-
-security
-  .command("add-user")
-  .description("Add a user to the writeToolAllowList")
-  .argument("<userId>", "Discord or Telegram user ID")
-  .action(async (userId: string) => {
-    try {
-      const { securityAddUser } = await import("./security/cli.js");
-      await securityAddUser(userId);
-    } catch (err) {
-      log.error("Failed to add user", err);
-      process.exit(1);
-    }
-  });
-
-security
-  .command("remove-user")
-  .description("Remove a user from the writeToolAllowList")
-  .argument("<userId>", "Discord or Telegram user ID")
-  .action(async (userId: string) => {
-    try {
-      const { securityRemoveUser } = await import("./security/cli.js");
-      await securityRemoveUser(userId);
-    } catch (err) {
-      log.error("Failed to remove user", err);
       process.exit(1);
     }
   });
