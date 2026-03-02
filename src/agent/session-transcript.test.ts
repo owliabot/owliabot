@@ -77,7 +77,70 @@ describe("SessionTranscriptStore", () => {
     ]);
   });
 
-  it("clear truncates transcript", async () => {
+  it("drops consecutive orphaned toolResult messages", async () => {
+    const dir = await makeTmpDir();
+    const store = createSessionTranscriptStore({ sessionsDir: dir });
+
+    const msgs: Message[] = [
+      {
+        role: "toolResult",
+        toolCallId: "call-1",
+        toolName: "echo",
+        content: [{ type: "text", text: "r1" }],
+        isError: false,
+        timestamp: 1,
+      } as any,
+      {
+        role: "toolResult",
+        toolCallId: "call-2",
+        toolName: "fetch",
+        content: [{ type: "text", text: "r2" }],
+        isError: false,
+        timestamp: 2,
+      } as any,
+      { role: "user", content: "u1", timestamp: 3 },
+      { role: "assistant", content: "a1", timestamp: 4 },
+    ];
+
+    for (const m of msgs) await store.append("s1", m);
+
+    const history = await store.getHistory("s1", 1);
+    expect(history).toEqual([
+      { role: "user", content: "u1", timestamp: 3 },
+      { role: "assistant", content: "a1", timestamp: 4 },
+    ]);
+  });
+
+  it("returns empty array when all messages are orphaned toolResults", async () => {
+    const dir = await makeTmpDir();
+    const store = createSessionTranscriptStore({ sessionsDir: dir });
+
+    const msgs: Message[] = [
+      {
+        role: "toolResult",
+        toolCallId: "call-1",
+        toolName: "echo",
+        content: [{ type: "text", text: "r1" }],
+        isError: false,
+        timestamp: 1,
+      } as any,
+      {
+        role: "toolResult",
+        toolCallId: "call-2",
+        toolName: "echo",
+        content: [{ type: "text", text: "r2" }],
+        isError: false,
+        timestamp: 2,
+      } as any,
+    ];
+
+    for (const m of msgs) await store.append("s1", m);
+
+    const history = await store.getHistory("s1", 1);
+    expect(history).toEqual([]);
+  });
+
+    it("clear truncates transcript", async () => {
     const dir = await makeTmpDir();
     const store = createSessionTranscriptStore({ sessionsDir: dir });
 

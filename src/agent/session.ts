@@ -28,6 +28,45 @@ export interface Message {
   toolResults?: ToolResult[];
 }
 
+/** Standalone tool result message produced by pi-agent-core / agentic-loop */
+export interface ToolResultMessage {
+  role: "toolResult";
+  toolCallId: string;
+  toolName: string;
+  content: Array<{ type: string; text: string }>;
+  isError: boolean;
+  timestamp: number;
+}
+
+/** Any message that can appear in a session transcript (persisted JSONL) */
+export type AnyMessage = Message | ToolResultMessage;
+
+/**
+ * Drop orphaned tool result messages from the start of a history array.
+ *
+ * After turn-based truncation, the history may start with:
+ *   - A user message containing a legacy toolResults[] array, or
+ *   - A standalone role="toolResult" message (pi-agent-core format)
+ * Both indicate the matching assistant+toolCalls message was truncated.
+ * LLM APIs reject tool results without a preceding tool call.
+ */
+export function dropOrphanedToolResults(
+  messages: AnyMessage[],
+  logger: { warn: (msg: string) => void }
+): AnyMessage[] {
+  let result = messages;
+  while (result.length > 0) {
+    const first = result[0];
+    const isToolResult =
+      (first as ToolResultMessage).role === "toolResult" ||
+      ((first as Message).toolResults && (first as Message).toolResults!.length > 0);
+    if (!isToolResult) break;
+    logger.warn("Dropping orphaned tool result message (no matching tool call in history)");
+    result = result.slice(1);
+  }
+  return result;
+}
+
 export interface SessionManager {
   get(key: SessionKey): Promise<Session>;
   append(key: SessionKey, message: Message): Promise<void>;
@@ -87,20 +126,8 @@ export function createSessionManager(sessionsDir: string): SessionManager {
       const recentTurns = turns.slice(-maxTurns);
       let result = recentTurns.flat();
 
-      // Fix: Drop orphaned tool_result messages at the start.
-      // If history starts with a user message containing toolResults,
-      // the corresponding assistant message with toolCalls was truncated.
-      // Anthropic API requires tool_result to follow its tool_use immediately.
-      while (
-        result.length > 0 &&
-        (
-          (result[0].toolResults && result[0].toolResults.length > 0) ||
-          (result[0] as any).role === "toolResult"
-        )
-      ) {
-        log.warn("Dropping orphaned tool result message (no matching tool call in history)");
-        result = result.slice(1);
-      }
+      // Drop orphaned tool results whose matching assistant+toolCalls was truncated.
+      result = dropOrphanedToolResults(result as AnyMessage[], log) as Message[];
 
       return result;
     },

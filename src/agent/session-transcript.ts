@@ -10,7 +10,8 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { createLogger } from "../utils/logger.js";
-import type { Message } from "./session.js";
+import type { Message, AnyMessage } from "./session.js";
+import { dropOrphanedToolResults } from "./session.js";
 
 const log = createLogger("session-transcript");
 
@@ -73,20 +74,8 @@ export function createSessionTranscriptStore(
       const recentTurns = turns.slice(-maxTurns);
       let result = recentTurns.flat();
 
-      // Fix: Drop orphaned tool_result messages at the start.
-      // If history starts with a user message containing toolResults,
-      // the corresponding assistant message with toolCalls was truncated.
-      // Anthropic API requires tool_result to follow its tool_use immediately.
-      while (
-        result.length > 0 &&
-        (
-          (result[0].toolResults && result[0].toolResults.length > 0) ||
-          (result[0] as any).role === "toolResult"
-        )
-      ) {
-        log.warn("Dropping orphaned tool result message (no matching tool call in history)");
-        result = result.slice(1);
-      }
+      // Drop orphaned tool results whose matching assistant+toolCalls was truncated.
+      result = dropOrphanedToolResults(result as AnyMessage[], log) as Message[];
 
       return result;
     },
