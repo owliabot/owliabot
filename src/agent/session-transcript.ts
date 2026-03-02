@@ -73,14 +73,12 @@ export function createSessionTranscriptStore(
       const recentTurns = turns.slice(-maxTurns);
       let result = recentTurns.flat();
 
-      // Fix: Drop orphaned tool_result messages at the start.
-      // If history starts with a user message containing toolResults,
-      // the corresponding assistant message with toolCalls was truncated.
-      // Anthropic API requires tool_result to follow its tool_use immediately.
-      while (result.length > 0 && result[0].toolResults && result[0].toolResults.length > 0) {
-        log.warn(`Dropping orphaned tool_result message (no matching tool_use in history)`);
-        result = result.slice(1);
-      }
+      // Fix: Ensure every toolResult has a matching toolCall in history.
+      // After truncation, orphaned toolResults (whose assistant toolCall was
+      // cut) cause "No tool call found for function call output" errors from
+      // LLM providers (OpenAI/Codex). We collect all known call IDs from
+      // assistant toolCalls, then strip any toolResult whose callId is missing.
+      result = stripOrphanedToolMessages(result);
 
       return result;
     },
@@ -92,6 +90,87 @@ export function createSessionTranscriptStore(
       log.info(`Cleared transcript ${sessionId}`);
     },
   };
+}
+
+/**
+ * Remove orphaned tool messages from a message list.
+ *
+ * 1. Collect all toolCall IDs emitted by assistant messages.
+ * 2. For each user message that carries toolResults, keep only entries whose
+ *    toolCallId exists in the collected set. Drop the message entirely if no
+ *    results survive.
+ * 3. Remove assistant messages whose toolCalls ALL lack a matching toolResult
+ *    that follows them (dangling tail toolCalls confuse some providers).
+ */
+function stripOrphanedToolMessages(messages: Message[]): Message[] {
+  // Pass 1 — gather all call IDs from assistant toolCalls
+  const knownCallIds = new Set<string>();
+  for (const m of messages) {
+    if (m.role === "assistant" && m.toolCalls) {
+      for (const tc of m.toolCalls) {
+        if (tc.id) knownCallIds.add(tc.id);
+      }
+    }
+  }
+
+  // Pass 2 — filter toolResult messages whose callId has no matching toolCall
+  const cleaned: Message[] = [];
+  for (const m of messages) {
+    if (m.role === "user" && m.toolResults && m.toolResults.length > 0) {
+      const validResults = m.toolResults.filter(
+        (tr) => tr.toolCallId && knownCallIds.has(tr.toolCallId)
+      );
+      if (validResults.length === 0) {
+        log.warn(
+          `Dropping orphaned tool_result message (${m.toolResults.length} results, none matched a toolCall in history)`
+        );
+        continue; // drop entire message
+      }
+      if (validResults.length < m.toolResults.length) {
+        log.warn(
+          `Trimmed ${m.toolResults.length - validResults.length} orphaned tool_result entries`
+        );
+      }
+      cleaned.push({ ...m, toolResults: validResults });
+    } else {
+      cleaned.push(m);
+    }
+  }
+
+  // Pass 3 — gather all answered call IDs (toolResults present in cleaned)
+  const answeredCallIds = new Set<string>();
+  for (const m of cleaned) {
+    if (m.toolResults) {
+      for (const tr of m.toolResults) {
+        if (tr.toolCallId) answeredCallIds.add(tr.toolCallId);
+      }
+    }
+  }
+
+  // Pass 4 — drop assistant messages whose toolCalls are ALL unanswered
+  // (dangling at the tail after truncation). Keep if at least one is answered
+  // or if there are no toolCalls at all.
+  const final: Message[] = [];
+  for (const m of cleaned) {
+    if (m.role === "assistant" && m.toolCalls && m.toolCalls.length > 0) {
+      const hasAnyAnswer = m.toolCalls.some(
+        (tc) => tc.id && answeredCallIds.has(tc.id)
+      );
+      if (!hasAnyAnswer) {
+        log.warn(
+          `Dropping assistant message with ${m.toolCalls.length} unanswered toolCalls (no matching toolResults in history)`
+        );
+        // Keep the text content as a plain assistant message if it has any
+        if (m.content && m.content.trim()) {
+          final.push({ role: m.role, content: m.content, timestamp: m.timestamp });
+        }
+        continue;
+      }
+    }
+    final.push(m);
+  }
+
+  return final;
 }
 
 function safeFile(input: string): string {

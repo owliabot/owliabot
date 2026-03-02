@@ -44,6 +44,60 @@ describe("SessionTranscriptStore", () => {
     expect(last2).toEqual(msgs.slice(2));
   });
 
+  it("drops orphaned toolResult messages after truncation", async () => {
+    const dir = await makeTmpDir();
+    const store = createSessionTranscriptStore({ sessionsDir: dir });
+
+    // Simulate: turn1 = user + assistant(toolCalls), turn2 = user(toolResults) + assistant
+    const msgs: Message[] = [
+      { role: "user", content: "hello", timestamp: 1 },
+      { role: "assistant", content: "", timestamp: 2, toolCalls: [{ id: "call_A", name: "foo", arguments: "{}" }] },
+      { role: "user", content: "", timestamp: 3, toolResults: [{ toolCallId: "call_A", toolName: "foo", success: true, data: "ok" }] },
+      { role: "assistant", content: "done", timestamp: 4 },
+    ];
+    for (const m of msgs) await store.append("s1", m);
+
+    // maxTurns=1 keeps only turn2: [user(toolResults), assistant("done")]
+    // The orphaned toolResult should be dropped
+    const history = await store.getHistory("s1", 1);
+    expect(history).toEqual([{ role: "assistant", content: "done", timestamp: 4 }]);
+  });
+
+  it("drops assistant with unanswered toolCalls at tail", async () => {
+    const dir = await makeTmpDir();
+    const store = createSessionTranscriptStore({ sessionsDir: dir });
+
+    // assistant has toolCalls but the session was interrupted before toolResults
+    const msgs: Message[] = [
+      { role: "user", content: "do something", timestamp: 1 },
+      { role: "assistant", content: "thinking...", timestamp: 2, toolCalls: [{ id: "call_X", name: "bar", arguments: "{}" }] },
+    ];
+    for (const m of msgs) await store.append("s1", m);
+
+    const history = await store.getHistory("s1");
+    // assistant toolCalls have no matching toolResults → drop toolCalls, keep text
+    expect(history).toEqual([
+      { role: "user", content: "do something", timestamp: 1 },
+      { role: "assistant", content: "thinking...", timestamp: 2 },
+    ]);
+  });
+
+  it("keeps valid toolCall+toolResult pairs in the middle", async () => {
+    const dir = await makeTmpDir();
+    const store = createSessionTranscriptStore({ sessionsDir: dir });
+
+    const msgs: Message[] = [
+      { role: "user", content: "hi", timestamp: 1 },
+      { role: "assistant", content: "", timestamp: 2, toolCalls: [{ id: "call_B", name: "baz", arguments: "{}" }] },
+      { role: "user", content: "", timestamp: 3, toolResults: [{ toolCallId: "call_B", toolName: "baz", success: true, data: "result" }] },
+      { role: "assistant", content: "all done", timestamp: 4 },
+    ];
+    for (const m of msgs) await store.append("s1", m);
+
+    const history = await store.getHistory("s1");
+    expect(history).toEqual(msgs);
+  });
+
   it("clear truncates transcript", async () => {
     const dir = await makeTmpDir();
     const store = createSessionTranscriptStore({ sessionsDir: dir });
