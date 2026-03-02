@@ -18,6 +18,10 @@ import {
   type LLMProvider,
 } from "../agent/runner.js";
 import type { Message } from "../agent/session.js";
+import {
+  guardContext,
+  calculateMaxToolResultChars,
+} from "../agent/context-guard.js";
 import type { ToolRegistry } from "../agent/tools/registry.js";
 import type { WriteGateChannel } from "../security/write-gate.js";
 import type { Config } from "../config/schema.js";
@@ -32,6 +36,34 @@ import { type Message as PiAiMessage } from "@mariozechner/pi-ai";
 
 const log = createLogger("gateway:agentic-loop");
 const DEFAULT_TOOL_RESULT_MAX_CHARS = 8192;
+const DEFAULT_CHARS_PER_TOKEN = 4;
+
+/**
+ * Estimate tokens for pi-ai AgentMessage[] (content blocks, not plain strings).
+ * Unlike context-guard's estimateContextTokens which expects Message.content: string,
+ * this handles AssistantMessage.content: (TextContent | ThinkingContent | ToolCall)[]
+ * and ToolResultMessage.content: (TextContent | ImageContent)[].
+ */
+function estimateAgentMessageTokens(messages: AgentMessage[]): number {
+  let total = 0;
+  for (const m of messages) {
+    if (typeof m.content === "string") {
+      total += Math.ceil(m.content.length / DEFAULT_CHARS_PER_TOKEN);
+    } else if (Array.isArray(m.content)) {
+      for (const block of m.content) {
+        if ("text" in block && typeof block.text === "string") {
+          total += Math.ceil(block.text.length / DEFAULT_CHARS_PER_TOKEN);
+        } else if ("thinking" in block && typeof block.thinking === "string") {
+          total += Math.ceil(block.thinking.length / DEFAULT_CHARS_PER_TOKEN);
+        } else if ("arguments" in block) {
+          // ToolCall block
+          total += Math.ceil(JSON.stringify(block.arguments).length / DEFAULT_CHARS_PER_TOKEN);
+        }
+      }
+    }
+  }
+  return total;
+}
 
 /**
  * Context for running the agentic loop.
@@ -81,8 +113,10 @@ export interface AgenticLoopConfig {
   getSteeringMessages?: () => Promise<AgentMessage[]>;
   /** Callback to get follow-up messages (processed after agent finishes) */
   getFollowUpMessages?: () => Promise<AgentMessage[]>;
-  /** Maximum tool result text chars kept in context (default: 8192) */
+  /** Maximum tool result text chars kept in context (default: dynamic based on context window) */
   toolResultMaxChars?: number;
+  /** Context window size in tokens (default: 200000) */
+  contextWindow?: number;
 }
 
 /**
@@ -189,8 +223,24 @@ export async function runAgenticLoop(
 ): Promise<AgenticLoopResult> {
   const maxIterations = config.maxIterations ?? 50;
   const timeoutMs = config.timeoutMs ?? 600_000; // 10 minutes default
+
+  // Derive context window from the highest-priority provider's model if not explicitly set
+  const primaryModelContextWindow = (() => {
+    try {
+      // Sort by priority (ascending = highest priority first) to match runtime provider selection
+      const sorted = [...config.providers].sort((a, b) => (a.priority ?? 99) - (b.priority ?? 99));
+      const p = sorted[0];
+      if (p) {
+        const model = resolveModel({ provider: p.id, model: p.model ?? "", apiKey: "" });
+        return model.contextWindow || 200_000;
+      }
+    } catch { /* fallback below */ }
+    return 200_000;
+  })();
+  const contextWindow = config.contextWindow ?? primaryModelContextWindow;
+  const effectiveContextWindow = contextWindow;
   const toolResultMaxChars =
-    config.toolResultMaxChars ?? DEFAULT_TOOL_RESULT_MAX_CHARS;
+    config.toolResultMaxChars ?? calculateMaxToolResultChars(contextWindow);
 
   // Check if using CLI providers - fallback to old path
   const primaryProvider = config.providers[0];
@@ -290,21 +340,119 @@ export async function runAgenticLoop(
         // Fallback: try the requested provider name directly
         return await resolveApiKey(provider, modelConfig.apiKey);
       },
-      // Inject max iterations check via transformContext (uses local turnCount)
+      // Inject max iterations check and context guard via transformContext
       transformContext: async (messages: AgentMessage[]) => {
         if (turnCount >= maxIterations) {
           maxIterationsReached = true;
           throw new Error(`Max iterations (${maxIterations}) reached`);
         }
+
+        // Guard context window: convert AgentMessage[] to internal Message[] for guardContext,
+        // using proper content serialization and preserving tool-call/tool-result pairing.
+        const serializeContent = (m: AgentMessage): string => {
+          if (typeof m.content === "string") return m.content;
+          if (!Array.isArray(m.content)) return String(m.content);
+          return m.content.map((block: any) => {
+            if ("text" in block) return block.text;
+            if ("thinking" in block) return block.thinking;
+            if ("arguments" in block) return `[tool_call: ${block.name}] ${JSON.stringify(block.arguments)}`;
+            return JSON.stringify(block);
+          }).join("\n");
+        };
+
+        const internalMessages: Message[] = messages.map((m) => {
+          const base = {
+            content: serializeContent(m),
+            timestamp: (m as any).timestamp ?? Date.now(),
+          };
+
+          if (m.role === "assistant" && Array.isArray(m.content)) {
+            const toolCalls = m.content
+              .filter((b: any) => b.type === "toolCall")
+              .map((b: any) => ({ id: b.id, name: b.name, arguments: b.arguments }));
+            return {
+              ...base,
+              role: "assistant" as const,
+              ...(toolCalls.length > 0 ? { toolCalls } : {}),
+            };
+          }
+
+          if (m.role === "toolResult") {
+            // Preserve toolResult identity so guardContext groups it with its assistant message.
+            // Set content to empty string to avoid double-counting — the actual text
+            // is in toolResults[].data which guardContext uses for estimation + truncation.
+            const tr = m as any;
+            return {
+              ...base,
+              content: "",
+              role: "user" as const,
+              toolResults: [{
+                toolCallId: tr.toolCallId ?? "",
+                success: !tr.isError,
+                ...(tr.isError
+                  ? { error: base.content }
+                  : { data: base.content }),
+              }],
+            };
+          }
+
+          // Preserve toolResults on legacy user messages (role: "user" with toolResults array)
+          const legacyToolResults = (m as any).toolResults;
+          return {
+            ...base,
+            role: m.role as "user" | "assistant" | "system",
+            ...(Array.isArray(legacyToolResults) ? { toolResults: legacyToolResults } : {}),
+          };
+        });
+
+        const { messages: pruned, dropped } = guardContext(
+          internalMessages,
+          { contextWindow: effectiveContextWindow, reserveTokens: 8192 },
+        );
+        if (dropped > 0) {
+          log.warn(
+            { dropped, before: messages.length, after: pruned.length },
+            "Context guard pruned old messages",
+          );
+        }
+
+        // Map pruned messages back to AgentMessages.
+        // guardContext drops from the front and may clone+truncate tool result messages.
+        // We use offset-based mapping and apply any truncation from the guard.
+        const offset = messages.length - pruned.length;
+        const result: AgentMessage[] = [];
+        for (let i = 0; i < pruned.length; i++) {
+          const originalIdx = offset + i;
+          const original = messages[originalIdx];
+          const prunedMsg = pruned[i];
+          const internalMsg = internalMessages[originalIdx];
+
+          // If guardContext cloned/truncated this message, reflect truncation on the AgentMessage
+          if (prunedMsg !== internalMsg && original.role === "toolResult") {
+            // guardContext truncated the tool result — rebuild with truncated content
+            const truncatedText = prunedMsg.toolResults?.[0]?.data
+              ?? prunedMsg.toolResults?.[0]?.error
+              ?? prunedMsg.content
+              ?? "";
+            const tr = original as any;
+            result.push({
+              ...tr,
+              content: [{ type: "text", text: String(truncatedText) }],
+            });
+          } else {
+            result.push(original);
+          }
+        }
+
         log.info(
           {
-            messageCount: messages.length,
-            toolCallCount: estimateToolCallCount(messages),
-            estimatedChars: estimateChars(messages),
+            messageCount: result.length,
+            toolCallCount: estimateToolCallCount(result),
+            estimatedTokens: estimateAgentMessageTokens(result),
           },
           "LLM context stats"
         );
-        return messages;
+        return result;
       },
       getSteeringMessages: config.getSteeringMessages,
       getFollowUpMessages: config.getFollowUpMessages,
