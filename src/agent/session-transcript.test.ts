@@ -140,7 +140,7 @@ describe("SessionTranscriptStore", () => {
     expect(history).toEqual([]);
   });
 
-    it("clear truncates transcript", async () => {
+  it("clear truncates transcript", async () => {
     const dir = await makeTmpDir();
     const store = createSessionTranscriptStore({ sessionsDir: dir });
 
