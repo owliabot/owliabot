@@ -44,6 +44,102 @@ describe("SessionTranscriptStore", () => {
     expect(last2).toEqual(msgs.slice(2));
   });
 
+  it("getHistory drops orphaned toolResult messages after truncation", async () => {
+    const dir = await makeTmpDir();
+    const store = createSessionTranscriptStore({ sessionsDir: dir });
+
+    const msgs: Message[] = [
+      { role: "user", content: "u1", timestamp: 1 },
+      {
+        role: "assistant",
+        content: "calling tool",
+        timestamp: 2,
+        toolCalls: [{ id: "call-1", name: "echo", arguments: {} }],
+      } as any,
+      {
+        role: "toolResult",
+        toolCallId: "call-1",
+        toolName: "echo",
+        content: [{ type: "text", text: "ok" }],
+        isError: false,
+        timestamp: 3,
+      } as any,
+      { role: "user", content: "u2", timestamp: 4 },
+      { role: "assistant", content: "a2", timestamp: 5 },
+    ];
+
+    for (const m of msgs) await store.append("s1", m);
+
+    const last1 = await store.getHistory("s1", 1);
+    expect(last1).toEqual([
+      { role: "user", content: "u2", timestamp: 4 },
+      { role: "assistant", content: "a2", timestamp: 5 },
+    ]);
+  });
+
+  it("drops consecutive orphaned toolResult messages", async () => {
+    const dir = await makeTmpDir();
+    const store = createSessionTranscriptStore({ sessionsDir: dir });
+
+    const msgs: Message[] = [
+      {
+        role: "toolResult",
+        toolCallId: "call-1",
+        toolName: "echo",
+        content: [{ type: "text", text: "r1" }],
+        isError: false,
+        timestamp: 1,
+      } as any,
+      {
+        role: "toolResult",
+        toolCallId: "call-2",
+        toolName: "fetch",
+        content: [{ type: "text", text: "r2" }],
+        isError: false,
+        timestamp: 2,
+      } as any,
+      { role: "user", content: "u1", timestamp: 3 },
+      { role: "assistant", content: "a1", timestamp: 4 },
+    ];
+
+    for (const m of msgs) await store.append("s1", m);
+
+    const history = await store.getHistory("s1", 1);
+    expect(history).toEqual([
+      { role: "user", content: "u1", timestamp: 3 },
+      { role: "assistant", content: "a1", timestamp: 4 },
+    ]);
+  });
+
+  it("returns empty array when all messages are orphaned toolResults", async () => {
+    const dir = await makeTmpDir();
+    const store = createSessionTranscriptStore({ sessionsDir: dir });
+
+    const msgs: Message[] = [
+      {
+        role: "toolResult",
+        toolCallId: "call-1",
+        toolName: "echo",
+        content: [{ type: "text", text: "r1" }],
+        isError: false,
+        timestamp: 1,
+      } as any,
+      {
+        role: "toolResult",
+        toolCallId: "call-2",
+        toolName: "echo",
+        content: [{ type: "text", text: "r2" }],
+        isError: false,
+        timestamp: 2,
+      } as any,
+    ];
+
+    for (const m of msgs) await store.append("s1", m);
+
+    const history = await store.getHistory("s1", 1);
+    expect(history).toEqual([]);
+  });
+
   it("clear truncates transcript", async () => {
     const dir = await makeTmpDir();
     const store = createSessionTranscriptStore({ sessionsDir: dir });

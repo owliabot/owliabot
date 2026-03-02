@@ -87,6 +87,38 @@ describe("session", () => {
       expect(history[0].content).toBe("msg40");
     });
 
+    it("should drop orphaned toolResult messages after truncation", async () => {
+      const messages = [
+        { role: "user", content: "u1", timestamp: 1 },
+        {
+          role: "assistant",
+          content: "calling tool",
+          timestamp: 2,
+          toolCalls: [{ id: "call-1", name: "echo", arguments: {} }],
+        },
+        {
+          role: "toolResult",
+          toolCallId: "call-1",
+          toolName: "echo",
+          content: [{ type: "text", text: "ok" }],
+          isError: false,
+          timestamp: 3,
+        },
+        { role: "user", content: "u2", timestamp: 4 },
+        { role: "assistant", content: "a2", timestamp: 5 },
+      ];
+      vi.mocked(readFile).mockResolvedValue(
+        messages.map((m) => JSON.stringify(m)).join("\n") + "\n"
+      );
+
+      const history = await manager.getHistory("discord:123" as any, 1);
+
+      expect(history).toEqual([
+        { role: "user", content: "u2", timestamp: 4 },
+        { role: "assistant", content: "a2", timestamp: 5 },
+      ]);
+    });
+
     it("should handle incomplete turns", async () => {
       const messages = [
         { role: "user", content: "Hello", timestamp: 1000 },
